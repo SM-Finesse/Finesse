@@ -1,0 +1,11 @@
+# 목적: 폴더별 전문가 배정이 아니라 "작성자 본인이 아닌 제3자가 병합 전 확인했는가" 검문.
+# (담당자 본인은 자기 PR을 승인할 수 없으므로, 박덕현 또는 조성빈 중 한 명이 리뷰)
+# 누가 어느 폴더를 작업했는지는 브랜치·커밋 작성자 기록으로 추적.
+
+/frontend/    @HJ2002-star @SunG1ow
+/backend/     @HJ2002-star @SunG1ow
+/llm-server/  @HJ2002-star @SunG1ow
+/infra/       @HJ2002-star @SunG1ow
+
+# 문서 3.1절 목록에는 없지만 CI/템플릿/CODEOWNERS 자체 변경도 검문 대상으로 추가
+/.github/     @HJ2002-star @SunG1ow

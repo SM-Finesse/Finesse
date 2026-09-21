@@ -1,0 +1,86 @@
+# 뼈대 CI: 각 폴더에 빌드 파일이 생기면 자동으로 동작하고, 없으면 건너뜀.
+# 실제 빌드 도구(Gradle/Maven 등)·버전이 확정되면 infra 브랜치에서 수정.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, frontend, backend, data-eng, llm, infra]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 빌드 파일 확인
+        id: detect
+        run: |
+          if [ -f backend/build.gradle ] || [ -f backend/build.gradle.kts ]; then echo "tool=gradle" >> "$GITHUB_OUTPUT"
+          elif [ -f backend/pom.xml ]; then echo "tool=maven" >> "$GITHUB_OUTPUT"
+          else echo "tool=none" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-java@v4
+        if: steps.detect.outputs.tool != 'none'
+        with:
+          distribution: temurin
+          java-version: '17' # TODO: 확정된 Java 버전으로 변경
+      - name: Gradle build
+        if: steps.detect.outputs.tool == 'gradle'
+        working-directory: backend
+        run: chmod +x ./gradlew && ./gradlew build
+      - name: Maven build
+        if: steps.detect.outputs.tool == 'maven'
+        working-directory: backend
+        run: mvn -B verify
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: package.json 확인
+        id: detect
+        run: |
+          if [ -f frontend/package.json ]; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.found == 'true'
+        with:
+          node-version: 20
+      - name: Install & build
+        if: steps.detect.outputs.found == 'true'
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build --if-present
+          npm test --if-present
+
+  llm-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: requirements 확인
+        id: detect
+        run: |
+          if [ -f llm-server/requirements.txt ]; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        if: steps.detect.outputs.found == 'true'
+        with:
+          python-version: '3.11'
+      - name: Lint(문법 검사)
+        if: steps.detect.outputs.found == 'true'
+        working-directory: llm-server
+        run: |
+          pip install -r requirements.txt
+          python -m compileall -q .
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker-compose 문법 검사
+        run: |
+          for f in $(find infra -maxdepth 2 -name 'docker-compose*.y*ml' 2>/dev/null); do
+            echo "check $f"; docker compose -f "$f" config -q
+          done
