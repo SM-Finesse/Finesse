@@ -1,38 +1,70 @@
 # Finesse
 
-TETR.IO 유저 전적을 분석해 AI가 근거 기반 코멘트를 제공하는 웹 서비스
-(종합프로젝트 수업 과제)
+TETR.IO 매치 히스토리를 분석하고 AI 코멘터리를 생성하는 웹 서비스.
 
-## 현재 상태 (2026-09-09 기준)
+## 레포 구조 (모노레포)
 
-⚠️ 이 레포 구조(모노레포)는 QA+DevOps가 시험 구축한 초안입니다.
-**2026-09-10 팀 회의에서 최종 확정 예정**이며, 멀티레포로 변경될 수 있습니다.
+| 폴더 | 용도 |
+|---|---|
+| `/backend` | Spring Boot (API · 라우팅 · 인프라 호출부) |
+| `/backend/.../com/finesse/backend/calc/` | 계산 로직 패키지 (data-eng 담당, API/라우팅과 분리) |
+| `/frontend` | React + Vite + Tailwind |
+| `/llm-server` | LLM 파인튜닝 · 추론 관련 코드 |
+| `/infra` | Docker, docker-compose, k8s 매니페스트 |
+| `/docs` | 필요 시에만 사용 (문서·일정의 주 도구는 Notion) |
+| `/.github` | CODEOWNERS, PR/이슈 템플릿, CI 워크플로 |
 
-## 폴더 구조
+## 브랜치 (담당별 상시 브랜치)
 
+| 브랜치 | 담당 | 대상 영역 | 이동 명령 |
+|---|---|---|---|
+| `main` | 전체 | 직접 push 금지, PR로만 병합 | - |
+| `frontend` | 호준수 | `/frontend` | `git switch frontend` |
+| `backend` | 정한비 | `/backend` (calc 제외) | `git switch backend` |
+| `data-eng` | 위성훈 | `/backend/.../calc/` | `git switch data-eng` |
+| `llm` | 윤세연 | `/llm-server` | `git switch llm` |
+| `infra` | 박덕현 | `/infra`, `.github/workflows` | `git switch infra` |
+
+## 빠른 시작
+
+```bash
+git clone https://github.com/SM-Finesse/Finesse.git
+cd Finesse
+git config user.name "본인 이름"
+git config user.email "GitHub에 등록한 이메일"
+git switch <내 브랜치>      # 위 표의 이동 명령을 그대로 입력
 ```
-/backend      스프링 부트 (API, 통계 계산, LLM 호출 오케스트레이션)
-/frontend     React + Vite + Tailwind
-/llm-server   LLM 파인튜닝 · 추론 관련 코드
-/infra        Docker, docker-compose, k8s 매니페스트
-/docs         프로젝트 문서 (기획/요구사항/기술스택 등)
+
+## 하루 작업 흐름
+
+```bash
+git switch <내 브랜치>
+git pull origin main                 # main 최신 내용 받기
+# ... 작업 ...
+git status && git diff               # 올리기 전 확인
+git add <파일>
+git commit -m "feat(영역): 무엇을 했는지"
+git push origin <내 브랜치>
 ```
 
-## 브랜치 전략
+이후 GitHub에서 **Compare & pull request** → 템플릿 작성 → 박덕현 또는 조성빈의 승인 → **Merge**.
+병합 후 **브랜치를 삭제하지 마세요** (상시 브랜치).
 
-- `main` — 항상 배포 가능한 상태 유지
-- 작업 브랜치는 `feature/<이니셜>-설명` 형식으로 필요할 때 생성, 머지 후 삭제
-  (예: `feature/hj-mock-llm-schema-update`)
-- 사전에 여러 브랜치를 만들어두지 않음
+## 꼭 지킬 규칙
 
-## 개발 환경
+1. 작업은 **내 브랜치**에서. 내 브랜치 안에서는 push 자유.
+2. `main`에는 **직접 push 불가**. 항상 PR을 통해 병합.
+3. 며칠 단위로 자주 PR을 올리고, 다른 브랜치가 병합되면 `git pull origin main`으로 내 브랜치를 최신화.
+4. 브랜치 전환은 `git checkout`이 아니라 **`git switch`**. (`frontend`/`backend`/`infra`는 폴더 이름과 같아 checkout이 오류를 냄)
+5. **비밀값(API 키, 비밀번호, 서버 주소)과 실제 닉네임은 절대 커밋 금지.** 이 레포는 Public입니다.
 
-로컬 공통 개발환경(Docker Compose)은 `/infra/docker-compose.yml` 참고.
-Mock LLM/TETR.IO API 서버 관련 내용은 별도 저장소
-(`HJ2002-star/DevOps-prototype`)에서 우선 검증 중이며, 팀 채택 시 이곳으로 통합 예정.
+## 자주 나는 오류
 
-## 참고
+| 메시지 | 해결 |
+|---|---|
+| `'infra' could be both a local file and a tracking branch` | `git checkout` 대신 `git switch <브랜치>` |
+| `GH006` / `GH013` — Changes must be made through a pull request | main에 직접 push한 것. 내 브랜치에서 PR로 |
+| `403` / `Permission denied` | 초대 수락 여부, 로그인 계정 확인 |
+| `LF will be replaced by CRLF` 경고 | 무시해도 됨 |
 
-- 이 구조는 학사 프로젝트 규모(팀 5인)에 맞춰 관리 비용을 낮추기 위해
-  모노레포로 시작하며, 실제 배포·운영 부담이 커지면 컴포넌트별 레포 분리를
-  재검토합니다 (기술스택 결정 문서의 "마이크로서비스 아키텍처 제외" 논리와 동일).
+자세한 설명과 그 외 오류 해결법은 **Finesse GitHub 사용 가이드**(팀 공유 문서)를 참고하세요. 협업 규칙 전문은 [CONTRIBUTING.md](CONTRIBUTING.md).
