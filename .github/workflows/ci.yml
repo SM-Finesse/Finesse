@@ -1,86 +1,245 @@
-# 뼈대 CI: 각 폴더에 빌드 파일이 생기면 자동으로 동작하고, 없으면 건너뜀.
-# 실제 빌드 도구(Gradle/Maven 등)·버전이 확정되면 infra 브랜치에서 수정.
+# =====================================================================
+# Finesse 모노레포 CI (기존 뼈대 + 개선안 통합, 팀 확정 전)
+# 위치: .github/workflows/ci.yml
+#
+# 하는 일: PR/main push 시 "바뀐 폴더만" 빌드·테스트
+#   backend    : Gradle 또는 Maven build/test (Spring Boot)
+#   frontend   : npm ci → lint → build (React + Vite)
+#   llm-server : ruff lint + pytest (GPU 없이)
+#   infra      : docker compose 문법 검증 + Dockerfile lint + Mock 서버 기동 확인
+#
+# 보안: GitHub 호스팅 러너(ubuntu-latest)만 사용. self-hosted runner 없음
+#       → Public 레포에서 fork PR이 와도 학교 PC에 영향 없음.
+#
+# 폴더가 아직 비어 있으면(.gitkeep만 있으면) 해당 job은 "건너뜀"으로 통과.
+# =====================================================================
 name: CI
 
 on:
   pull_request:
     branches: [main]
   push:
+    # 담당별 상시 브랜치 — 각자 브랜치에 push만 해도 자동 검사
     branches: [main, frontend, backend, data-eng, llm, infra]
+  workflow_dispatch: {}          # Actions 탭에서 수동 실행
 
 permissions:
   contents: read
 
+# 같은 브랜치에 새 커밋이 오면 이전 실행 취소
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  backend:
+  # ------------------------------------------------------------------
+  # 1) 어떤 폴더가 바뀌었는지 판별 (paths 필터)
+  # ------------------------------------------------------------------
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      llm: ${{ steps.filter.outputs.llm }}
+      infra: ${{ steps.filter.outputs.infra }}
     steps:
       - uses: actions/checkout@v4
-      - name: 빌드 파일 확인
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            llm:
+              - 'llm-server/**'
+            infra:
+              - 'infra/**'
+              - '**/Dockerfile'
+              - '.github/workflows/**'
+
+  # ------------------------------------------------------------------
+  # 2) backend — Spring Boot (Gradle wrapper 기준)
+  # ------------------------------------------------------------------
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 빌드 도구 확인
         id: detect
         run: |
-          if [ -f backend/build.gradle ] || [ -f backend/build.gradle.kts ]; then echo "tool=gradle" >> "$GITHUB_OUTPUT"
-          elif [ -f backend/pom.xml ]; then echo "tool=maven" >> "$GITHUB_OUTPUT"
-          else echo "tool=none" >> "$GITHUB_OUTPUT"; fi
+          if [ -f build.gradle ] || [ -f build.gradle.kts ]; then echo "tool=gradle" >> "$GITHUB_OUTPUT"
+          elif [ -f pom.xml ]; then echo "tool=maven" >> "$GITHUB_OUTPUT"
+          else echo "tool=none" >> "$GITHUB_OUTPUT"; echo "::notice::backend 빌드 파일 없음 — 건너뜀"; fi
+
       - uses: actions/setup-java@v4
         if: steps.detect.outputs.tool != 'none'
         with:
           distribution: temurin
-          java-version: '17' # TODO: 확정된 Java 버전으로 변경
+          java-version: '17'        # TODO: 백엔드(정한비)와 Java 버전 확인
+          cache: ${{ steps.detect.outputs.tool }}
+
       - name: Gradle build
         if: steps.detect.outputs.tool == 'gradle'
-        working-directory: backend
-        run: chmod +x ./gradlew && ./gradlew build
+        run: chmod +x ./gradlew && ./gradlew build --no-daemon
+
       - name: Maven build
         if: steps.detect.outputs.tool == 'maven'
-        working-directory: backend
         run: mvn -B verify
 
+  # ------------------------------------------------------------------
+  # 3) frontend — React + Vite
+  # ------------------------------------------------------------------
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: package.json 확인
-        id: detect
-        run: |
-          if [ -f frontend/package.json ]; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/setup-node@v4
-        if: steps.detect.outputs.found == 'true'
-        with:
-          node-version: 20
-      - name: Install & build
-        if: steps.detect.outputs.found == 'true'
+    defaults:
+      run:
         working-directory: frontend
-        run: |
-          npm ci
-          npm run build --if-present
-          npm test --if-present
-
-  llm-server:
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: requirements 확인
-        id: detect
+
+      - name: 프로젝트 존재 확인
+        id: exists
         run: |
-          if [ -f llm-server/requirements.txt ]; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "found=false" >> "$GITHUB_OUTPUT"; fi
-      - uses: actions/setup-python@v5
-        if: steps.detect.outputs.found == 'true'
+          if [ -f package-lock.json ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "ok=false" >> "$GITHUB_OUTPUT"; echo "::notice::frontend/package-lock.json 없음 — 건너뜀"; fi
+
+      - uses: actions/setup-node@v4
+        if: steps.exists.outputs.ok == 'true'
         with:
-          python-version: '3.11'
-      - name: Lint(문법 검사)
-        if: steps.detect.outputs.found == 'true'
-        working-directory: llm-server
-        run: |
-          pip install -r requirements.txt
-          python -m compileall -q .
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
+      - name: Install
+        if: steps.exists.outputs.ok == 'true'
+        run: npm ci
+
+      - name: Lint (스크립트가 있을 때만)
+        if: steps.exists.outputs.ok == 'true'
+        run: npm run lint --if-present
+
+      - name: Build
+        if: steps.exists.outputs.ok == 'true'
+        run: npm run build
+
+      - name: Test (스크립트가 있을 때만)
+        if: steps.exists.outputs.ok == 'true'
+        run: npm test --if-present
+
+  # ------------------------------------------------------------------
+  # 4) llm-server — Python (코드 검증만, 배포 X / GPU X)
+  # ------------------------------------------------------------------
+  llm-server:
+    needs: changes
+    if: needs.changes.outputs.llm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: llm-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 프로젝트 존재 확인
+        id: exists
+        run: |
+          if ls *.py >/dev/null 2>&1 || [ -f requirements.txt ] || [ -f pyproject.toml ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"; echo "::notice::llm-server 코드 없음 — 건너뜀"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.exists.outputs.ok == 'true'
+        with:
+          python-version: '3.11'    # T-03 측정 환경과 동일
+
+      - name: Lint (ruff)
+        if: steps.exists.outputs.ok == 'true'
+        run: |
+          pip install ruff
+          ruff check .
+
+      # 주의: requirements.txt에 llama-cpp-python이 있으면 CPU 소스 빌드로 수 분 걸림.
+      #       테스트는 모델 없이 mock으로 돌아가도록 작성하는 것을 전제로 함.
+      - name: Test (tests 폴더가 있을 때만)
+        if: steps.exists.outputs.ok == 'true' && hashFiles('llm-server/tests/**') != ''
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+          pytest -q
+
+  # ------------------------------------------------------------------
+  # 5) infra — compose 검증 + Dockerfile lint + Mock 기동 확인
+  # ------------------------------------------------------------------
   infra:
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: docker-compose 문법 검사
+
+      - name: compose 파일 찾기
+        id: compose
         run: |
-          for f in $(find infra -maxdepth 2 -name 'docker-compose*.y*ml' 2>/dev/null); do
-            echo "check $f"; docker compose -f "$f" config -q
+          f=$(ls infra/docker-compose.yml infra/docker-compose.yaml docker-compose.yml 2>/dev/null | head -n1 || true)
+          echo "file=$f" >> "$GITHUB_OUTPUT"
+          [ -z "$f" ] && echo "::notice::docker-compose 파일 없음 — compose 검증 건너뜀" || true
+
+      - name: compose 문법 검증
+        if: steps.compose.outputs.file != ''
+        run: docker compose -f "${{ steps.compose.outputs.file }}" config -q
+
+      - name: Dockerfile lint (hadolint)
+        run: |
+          files=$(git ls-files '**/Dockerfile' 'Dockerfile')
+          if [ -z "$files" ]; then echo "::notice::Dockerfile 없음 — 건너뜀"; exit 0; fi
+          for f in $files; do
+            echo "== $f"
+            docker run --rm -i hadolint/hadolint < "$f"
           done
+
+      # Mock 서버(llm-mock-1/2: 9001/9002, tetrio-mock: 9003)가 뜨는지 확인
+      # TODO: mock 병합 후 실제 health 경로가 정해지면 curl 경로 교체
+      - name: Mock 서버 기동 확인
+        if: steps.compose.outputs.file != '' && hashFiles('infra/mocks/**') != ''
+        run: |
+          docker compose -f "${{ steps.compose.outputs.file }}" up -d --build
+          for port in 9001 9002 9003; do
+            ok=false
+            for i in $(seq 1 30); do
+              if curl -s -o /dev/null "http://localhost:$port/"; then ok=true; break; fi
+              sleep 2
+            done
+            $ok && echo "port $port OK" || { echo "port $port 응답 없음"; docker compose -f "${{ steps.compose.outputs.file }}" logs; exit 1; }
+          done
+
+      - name: 정리
+        if: always() && steps.compose.outputs.file != ''
+        run: docker compose -f "${{ steps.compose.outputs.file }}" down -v
+
+  # ------------------------------------------------------------------
+  # 6) 최종 판정 — branch protection에는 이 job 하나만 "필수 체크"로 등록
+  #    (건너뛴 job은 통과, 실패/취소가 하나라도 있으면 실패)
+  # ------------------------------------------------------------------
+  ci-ok:
+    needs: [changes, backend, frontend, llm-server, infra]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 결과 확인
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "실패한 job이 있습니다"; exit 1
+          fi
+          echo "CI 통과"
