@@ -161,16 +161,23 @@ public class CommentService {
         Map<String, HeavyCommentResponse.ChapterResult> collected = new ConcurrentHashMap<>();
         AtomicBoolean clientGone = new AtomicBoolean(false);
         List<CompletableFuture<Void>> allDone = new ArrayList<>();
+        // 챕터 선점+전송과 마감(timeout 채우기+done)을 한 락으로 묶는다 — 선점한 챕터가 done 뒤에 나가는 일이 없게
+        Object streamLock = new Object();
 
         for (String chapterId : HEAVY_CHAPTER_IDS) {
             Object data = chapterData.get(chapterId);
             CompletableFuture<Void> f = CompletableFuture
                     .supplyAsync(() -> llmClient.callHeavyChapter(chapterId, data, deadline), llmExecutor)
                     .thenAccept(result -> {
-                        collected.put(chapterId, result);
-                        // 완료되는 즉시 전송 — 12절 4번(9/29), allOf 완료를 기다리지 않는다
-                        if (!clientGone.get() && !sendChapter(emitter, result)) {
-                            clientGone.set(true);
+                        synchronized (streamLock) {
+                            // 마감 후 timeout으로 이미 채워진 챕터면 버린다 — 챕터당 정확히 1건만 전송
+                            if (collected.putIfAbsent(chapterId, result) != null) {
+                                return;
+                            }
+                            // 완료되는 즉시 전송 — 12절 4번(9/29), allOf 완료를 기다리지 않는다
+                            if (!clientGone.get() && !sendChapter(emitter, result)) {
+                                clientGone.set(true);
+                            }
                         }
                     });
             allDone.add(f);
@@ -189,24 +196,26 @@ public class CommentService {
         log.info("heavy 코멘트 8챕터 처리 종료: {}ms (한도 {}s, 서버 {}대) ({}) - {}",
                 elapsedMs, heavyTimeoutSeconds, serverCount, normalized, HEAVY_CHAPTER_IDS);
 
-        // 마감까지 못 끝난 챕터는 timeout으로 채워서 전송 — 프론트가 8개 전부를 받도록 보장
+        // 마감까지 못 끝난 챕터는 timeout으로 채워서 전송 — putIfAbsent라 늦게 도착한 실제 결과와 겹쳐도
+        // 챕터당 1건만 나가고, done 전에 항상 정확히 8건이 간다(프론트가 이 전제로 짜여 있음)
         List<HeavyCommentResponse.ChapterResult> finalResults = new ArrayList<>();
-        for (String chapterId : HEAVY_CHAPTER_IDS) {
-            HeavyCommentResponse.ChapterResult r = collected.get(chapterId);
-            if (r == null) {
-                r = new HeavyCommentResponse.ChapterResult(chapterId, HeavyCommentResponse.STATUS_TIMEOUT, null, null);
-                if (!clientGone.get()) {
-                    sendChapter(emitter, r);
+        synchronized (streamLock) {
+            for (String chapterId : HEAVY_CHAPTER_IDS) {
+                HeavyCommentResponse.ChapterResult timeout =
+                        new HeavyCommentResponse.ChapterResult(chapterId, HeavyCommentResponse.STATUS_TIMEOUT, null, null);
+                HeavyCommentResponse.ChapterResult existing = collected.putIfAbsent(chapterId, timeout);
+                if (existing == null && !clientGone.get()) {
+                    sendChapter(emitter, timeout);
                 }
+                finalResults.add(existing != null ? existing : timeout);
             }
-            finalResults.add(r);
+            if (!clientGone.get()) {
+                sendDone(emitter);
+            }
         }
 
         if (cache != null) {
             cache.put(normalized, new HeavyCommentResponse(finalResults));
-        }
-        if (!clientGone.get()) {
-            sendDone(emitter);
         }
         emitter.complete();
     }
