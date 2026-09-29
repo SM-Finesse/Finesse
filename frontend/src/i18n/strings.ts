@@ -39,6 +39,13 @@ export interface Strings {
   reportTitle: (name: string) => string
   reportBody: (view: string) => string
   back: string
+
+  loading: string
+  retry: string
+  statsErrors: Record<'notFound' | 'unavailable' | 'network' | 'generic', string>
+  statLabels: Record<'rank' | 'tr' | 'winRate' | 'matches', string>
+  unranked: string
+  coldStart: string
 }
 
 const ko: Strings = {
@@ -94,9 +101,21 @@ const ko: Strings = {
   keyLight: '라이트',
   keyHeavy: '헤비',
 
-  reportTitle: (name) => `${name} 리포트를 준비합니다`,
-  reportBody: (view) => `${view} 뷰로 요청했습니다. 결과 화면은 다음 단계에서 연결됩니다.`,
+  reportTitle: (name) => `${name} 리포트`,
+  reportBody: (view) => `${view} 뷰 화면은 다음 단계에서 연결됩니다.`,
   back: '다른 유저 검색',
+
+  loading: '전적을 불러오는 중입니다…',
+  retry: '다시 시도',
+  statsErrors: {
+    notFound: '해당 유저를 찾을 수 없습니다. 유저명을 확인해 주세요.',
+    unavailable: '일시적으로 조회할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+    network: '서버에 연결할 수 없습니다. 백엔드가 켜져 있는지 확인해 주세요.',
+    generic: '전적을 불러오지 못했습니다.',
+  },
+  statLabels: { rank: '랭크', tr: 'TR', winRate: '승률', matches: '분석한 경기' },
+  unranked: '랭크 없음',
+  coldStart: '최근 매치가 10판 미만이라 하이라이트 없이 기본 지표만 표시합니다.',
 }
 
 const en: Strings = {
@@ -152,9 +171,21 @@ const en: Strings = {
   keyLight: 'Light',
   keyHeavy: 'Heavy',
 
-  reportTitle: (name) => `Preparing the report for ${name}`,
-  reportBody: (view) => `Requested in ${view} view. The report screen is wired up in the next step.`,
+  reportTitle: (name) => `Report for ${name}`,
+  reportBody: (view) => `The ${view} view screen is wired up in the next step.`,
   back: 'Search another player',
+
+  loading: 'Loading match history…',
+  retry: 'Try again',
+  statsErrors: {
+    notFound: 'No player with that username. Check the spelling.',
+    unavailable: 'Temporarily unavailable. Please try again shortly.',
+    network: 'Cannot reach the server. Check that the backend is running.',
+    generic: 'Could not load the match history.',
+  },
+  statLabels: { rank: 'Rank', tr: 'TR', winRate: 'Win rate', matches: 'Games analyzed' },
+  unranked: 'Unranked',
+  coldStart: 'Fewer than 10 recent matches, so only the basic metrics are shown without highlights.',
 }
 
 export const STRINGS: Record<Lang, Strings> = { ko, en }
