@@ -13,14 +13,19 @@ import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * GET /api/v1/comment/{username}?scope=light|heavy 오케스트레이션.
@@ -63,13 +68,59 @@ public class CommentService {
         return cache.get(normalized, () -> computeLight(normalized));
     }
 
-    public HeavyCommentResponse getHeavy(String username) {
+    /**
+     * scope=heavy — 12절 4번(2026-09-29 확정): 챕터가 완료되는 대로 SSE로 개별 전달한다(순차/스트리밍).
+     * 전체를 모아 한 번에 응답하던 allOf 방식은 폐기 — 사용자가 채워진 부분부터 바로 볼 수 있게 하기 위함.
+     * 캐시 히트면 저장된 8개 챕터를 그대로(빠르게) 스트리밍하고, 미스면 실제 계산하며 하나씩 흘려보낸다.
+     */
+    public SseEmitter getHeavyStream(String username) {
         String normalized = username.toLowerCase();
+        // SseEmitter 자체 타임아웃은 heavy 최악 상한(단일 서버 120s)보다 넉넉히 잡는다 — 실제 컷오프는
+        // 아래 heavyTimeoutSeconds(엔드포인트 데드라인)가 담당하므로 여기선 연결이 일찍 끊기지만 않으면 됨.
+        SseEmitter emitter = new SseEmitter(150_000L);
         Cache cache = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_CACHE);
-        if (cache == null) {
-            return computeHeavy(normalized);
+
+        HeavyCommentResponse cached = cache != null ? cache.get(normalized, HeavyCommentResponse.class) : null;
+        if (cached != null) {
+            llmExecutor.execute(() -> streamAndComplete(emitter, cached.chapters()));
+            return emitter;
         }
-        return cache.get(normalized, () -> computeHeavy(normalized));
+
+        llmExecutor.execute(() -> computeHeavyStreaming(normalized, emitter, cache));
+        return emitter;
+    }
+
+    private void streamAndComplete(SseEmitter emitter, List<HeavyCommentResponse.ChapterResult> results) {
+        for (HeavyCommentResponse.ChapterResult r : results) {
+            if (!sendChapter(emitter, r)) {
+                return;
+            }
+        }
+        sendDone(emitter);
+        emitter.complete();
+    }
+
+    private boolean sendChapter(SseEmitter emitter, HeavyCommentResponse.ChapterResult result) {
+        try {
+            emitter.send(SseEmitter.event().name("chapter").data(result));
+            return true;
+        } catch (IOException e) {
+            // 클라이언트가 이미 연결을 끊음 — 더 보내지 않는다 (이미 LLM에 보낸 호출은 계속 진행해서 캐싱에는 반영)
+            return false;
+        }
+    }
+
+    /**
+     * 서버가 그냥 연결을 닫기만 하면 브라우저 EventSource는 이걸 "끊김"으로 보고 자동 재연결을 시도한다
+     * (SSE 스펙 동작) — 그래서 "다 보냈다"는 걸 알리는 이벤트를 명시적으로 하나 보내고, 프론트는 이걸
+     * 받으면 자기가 먼저 EventSource를 닫도록 한다. 8개를 다 못 채웠어도(타임아웃 등) 항상 보낸다.
+     */
+    private void sendDone(SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event().name("done").data(""));
+        } catch (IOException e) {
+            // 이미 끊긴 연결 — 무시
+        }
     }
 
     private LightCommentResponse computeLight(String normalized) {
@@ -84,13 +135,18 @@ public class CommentService {
         return llmClient.callLight(request, deadline);
     }
 
-    private HeavyCommentResponse computeHeavy(String normalized) {
+    /**
+     * 8챕터를 각각 dispatch하고, 챕터 하나가 끝날 때마다(thenAccept) 바로 SSE로 전송한다.
+     * allOf는 "다 끝났는지" 판정에만 쓰고, 전달 자체는 더 이상 allOf 완료를 기다리지 않는다.
+     */
+    private void computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache) {
         StatsResponse stats = statsService.getStats(normalized, false);
         if (stats.coldStart()) {
             List<HeavyCommentResponse.ChapterResult> results = HEAVY_CHAPTER_IDS.stream()
                     .map(id -> new HeavyCommentResponse.ChapterResult(id, HeavyCommentResponse.STATUS_FAILED, null, 0))
                     .toList();
-            return new HeavyCommentResponse(results);
+            streamAndComplete(emitter, results);
+            return;
         }
 
         // 전체(8챕터) 처리 시간 상한 — 타임아웃 기준 문서(23번) 9절: 서버 대수에 따라 다르게 둔다.
@@ -102,15 +158,26 @@ public class CommentService {
         long deadline = System.nanoTime() + heavyTimeoutSeconds * 1_000_000_000L;
 
         Map<String, Object> chapterData = buildChapterData(stats);
-        Map<String, CompletableFuture<HeavyCommentResponse.ChapterResult>> futures = new LinkedHashMap<>();
+        Map<String, HeavyCommentResponse.ChapterResult> collected = new ConcurrentHashMap<>();
+        AtomicBoolean clientGone = new AtomicBoolean(false);
+        List<CompletableFuture<Void>> allDone = new ArrayList<>();
+
         for (String chapterId : HEAVY_CHAPTER_IDS) {
             Object data = chapterData.get(chapterId);
-            futures.put(chapterId, CompletableFuture.supplyAsync(
-                    () -> llmClient.callHeavyChapter(chapterId, data, deadline), llmExecutor));
+            CompletableFuture<Void> f = CompletableFuture
+                    .supplyAsync(() -> llmClient.callHeavyChapter(chapterId, data, deadline), llmExecutor)
+                    .thenAccept(result -> {
+                        collected.put(chapterId, result);
+                        // 완료되는 즉시 전송 — 12절 4번(9/29), allOf 완료를 기다리지 않는다
+                        if (!clientGone.get() && !sendChapter(emitter, result)) {
+                            clientGone.set(true);
+                        }
+                    });
+            allDone.add(f);
         }
 
         long startedAt = System.currentTimeMillis();
-        CompletableFuture<Void> all = CompletableFuture.allOf(futures.values().toArray(new CompletableFuture[0]));
+        CompletableFuture<Void> all = CompletableFuture.allOf(allDone.toArray(new CompletableFuture[0]));
         try {
             all.get(heavyTimeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
@@ -122,16 +189,26 @@ public class CommentService {
         log.info("heavy 코멘트 8챕터 처리 종료: {}ms (한도 {}s, 서버 {}대) ({}) - {}",
                 elapsedMs, heavyTimeoutSeconds, serverCount, normalized, HEAVY_CHAPTER_IDS);
 
-        List<HeavyCommentResponse.ChapterResult> results = HEAVY_CHAPTER_IDS.stream()
-                .map(id -> {
-                    CompletableFuture<HeavyCommentResponse.ChapterResult> f = futures.get(id);
-                    if (f.isDone() && !f.isCompletedExceptionally()) {
-                        return f.join();
-                    }
-                    return new HeavyCommentResponse.ChapterResult(id, HeavyCommentResponse.STATUS_TIMEOUT, null, null);
-                })
-                .toList();
-        return new HeavyCommentResponse(results);
+        // 마감까지 못 끝난 챕터는 timeout으로 채워서 전송 — 프론트가 8개 전부를 받도록 보장
+        List<HeavyCommentResponse.ChapterResult> finalResults = new ArrayList<>();
+        for (String chapterId : HEAVY_CHAPTER_IDS) {
+            HeavyCommentResponse.ChapterResult r = collected.get(chapterId);
+            if (r == null) {
+                r = new HeavyCommentResponse.ChapterResult(chapterId, HeavyCommentResponse.STATUS_TIMEOUT, null, null);
+                if (!clientGone.get()) {
+                    sendChapter(emitter, r);
+                }
+            }
+            finalResults.add(r);
+        }
+
+        if (cache != null) {
+            cache.put(normalized, new HeavyCommentResponse(finalResults));
+        }
+        if (!clientGone.get()) {
+            sendDone(emitter);
+        }
+        emitter.complete();
     }
 
     private Map<String, Object> buildChapterData(StatsResponse stats) {
