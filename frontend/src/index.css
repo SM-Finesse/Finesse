@@ -101,25 +101,6 @@
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
 
-@utility btn-arcade {
-  background: linear-gradient(180deg, #67c1f5 5%, #417a9b 95%);
-  border: 2px solid #fff;
-  border-radius: 6px;
-  color: #fff;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 5px 0 #16506f,
-    0 12px 20px -10px rgba(58, 169, 238, 0.5);
-  transition: background 0.18s var(--ease-arcade), box-shadow 0.18s var(--ease-arcade), transform 0.12s;
-  &:hover {
-    background: linear-gradient(180deg, #8ed2fa 5%, #4e8fb4 95%);
-  }
-  &:active {
-    transform: translateY(3px);
-    box-shadow: 0 2px 0 #16506f;
-  }
-}
-
 /* 헤더 아래 7색 띠 — 양 끝은 흐리게 */
 @utility piece-stripe {
   height: 6px;

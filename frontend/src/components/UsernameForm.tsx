@@ -55,7 +55,10 @@ export function UsernameForm({ value, onChange, onSubmit, error, view, onToggleV
           <span className="h-[26px] w-px flex-none bg-line" />
           <ViewSwitch view={view} onToggle={onToggleView} />
         </div>
-        <button type="submit" className="btn-arcade inline-flex h-14 items-center justify-center px-[22px] font-display text-[15px] font-semibold tracking-[.01em]">
+        <button
+          type="submit"
+          className="inline-flex h-14 items-center justify-center rounded-md border-2 border-white bg-primary-bright px-6 font-display text-lg font-semibold text-white transition-colors hover:bg-frame active:translate-y-px"
+        >
           {t.analyze}
         </button>
       </div>
