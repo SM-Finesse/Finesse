@@ -2,6 +2,8 @@ package com.finesse.backend.service.calc;
 
 /**
  * 데이터 명세서 v5 2절 "계산 파생 지표" — apm/pps/vs 원값만으로 계산, statrank 불필요.
+ *
+ * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈이 완성되면 교체 예정 (2026-09-29 팀 확인).
  */
 final class FancyMath {
     private FancyMath() {

@@ -19,6 +19,9 @@ import java.util.UUID;
  * 실제 검증된 엔드포인트만 사용한다:
  *   GET /users/{username}/summaries/league
  *   GET /users/{username}/records/league/recent?limit=100&after={pri}:{sec}:{ter}
+ *
+ * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈(CollectorProperties 등)이 완성되면
+ * 그쪽으로 교체 예정 (2026-09-29 팀 확인).
  */
 @Component
 public class TetrioClient {

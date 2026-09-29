@@ -15,6 +15,9 @@ import java.util.Set;
 /**
  * TETR.IO 원시 레코드 → 정규화 (데이터 수집 명세 4장 "레코드 구조", 6장 "방어적 파싱 규칙").
  *
+ * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈(MatchHistory/MatchRound 등)이 완성되면
+ * 그쪽으로 교체 예정 (2026-09-29 팀 확인). 이 클래스가 만드는 NormalizedMatch가 MatchHistory에 대응.
+ *
  * 핵심 규칙:
  *  - stub은 무시하고 그대로 사용한다 (4.2절 — 데이터와 무관).
  *  - "나"와 "상대"는 username이 아니라 otherusers[].id 로 구분한다 (6.3절 — 닉네임은 개명될 수 있어

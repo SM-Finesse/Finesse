@@ -16,6 +16,11 @@ import java.util.OptionalDouble;
  * (TETR.IO API 연동확인 문서에서 확인됨).
  *
  * 콜드스타트 임계값(10판)과 각 지표별 최소 표본 요건은 기능 명세서 3.4절·데이터 명세서 v5 6절을 따른다.
+ *
+ * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈(AnalyticsContext/AnalyticsProperties 등,
+ * com.finesse.backend.calc 패키지)이 완성되면 그쪽으로 교체 예정 (2026-09-29 팀 확인).
+ * COLD_START_THRESHOLD ↔ AnalyticsProperties.coldStartThreshold,
+ * RECENT_FORM_WINDOW ↔ AnalyticsProperties.recentWinLossWindow 대응 (동일 기능 가능성, 확인 필요).
  */
 @Component
 public class StatsCalculator {

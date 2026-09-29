@@ -2,6 +2,10 @@ package com.finesse.backend.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/**
+ * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 CollectorProperties(com.finesse.backend.calc.config)로
+ * 교체 예정 (2026-09-29 팀 확인). windowMaxMatches=300 등은 CollectorProperties.maxTotalMatches()와 동일 개념.
+ */
 @ConfigurationProperties(prefix = "tetrio")
 public record TetrioProperties(
         String baseUrl,
