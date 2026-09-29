@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.detect.outputs.found == 'true'
         with:
-          node-version: 20
+          node-version: 22
       - name: Install & build
         if: steps.detect.outputs.found == 'true'
         working-directory: frontend
