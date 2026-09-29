@@ -1,0 +1,58 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: finesse-backend
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+
+# TETR.IO 외부 API 설정 (Finesse-API명세서 4.1-1절, TETR.IO API 연동확인 문서 기준)
+# 타임아웃/재시도 값은 타임아웃 기준 문서(23번, v0.3) 9절을 정본으로 한다.
+tetrio:
+  base-url: https://ch.tetr.io/api
+  request-timeout-seconds: 5
+  min-request-interval-ms: 1000
+  page-limit: 100
+  window-max-matches: 300
+  window-max-days: 365
+  retry: 1 # 재시도 1회로 통일 (기존 파이프라인 3회/백엔드설계 2회 혼재 정리, 6.1절)
+
+# LLM 추론 서버 목록 (Finesse-API명세서 6장/6.1절 — 라운드로빈 대상)
+# MVP: 학교 PC 8대 중 2대. 로컬 개발 중에는 실제 서버가 없으므로 placeholder로 둠.
+# "호출 1회"와 "엔드포인트"는 다른 레이어 — 엔드포인트 상한은 app.endpoint 아래에 따로 둔다.
+llm:
+  servers:
+    - http://localhost:9101
+    - http://localhost:9102
+  connect-timeout-seconds: 2        # 연결 타임아웃 — 넘으면 "연결 실패"로 보고 서버 제외 대상 (5.5절)
+  heavy-call-timeout-seconds: 10   # heavy 챕터 1회 호출 (9/22 Vulkan 실측 기준)
+  heavy-min-remaining-seconds: 5   # heavy 새 시도 시작 조건 — 엔드포인트 잔여시간이 이보다 적으면 재시도 안 함
+  light-call-timeout-seconds: 15   # light 1회 호출
+  light-min-remaining-seconds: 12  # light 새 시도 시작 조건
+  max-retries: 3                    # 최초 시도 포함 총 4회 (표5)
+  server-exclude-seconds: 30        # 연결 실패한 서버를 이 시간 동안 라운드로빈에서 제외 (5.5절)
+  # TODO(LLM/AI 역할과 협의 필요): 실제 경로 확정되면 교체
+  light-path: /v1/comment/light
+  heavy-chapter-path: /v1/comment/heavy-chapter
+
+# 캐시 설정 (Finesse-API명세서 5장 — 인메모리 Caffeine, 최대 10분 유지 후 소멸)
+app:
+  cache:
+    ttl-minutes: 10
+  # 엔드포인트(요청 하나를 끝내야 하는 마감) 레벨 타임아웃 — 타임아웃 기준 문서(23번) 9절.
+  # heavy는 LLM 서버 대수에 따라 CommentService가 heavy-seconds/heavy-single-server-seconds 중 하나를 고른다.
+  endpoint:
+    stats-seconds: 20
+    light-seconds: 40
+    heavy-seconds: 60
+    heavy-single-server-seconds: 120
+
+logging:
+  level:
+    com.finesse.backend: DEBUG
