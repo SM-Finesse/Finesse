@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, getComment, getStats } from './client'
+import { ApiError, getComment, getHeavyStream, getStats } from './client'
 
 function mockFetch(impl: () => Promise<Response>) {
   const fn = vi.fn<typeof fetch>(impl)
@@ -27,9 +27,9 @@ describe('api client', () => {
     expect(fetchFn.mock.calls[0][0]).toBe('/api/v1/stats/player?refresh=true')
   })
 
-  it('comment는 scope를 쿼리로 넘긴다', async () => {
+  it('light comment는 scope=light로 요청한다', async () => {
     const fetchFn = mockFetch(() => json({ light_summary: '', highlights: [] }))
-    await getComment('player', 'light')
+    await getComment('player')
     expect(fetchFn.mock.calls[0][0]).toBe('/api/v1/comment/player?scope=light')
   })
 
@@ -48,5 +48,74 @@ describe('api client', () => {
     const err = await getStats('player').catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err).toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
+  })
+})
+
+/* jsdom에는 EventSource가 없다 — 서버 이벤트를 테스트에서 직접 쏘는 가짜 */
+class FakeEventSource {
+  static last: FakeEventSource
+  readonly url: string
+  closed = false
+  private listeners = new Map<string, ((e: MessageEvent) => void)[]>()
+
+  constructor(url: string) {
+    this.url = url
+    FakeEventSource.last = this
+  }
+  addEventListener(type: string, fn: (e: MessageEvent) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn])
+  }
+  close() {
+    this.closed = true
+  }
+  emit(type: string, data = '') {
+    for (const fn of this.listeners.get(type) ?? []) fn(new MessageEvent(type, { data }))
+  }
+}
+
+function openStream() {
+  vi.stubGlobal('EventSource', FakeEventSource)
+  const handlers = { onChapter: vi.fn(), onDone: vi.fn(), onError: vi.fn() }
+  const cancel = getHeavyStream('a b', handlers)
+  return { es: FakeEventSource.last, handlers, cancel }
+}
+
+const chapter = (id: string) => JSON.stringify({ chapter_id: id, status: 'ok', footnote: '각주' })
+
+describe('getHeavyStream (SSE)', () => {
+  it('챕터를 도착하는 대로 넘기고, done을 받으면 연결을 닫는다', () => {
+    const { es, handlers } = openStream()
+    expect(es.url).toBe('/api/v1/comment/a%20b?scope=heavy')
+
+    es.emit('chapter', chapter('attack'))
+    es.emit('chapter', chapter('defense'))
+    expect(handlers.onChapter.mock.calls.map(([c]) => c.chapter_id)).toEqual(['attack', 'defense'])
+    expect(es.closed).toBe(false)
+
+    es.emit('done')
+    expect(handlers.onDone).toHaveBeenCalledOnce()
+    expect(es.closed).toBe(true)
+    expect(handlers.onError).not.toHaveBeenCalled()
+  })
+
+  it('done 전에 끊기면 onError를 부르고 자동 재연결을 막으려 닫는다', () => {
+    const { es, handlers } = openStream()
+    es.emit('chapter', chapter('attack'))
+    es.emit('error')
+    expect(handlers.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'STREAM_ERROR' }))
+    expect(es.closed).toBe(true)
+
+    es.emit('chapter', chapter('defense'))
+    expect(handlers.onChapter).toHaveBeenCalledOnce()
+  })
+
+  it('취소 함수를 부르면 닫히고 이후 이벤트는 무시한다', () => {
+    const { es, handlers, cancel } = openStream()
+    cancel()
+    expect(es.closed).toBe(true)
+    es.emit('chapter', chapter('attack'))
+    es.emit('done')
+    expect(handlers.onChapter).not.toHaveBeenCalled()
+    expect(handlers.onDone).not.toHaveBeenCalled()
   })
 })

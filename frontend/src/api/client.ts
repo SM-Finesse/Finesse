@@ -1,10 +1,4 @@
-import type {
-  ApiErrorBody,
-  CommentScope,
-  HeavyCommentResponse,
-  LightCommentResponse,
-  StatsResponse,
-} from './types'
+import type { ApiErrorBody, HeavyChapterResult, LightCommentResponse, StatsResponse } from './types'
 
 /*
  * 비워 두면 같은 출처(/api/...)로 요청한다 — 개발 중에는 Vite 프록시가, 배포 후에는 Nginx가 백엔드로 넘긴다.
@@ -50,9 +44,57 @@ export function getStats(username: string, opts: { refresh?: boolean; signal?: A
   return request<StatsResponse>(`/api/v1/stats/${user(username)}${query}`, opts.signal)
 }
 
-/** GET /api/v1/comment/{username}?scope=light|heavy — LLM 산출물이라 수십 초 걸릴 수 있다 */
-export function getComment(username: string, scope: 'light', signal?: AbortSignal): Promise<LightCommentResponse>
-export function getComment(username: string, scope: 'heavy', signal?: AbortSignal): Promise<HeavyCommentResponse>
-export function getComment(username: string, scope: CommentScope, signal?: AbortSignal) {
-  return request<LightCommentResponse | HeavyCommentResponse>(`/api/v1/comment/${user(username)}?scope=${scope}`, signal)
+/** GET /api/v1/comment/{username}?scope=light — LLM 산출물이라 수십 초 걸릴 수 있다 */
+export function getComment(username: string, signal?: AbortSignal) {
+  return request<LightCommentResponse>(`/api/v1/comment/${user(username)}?scope=light`, signal)
+}
+
+export interface HeavyStreamHandlers {
+  /** 챕터 하나가 끝날 때마다 (도착 순서 = 완료 순서, 챕터 순서 아님) */
+  onChapter: (chapter: HeavyChapterResult) => void
+  /** 서버가 done을 보냄 — 정상 종료 */
+  onDone: () => void
+  /** done 전에 연결이 끊기거나 연결 자체가 실패함 (404·502 등 HTTP 에러도 EventSource에선 여기로 온다) */
+  onError: (error: ApiError) => void
+}
+
+/**
+ * GET /api/v1/comment/{username}?scope=heavy (SSE).
+ * 반환값은 연결을 끊는 함수 — useEffect cleanup에 그대로 넘기면 된다.
+ *
+ * EventSource는 연결이 끊기면 스스로 재연결해 LLM 호출을 처음부터 다시 일으키므로,
+ * done을 받거나 에러가 나면 즉시 close()해서 재연결을 막는다.
+ */
+export function getHeavyStream(username: string, handlers: HeavyStreamHandlers): () => void {
+  const es = new EventSource(`${API_BASE}/api/v1/comment/${user(username)}?scope=heavy`)
+  let finished = false
+  const finish = () => {
+    finished = true
+    es.close()
+  }
+
+  es.addEventListener('chapter', (e) => {
+    if (finished) return
+    let chapter: HeavyChapterResult
+    try {
+      chapter = JSON.parse((e as MessageEvent<string>).data) as HeavyChapterResult
+    } catch {
+      finish()
+      handlers.onError(new ApiError(0, 'STREAM_PARSE_ERROR', '챕터 데이터를 읽을 수 없습니다'))
+      return
+    }
+    handlers.onChapter(chapter)
+  })
+  es.addEventListener('done', () => {
+    if (finished) return
+    finish()
+    handlers.onDone()
+  })
+  es.addEventListener('error', () => {
+    if (finished) return
+    finish()
+    handlers.onError(new ApiError(0, 'STREAM_ERROR', '코멘트 스트림 연결이 끊겼습니다'))
+  })
+
+  return finish
 }

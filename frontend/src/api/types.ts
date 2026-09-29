@@ -77,13 +77,15 @@ export interface LightCommentResponse {
   highlights: { stat: string; sentence: string }[]
 }
 
-export interface HeavyCommentResponse {
-  chapters: {
-    chapter_id: string
-    status: 'ok' | 'failed' | 'timeout'
-    footnote?: string
-    attempt_count?: number
-  }[]
+/**
+ * heavy 코멘트는 SSE로 온다 — `chapter` 이벤트 1건 = 챕터 1개, 8개를 다 보내면 `done` 이벤트.
+ * 마감까지 못 끝난 챕터도 status='timeout'으로 채워 보내므로 done 전에 항상 8건이 온다.
+ */
+export interface HeavyChapterResult {
+  chapter_id: string
+  status: 'ok' | 'failed' | 'timeout'
+  footnote?: string
+  attempt_count?: number
 }
 
 /** 공통 에러 응답 { error_code, message } */
@@ -91,5 +93,3 @@ export interface ApiErrorBody {
   error_code: string
   message: string
 }
-
-export type CommentScope = 'light' | 'heavy'
