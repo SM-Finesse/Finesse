@@ -7,7 +7,6 @@ import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import org.springframework.stereotype.Component;
 
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -16,11 +15,6 @@ import java.util.List;
  */
 @Component
 public class RecentWinLossCalculator implements AnalyticsCalculator<RecentWinLossStats> {
-
-    /** 최신순, 같은 시각이면 matchId 오름차순 (11.9.1절, 결정론적 정렬) */
-    static final Comparator<MatchHistory> NEWEST_FIRST =
-            Comparator.comparing(MatchHistory::playedAt, Comparator.reverseOrder())
-                    .thenComparing(MatchHistory::matchId);
 
     private final AnalyticsProperties properties;
 
@@ -36,7 +30,7 @@ public class RecentWinLossCalculator implements AnalyticsCalculator<RecentWinLos
     @Override
     public RecentWinLossStats calculate(AnalyticsContext context) {
         List<MatchHistory> newestFirst = context.matches().stream()
-                .sorted(NEWEST_FIRST)
+                .sorted(MatchOrdering.NEWEST_FIRST)
                 .toList();
 
         int recentCount = Math.min(properties.recentWinLossWindow(), newestFirst.size());
