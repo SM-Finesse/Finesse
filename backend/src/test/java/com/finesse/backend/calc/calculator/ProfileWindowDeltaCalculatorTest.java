@@ -9,7 +9,7 @@ import java.util.List;
 
 import static com.finesse.backend.calc.domain.MatchResult.LOSE;
 import static com.finesse.backend.calc.domain.MatchResult.WIN;
-import static com.finesse.backend.calc.fixture.MatchFixtures.stats;
+import static com.finesse.backend.calc.fixture.MatchFixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
@@ -62,5 +62,18 @@ class ProfileWindowDeltaCalculatorTest {
 
         assertThat(s.isAvailable()).isFalse();
         assertThat(s).isEqualTo(ProfileWindowDeltaStats.unavailable());
+    }
+
+    @Test
+    void 한_구간에_매치_당시_TR이_없으면_TR_변화율만_null이다() {
+        List<MatchHistory> current = List.of(withoutTr(20, WIN), withoutTr(21, LOSE));
+        List<MatchHistory> previous = List.of(stats(50, 1.0, 100, 1000, LOSE), stats(50, 1.0, 100, 1000, WIN));
+
+        ProfileWindowDeltaStats s = calculator.calculate(new AnalyticsContext(current, previous));
+
+        assertThat(s.isAvailable()).isTrue();
+        assertThat(s.trDeltaPct()).isNull();
+        assertThat(s.apmDeltaPct()).isCloseTo(20.0, within(TOL));   // (60−50)/50×100
+        assertThat(s.wrDeltaPct()).isCloseTo(0.0, within(TOL));
     }
 }

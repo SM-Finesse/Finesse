@@ -174,4 +174,19 @@ class HighlightStatCalculatorTest {
         assertThat(s.sessionVsSlope()).isEqualTo(0.0);
         assertThat(s.eligible()).isFalse();
     }
+
+    @Test
+    void 매치_당시_TR이_없는_매치는_TR_지표에서만_제외한다() {
+        // TR 없는 5판(LOSE) + TR 1050~1090 5판(WIN)
+        // TR Trend: TR 있는 5판 기준 N = 1 → 1090 − 1070 = 20
+        // strength_split: TR 있는 5판이 모두 WIN → 0.0 (TR 없는 LOSE는 반영되지 않음)
+        List<MatchHistory> matches = new ArrayList<>();
+        for (int s = 0; s < 5; s++) matches.add(withoutTr(s, LOSE));
+        for (int s = 5; s < 10; s++) matches.add(tr(s, 1000 + 10 * s, 1000, WIN));
+
+        HighlightStats h = calc(matches);
+
+        assertThat(h.trTrendDelta()).isCloseTo(20.0, within(TOL));
+        assertThat(h.strengthSplit()).isCloseTo(0.0, within(TOL));
+    }
 }

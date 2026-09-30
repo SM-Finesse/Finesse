@@ -13,7 +13,7 @@ public record MatchHistory(
         Double myStatrankStride, Double myStatrankInfDs,
         Double oppStatrankOpener, Double oppStatrankPlonk,
         Double oppStatrankStride, Double oppStatrankInfDs,
-        double myTr, double oppTr,
+        Double myTr, Double oppTr,
         MatchResult result,
         List<MatchRound> rounds
 ) {

@@ -4,6 +4,6 @@ public record MatchRound(
         int roundIndex,
         double myVsAtRound,
         double oppVsAtRound,
-        double trGapAtRound,
+        Double trGapAtRound,
         boolean wonRound
 ) {}

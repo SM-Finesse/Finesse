@@ -30,12 +30,22 @@ public class ProfileWindowDeltaCalculator implements AnalyticsCalculator<Profile
         }
 
         return new ProfileWindowDeltaStats(
-                deltaPct(avg(current, MatchHistory::myTr), avg(previous, MatchHistory::myTr)),
+                trDeltaPct(current, previous),
                 deltaPct(winRatePct(current), winRatePct(previous)),
                 deltaPct(avg(current, MatchHistory::myApm), avg(previous, MatchHistory::myApm)),
                 deltaPct(avg(current, MatchHistory::myPps), avg(previous, MatchHistory::myPps)),
                 deltaPct(avg(current, MatchHistory::myVs), avg(previous, MatchHistory::myVs))
         );
+    }
+
+    /** 매치 당시 TR이 있는 매치만 평균한다. 어느 한 구간에 TR이 하나도 없으면 null. */
+    static Double trDeltaPct(List<MatchHistory> current, List<MatchHistory> previous) {
+        List<MatchHistory> cur = current.stream().filter(m -> m.myTr() != null).toList();
+        List<MatchHistory> prev = previous.stream().filter(m -> m.myTr() != null).toList();
+        if (cur.isEmpty() || prev.isEmpty()) {
+            return null;
+        }
+        return deltaPct(avg(cur, MatchHistory::myTr), avg(prev, MatchHistory::myTr));
     }
 
     static double avg(List<MatchHistory> matches, ToDoubleFunction<MatchHistory> field) {

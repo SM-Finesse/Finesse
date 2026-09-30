@@ -71,13 +71,17 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
 
     // ── 11.1 TR Trend Delta ────────────────────────────────────────────
 
-    /** 최근 N판 평균 TR − 전체 평균 TR, N = ceil(전체 판수 × 0.1). matches는 최신순. */
+    /**
+     * 최근 N판 평균 TR − 전체 평균 TR, N = ceil(TR 있는 판수 × 0.1). matches는 최신순.
+     * 매치 당시 TR이 없는 매치는 제외하고 계산한다.
+     */
     static Double trTrendDelta(List<MatchHistory> newestFirst) {
-        if (newestFirst.isEmpty()) {
+        List<MatchHistory> withTr = newestFirst.stream().filter(m -> m.myTr() != null).toList();
+        if (withTr.isEmpty()) {
             return null;
         }
-        int n = (int) Math.ceil(newestFirst.size() * TR_TREND_RATIO);
-        return avgTr(newestFirst.subList(0, n)) - avgTr(newestFirst);
+        int n = (int) Math.ceil(withTr.size() * TR_TREND_RATIO);
+        return avgTr(withTr.subList(0, n)) - avgTr(withTr);
     }
 
     private static double avgTr(List<MatchHistory> matches) {
@@ -98,12 +102,18 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
         return m.oppTr() - m.myTr();
     }
 
-    /** Q1(강한 상대) 승률 − Q5(약한 상대) 승률. 5판 미만은 null (Cold Start 이후엔 발생하지 않음). */
+    /**
+     * Q1(강한 상대) 승률 − Q5(약한 상대) 승률.
+     * 본인·상대 TR이 모두 있는 매치만 사용하며, 그런 매치가 5판 미만이면 null.
+     */
     static Double strengthSplit(List<MatchHistory> matches) {
-        if (matches.size() < QUINTILES) {
+        List<MatchHistory> withTr = matches.stream()
+                .filter(m -> m.myTr() != null && m.oppTr() != null)
+                .toList();
+        if (withTr.size() < QUINTILES) {
             return null;
         }
-        List<MatchHistory> sorted = matches.stream().sorted(BY_TR_GAP_DESC).toList();
+        List<MatchHistory> sorted = withTr.stream().sorted(BY_TR_GAP_DESC).toList();
         List<QuintileBounds> bounds = computeQuintileBounds(sorted.size());
         return winRate(slice(sorted, bounds.get(0))) - winRate(slice(sorted, bounds.get(QUINTILES - 1)));
     }
