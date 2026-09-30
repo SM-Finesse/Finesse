@@ -121,24 +121,24 @@ public class StatsService {
         StatsResponse.Profile profile = new StatsResponse.Profile(
                 summary.rank(), summary.tr(), summary.glicko(), summary.rd());
 
-        if (calculator.isColdStart(summary.gamesPlayed())) {
+        List<JsonNode> raw = tetrioClient.collectRecentRecords(normalized, sessionId);
+        List<NormalizedMatch> matches = new ArrayList<>();
+        var meta = normalizer.normalize(raw, normalized, matches);
+
+        // 문서23 5.2 콜드스타트 2단계 판정 — ① 요약의 누적 gamesplayed < 10, 또는
+        // ② 수집 창(최근 300판·1년) 안에서 실제로 모인 경기 < 10. 누적 판수는 많아도 최근 1년에
+        // 경기가 없는 유저(예: osk)는 ②에 걸려야 cold_start=false + match_count=0 이 나오지 않는다.
+        if (calculator.isColdStart(summary.gamesPlayed()) || calculator.isColdStart(matches.size())) {
             // FR-03 콜드스타트 처리 — Δ 계산 자체를 생략하지만, win_rate/recent_form은 표본 하한이 없는
             // fixed 지표라 있는 만큼(10판 미만)은 그대로 계산해서 채운다 (기능 명세서 3절, 라이트뷰 승패 카드 반영).
-            List<JsonNode> coldRaw = tetrioClient.collectRecentRecords(normalized, sessionId);
-            List<NormalizedMatch> coldMatches = new ArrayList<>();
-            normalizer.normalize(coldRaw, normalized, coldMatches);
             StatsResponse.FixedMetrics coldFixedMetrics = new StatsResponse.FixedMetrics(
-                    calculator.winRate(coldMatches), List.of(), calculator.recentForm(coldMatches));
-            return new StatsResponse(normalized, true, summary.gamesPlayed(), profile,
+                    calculator.winRate(matches), List.of(), calculator.recentForm(matches));
+            return new StatsResponse(normalized, true, matches.size(), profile,
                     coldFixedMetrics,
                     null, new StatsResponse.RoundCurves(List.of(), List.of()),
                     new StatsResponse.Rivals(List.of(), 1, 20, 0),
                     Map.of("note", "콜드스타트 — 챕터 데이터 없음"));
         }
-
-        List<JsonNode> raw = tetrioClient.collectRecentRecords(normalized, sessionId);
-        List<NormalizedMatch> matches = new ArrayList<>();
-        var meta = normalizer.normalize(raw, normalized, matches);
 
         StatsResponse.FixedMetrics fixedMetrics = new StatsResponse.FixedMetrics(
                 calculator.winRate(matches), calculator.trTrendSeries(matches), calculator.recentForm(matches));
