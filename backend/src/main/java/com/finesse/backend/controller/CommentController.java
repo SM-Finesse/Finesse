@@ -20,11 +20,13 @@ public class CommentController {
         this.commentService = commentService;
     }
 
+    // heavy는 SseEmitter(스트리밍), light는 ResponseEntity(단일 JSON) — 리턴 타입이 달라 Object로 받는다.
+    // Spring MVC는 선언 타입이 아니라 실제 반환값 타입으로 처리 방식을 고른다 (12절 4번, 2026-09-29 확정).
     @GetMapping("/api/v1/comment/{username}")
-    public ResponseEntity<?> getComment(@PathVariable String username, @RequestParam String scope) {
+    public Object getComment(@PathVariable String username, @RequestParam String scope) {
         return switch (scope) {
             case "light" -> ResponseEntity.ok(commentService.getLight(username));
-            case "heavy" -> ResponseEntity.ok(commentService.getHeavy(username));
+            case "heavy" -> commentService.getHeavyStream(username);
             default -> throw new IllegalArgumentException("scope는 light 또는 heavy만 허용됩니다: " + scope);
         };
     }
