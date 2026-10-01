@@ -33,6 +33,45 @@ export function rankLabel(rank: string | undefined): string | null {
   return rank.toUpperCase()
 }
 
+/**
+ * TETR.IO 레벨 — XP로 계산한다(TETR.IO 클라이언트와 같은 식).
+ * level의 정수부가 표시 레벨, 소수부가 다음 레벨까지 진행률.
+ */
+export function levelFromXp(xp: number): { level: number; progress: number } {
+  const raw = (xp / 500) ** 0.6 + xp / (5000 + Math.max(0, xp - 4_000_000) / 5000) + 1
+  return { level: Math.floor(raw), progress: raw % 1 }
+}
+
+const REL_STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 24 * 3600],
+  ['month', 30 * 24 * 3600],
+  ['week', 7 * 24 * 3600],
+  ['day', 24 * 3600],
+  ['hour', 3600],
+  ['minute', 60],
+]
+
+/** '5년 전' · '12분 전' 처럼 지금과의 차이. 1분 안쪽은 '지금' */
+export function timeAgo(iso: string, lang: Lang, now = Date.now()): string | null {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  const sec = Math.max(0, (now - t) / 1000)
+  const fmt = new Intl.RelativeTimeFormat(lang, { numeric: 'auto' })
+  for (const [unit, size] of REL_STEPS) {
+    if (sec >= size) return fmt.format(-Math.floor(sec / size), unit)
+  }
+  return fmt.format(0, 'second')
+}
+
+/** 국가 코드 → 이름. 'XM'처럼 표준에 없는 코드는 코드 그대로 */
+export function countryName(code: string, lang: Lang): string {
+  try {
+    return new Intl.DisplayNames([lang], { type: 'region', fallback: 'code' }).of(code.toUpperCase()) ?? code
+  } catch {
+    return code
+  }
+}
+
 /* ── 하이라이트 근거 ──────────────────────────────────────────
  * /comment의 highlights[].stat은 /stats의 delta_metrics 안 필드 이름과 1:1 (FR-05).
  * delta: 부호가 우위/열세를 뜻함 → ▲/▼ + 상태색. rate: 비율 그 자체라 방향 없음. */

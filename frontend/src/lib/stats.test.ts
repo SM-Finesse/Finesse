@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeltaMetrics } from '../api/types'
-import { evidenceOf, formSummary, mapHighlights, rankLabel, signed, trendOf } from './stats'
+import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, rankLabel, signed, timeAgo, trendOf } from './stats'
 
 const DELTA: DeltaMetrics = {
   tr_trend_delta: 12.34,
@@ -24,6 +24,30 @@ describe('표시 규칙', () => {
     expect(rankLabel('z')).toBeNull()
     expect(rankLabel(undefined)).toBeNull()
     expect(rankLabel('x+')).toBe('X+')
+  })
+
+  it('XP로 레벨과 다음 레벨까지 진행률을 계산한다', () => {
+    expect(levelFromXp(0)).toEqual({ level: 1, progress: 0 })
+    /* 500 XP → (1)^0.6 + 500/5000 + 1 = 2.1 */
+    const lv2 = levelFromXp(500)
+    expect(lv2.level).toBe(2)
+    expect(lv2.progress).toBeCloseTo(0.1, 10)
+    /* 400만 XP를 넘으면 뒤쪽 항의 분모가 커져 레벨이 느리게 오른다 */
+    expect(levelFromXp(30503753.95).level).toBe(3705)
+  })
+
+  it('지난 시각을 상대 시간으로 쓴다', () => {
+    const now = Date.parse('2026-10-01T12:00:00Z')
+    expect(timeAgo('2020-09-01T00:00:00Z', 'ko', now)).toBe('6년 전')
+    expect(timeAgo('2026-10-01T11:48:00Z', 'ko', now)).toBe('12분 전')
+    expect(timeAgo('2026-10-01T11:48:00Z', 'en', now)).toBe('12 minutes ago')
+    expect(timeAgo('not a date', 'ko', now)).toBeNull()
+  })
+
+  it('국가 코드를 이름으로, 표준에 없는 코드는 그대로', () => {
+    expect(countryName('KR', 'ko')).toBe('대한민국')
+    expect(countryName('my', 'en')).toBe('Malaysia')
+    expect(countryName('XM', 'ko')).toBe('XM')
   })
 
   it('최근 승패를 센다', () => {

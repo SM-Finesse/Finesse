@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -55,6 +55,44 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.queryByText('계산되지 않은 지표를 가리키는 문장')).not.toBeInTheDocument()
   })
 
+  it('프로필 사진 · 레벨 · 국가 · 가입일 · APM/PPS/VS를 보여주고, 사진을 못 불러오면 블록 아바타로 바꾼다', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [pending] })
+    const { container } = render(
+      <LangProvider initial="ko">
+        <ReportPage username="ExamplePlayer" view="light" onViewChange={() => {}} onBack={() => {}} />
+      </LangProvider>,
+    )
+    const profile = await screen.findByRole('region', { name: 'PROFILE' })
+
+    const photo = () => container.querySelector('img[src*="user-content"]')
+    const img = photo()!
+    expect(img).toHaveAttribute('src', STATS.profile.avatar_url)
+    expect(screen.getByRole('img', { name: 'RANK X' }).getAttribute('src')).toMatch(/x\.png$/)
+    expect(profile.querySelector('img')!.getAttribute('src')).toMatch(/x\.png$/)
+    expect(screen.getByText(/^LV 3,7\d\d$/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('img', { name: '말레이시아' }).getAttribute('src')).toMatch(/svg/))
+    expect(screen.getByText(/가입 \d+년 전 · 최근 120경기/)).toBeInTheDocument()
+    expect(within(profile).getByText('237')).toBeInTheDocument()
+
+    fireEvent.error(img)
+    expect(photo()).toBeNull()
+  })
+
+  it('유저 정보 값이 빠지면 지어내지 않는다 — 레벨·국가 없음, APM 등은 —', async () => {
+    const { avatar_url: _a, xp: _x, country: _c, joined_at: _j, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
+    routeFetch({ stats: [() => json({ ...STATS, profile: rest })], comment: [pending] })
+    const { container } = render(
+      <LangProvider initial="ko">
+        <ReportPage username="ExamplePlayer" view="light" onViewChange={() => {}} onBack={() => {}} />
+      </LangProvider>,
+    )
+    const profile = await screen.findByRole('region', { name: 'PROFILE' })
+    expect(container.querySelector('img[src*="user-content"]')).toBeNull()
+    expect(screen.queryByText(/^LV /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^가입/)).not.toBeInTheDocument()
+    expect(within(profile).getAllByText('—')).toHaveLength(3)
+  })
+
   it('최근 경기 승패 보드와 TR 추이를 보여준다', async () => {
     routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     setup()
@@ -64,6 +102,13 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(board.querySelectorAll('[data-result="L"]')).toHaveLength(3)
     expect(screen.getByTestId('tr-chart')).toBeInTheDocument()
     expect(screen.getByText('구간 최고')).toBeInTheDocument()
+  })
+
+  it('경기는 충분한데 TR 추이 값이 안 오면, 표본 부족이 아니라 데이터 누락으로 안내한다', async () => {
+    routeFetch({ stats: [() => json({ ...STATS, fixed_metrics: { ...STATS.fixed_metrics, tr_trend: [] } })], comment: [pending] })
+    setup()
+    expect(await screen.findByText('TR 추이 데이터를 받지 못했습니다.')).toBeInTheDocument()
+    expect(screen.queryByText('추이를 그릴 만큼 기록이 없습니다.')).not.toBeInTheDocument()
   })
 
   it('콜드스타트면 LLM을 부르지 않고 데이터 부족 안내를 띄운다', async () => {
@@ -107,7 +152,7 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     expect(screen.getByText('75승 45패')).toBeInTheDocument()
 
     resolve(new Response(JSON.stringify({ ...STATS, match_count: 200 }), { status: 200 }))
-    expect(await screen.findByText('최근 200경기 분석 · 공식 API')).toBeInTheDocument()
+    expect(await screen.findByText(/최근 200경기/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '전적 갱신' })).toBeEnabled()
   })
 

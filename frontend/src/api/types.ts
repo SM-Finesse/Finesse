@@ -7,6 +7,8 @@ export interface StatsResponse {
   username: string
   cold_start: boolean
   match_count: number
+  /** 백엔드가 TETR.IO에서 처음 수집한 시각(ISO-8601) — 캐시에서 꺼내도 그대로 */
+  updated_at?: string
   profile: Profile
   fixed_metrics: FixedMetrics
   /** 콜드스타트면 빠진다 */
@@ -22,6 +24,21 @@ export interface Profile {
   tr: number
   glicko: number
   rd: number
+  apm?: number
+  pps?: number
+  vs?: number
+  /*
+   * 아래 4개는 TETR.IO /users/{user}에서 온다. 그 호출이 실패하면 전부 빠진다.
+   * 상대(라이벌) 사진은 마스킹 원칙 때문에 오지 않는다 — 검색한 본인 것만.
+   */
+  /** 사진을 올린 적 없는 유저는 빠진다 */
+  avatar_url?: string
+  /** 레벨 계산용. 시스템 계정처럼 -1이면 빠진다 */
+  xp?: number
+  /** 두 글자 국가 코드. 특수 계정은 XM 같은 값도 온다 */
+  country?: string
+  /** 가입 시각(ISO-8601) */
+  joined_at?: string
 }
 
 export interface FixedMetrics {

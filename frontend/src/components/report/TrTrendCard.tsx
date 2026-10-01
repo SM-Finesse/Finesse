@@ -38,7 +38,12 @@ export function TrTrendCard({ data }: { data: StatsResponse }) {
           <BigNum value={num(data.profile.tr, 2)} />
         </p>
         <div className="mt-3.5">
-          <Notice title={tr.emptyTitle}>{tr.emptyBody(data.match_count)}</Notice>
+          {/* 표본이 모자란 것(콜드스타트)과, 경기는 충분한데 값이 안 온 것을 구분해 안내한다 */}
+          {data.cold_start ? (
+            <Notice title={tr.emptyTitle}>{tr.emptyBody(data.match_count)}</Notice>
+          ) : (
+            <Notice title={tr.missingTitle}>{tr.missingBody}</Notice>
+          )}
         </div>
       </section>
     )

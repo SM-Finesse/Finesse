@@ -45,7 +45,11 @@ export interface Strings {
 }
 
 export interface ReportStrings {
-  meta: (games: number) => string
+  joined: (ago: string) => string
+  games: (n: number) => string
+  updated: (ago: string) => string
+  officialApi: string
+  xpProgress: (pct: number) => string
   viewTag: { light: string; lightCold: string; heavy: string }
   viewSwitchAria: string
   keyRefresh: string
@@ -62,6 +66,9 @@ export interface ReportStrings {
     wl: (w: number, l: number) => string
     rd: (rd: string) => string
     gamesSub: string
+    apmSub: string
+    ppsSub: string
+    vsSub: string
     note: string
   }
   ai: { loading: string; failed: string; unavailable: string; hint: string }
@@ -83,6 +90,8 @@ export interface ReportStrings {
     perGame: string
     emptyTitle: string
     emptyBody: (n: number) => string
+    missingTitle: string
+    missingBody: string
   }
   hl: {
     caption: string
@@ -123,7 +132,7 @@ const ko: Strings = {
     empty: '유저명을 입력하세요.',
     tooShort: `유저명은 ${USERNAME_MIN}자 이상입니다.`,
     tooLong: `유저명은 ${USERNAME_MAX}자 이하입니다.`,
-    invalidChars: '유저명에는 영문 · 숫자 · _ 만 쓸 수 있습니다.',
+    invalidChars: '유저명에는 영문 · 숫자 · _ · - 만 쓸 수 있습니다.',
   },
 
   recentTitle: '최근 검색',
@@ -162,7 +171,11 @@ const ko: Strings = {
     generic: '전적을 불러오지 못했습니다.',
   },
   report: {
-    meta: (n) => `최근 ${n}경기 분석 · 공식 API`,
+    joined: (ago) => `가입 ${ago}`,
+    games: (n) => `최근 ${n}경기`,
+    updated: (ago) => `${ago} 갱신`,
+    officialApi: '공식 API',
+    xpProgress: (pct) => `다음 레벨까지 ${pct}%`,
     viewTag: { light: '라이트 · 고정 지표 + 하이라이트 3', lightCold: '라이트 · 표본 부족', heavy: '헤비 · 8개 챕터' },
     viewSwitchAria: '뷰 전환 — 끄면 라이트, 켜면 헤비',
     keyRefresh: '갱신',
@@ -179,6 +192,9 @@ const ko: Strings = {
       wl: (w, l) => `${w}승 ${l}패`,
       rd: (rd) => `편차 ±${rd}`,
       gamesSub: '분석한 최근 경기',
+      apmSub: '분당 공격',
+      ppsSub: '초당 블록',
+      vsSub: '종합 지표',
       note: 'TR 옆 증감은 최근 10경기 평균과 그 이전 10경기 평균의 차이입니다.',
     },
     ai: {
@@ -205,6 +221,8 @@ const ko: Strings = {
       perGame: '경기당 평균',
       emptyTitle: '추이를 그릴 만큼 기록이 없습니다.',
       emptyBody: (n) => `10경기가 쌓이면 경기마다 TR 변화를 그립니다. 현재 ${n}경기.`,
+      missingTitle: 'TR 추이 데이터를 받지 못했습니다.',
+      missingBody: '경기 기록은 있지만 서버가 TR 변화 값을 보내지 않았습니다. 잠시 뒤 전적 갱신을 눌러 보세요.',
     },
     hl: {
       caption: 'AI가 고른 지표 · 문장마다 근거가 된 수치',
@@ -250,7 +268,7 @@ const en: Strings = {
     empty: 'Enter a username.',
     tooShort: `Usernames are at least ${USERNAME_MIN} characters.`,
     tooLong: `Usernames are at most ${USERNAME_MAX} characters.`,
-    invalidChars: 'Usernames can only contain letters, digits and _.',
+    invalidChars: 'Usernames can only contain letters, digits, _ and -.',
   },
 
   recentTitle: 'Recent',
@@ -289,7 +307,11 @@ const en: Strings = {
     generic: 'Could not load the match history.',
   },
   report: {
-    meta: (n) => `Last ${n} games analyzed · official API`,
+    joined: (ago) => `Joined ${ago}`,
+    games: (n) => `Last ${n} games`,
+    updated: (ago) => `updated ${ago}`,
+    officialApi: 'official API',
+    xpProgress: (pct) => `${pct}% to next level`,
     viewTag: { light: 'Light · fixed metrics + 3 highlights', lightCold: 'Light · too few games', heavy: 'Heavy · 8 chapters' },
     viewSwitchAria: 'View — off is Light, on is Heavy',
     keyRefresh: 'Refresh',
@@ -306,6 +328,9 @@ const en: Strings = {
       wl: (w, l) => `${w}W ${l}L`,
       rd: (rd) => `RD ±${rd}`,
       gamesSub: 'Recent games analyzed',
+      apmSub: 'Attack per minute',
+      ppsSub: 'Pieces per second',
+      vsSub: 'Composite',
       note: 'The change next to TR is the average of your last 10 games minus the 10 before that.',
     },
     ai: {
@@ -332,6 +357,8 @@ const en: Strings = {
       perGame: 'Per game',
       emptyTitle: 'Not enough history to plot a trend.',
       emptyBody: (n) => `The TR line starts at 10 games. ${n} games so far.`,
+      missingTitle: 'No TR trend data came back.',
+      missingBody: 'There are games on record, but the server sent no TR values. Try Refresh in a moment.',
     },
     hl: {
       caption: 'Metrics picked by AI · with the number behind each sentence',
