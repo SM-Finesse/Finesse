@@ -1,0 +1,63 @@
+import { vi } from 'vitest'
+import type { LightCommentResponse, StatsResponse } from '../api/types'
+
+export const STATS: StatsResponse = {
+  username: 'exampleplayer',
+  cold_start: false,
+  match_count: 120,
+  profile: { rank: 'x', tr: 24321.6, glicko: 3000, rd: 60 },
+  fixed_metrics: {
+    win_rate: 0.625,
+    tr_trend: [24000, 24100, 24050, 24321.6],
+    recent_form: ['W', 'L', 'W', 'W', 'L', 'W', 'W', 'W', 'L', 'W'],
+  },
+  delta_metrics: {
+    tr_trend_delta: 12.4,
+    playstyle_relative: {},
+    attack: { delta_app: 0.092, delta_weighted_app: 0.045 },
+    defense: { delta_vs_apm: -0.055, delta_cheese_index: -16.2 },
+    comeback_rate: 0.556,
+  },
+  round_curves: { pps: [], vs: [] },
+  rivals: { items: [], page: 1, page_size: 20, total: 0 },
+}
+
+export const COLD: StatsResponse = {
+  ...STATS,
+  cold_start: true,
+  match_count: 7,
+  fixed_metrics: { win_rate: 3 / 7, tr_trend: [], recent_form: ['W', 'L', 'L', 'W', 'W', 'L', 'L'] },
+  delta_metrics: undefined,
+}
+
+export const COMMENT: LightCommentResponse = {
+  light_summary: '공격은 앞서고 수비는 밀립니다.',
+  highlights: [
+    { stat: 'delta_app', sentence: '같은 블록 수로 상대보다 공격을 더 만듭니다.' },
+    { stat: 'delta_plonk', sentence: '계산되지 않은 지표를 가리키는 문장' },
+    { stat: 'delta_vs_apm', sentence: '받은 가비지를 지우는 속도는 상대보다 느립니다.' },
+  ],
+}
+
+export const json = (body: unknown, status = 200) =>
+  Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
+
+type Handler = (url: string) => Promise<Response>
+
+/** URL 별로 응답을 정한다. 같은 경로에 핸들러를 여러 개 주면 호출 순서대로 하나씩 쓴다(마지막 것은 반복) */
+export function routeFetch(routes: { stats?: Handler[]; comment?: Handler[] }) {
+  const used = { stats: 0, comment: 0 }
+  const pick = (kind: 'stats' | 'comment', url: string) => {
+    const list = routes[kind] ?? []
+    const h = list[Math.min(used[kind]++, list.length - 1)]
+    return h ? h(url) : new Promise<Response>(() => {})
+  }
+  const fn = vi.fn<typeof fetch>((input) => {
+    const url = String(input)
+    return url.includes('/comment/') ? pick('comment', url) : pick('stats', url)
+  })
+  vi.stubGlobal('fetch', fn)
+  return { fn, urls: () => fn.mock.calls.map(([u]) => String(u)) }
+}
+
+export const pending = () => new Promise<Response>(() => {})

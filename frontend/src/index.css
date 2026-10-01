@@ -11,6 +11,7 @@
   --color-deep: #0a1620;
   --color-surface: #12212e;
   --color-surface-2: #1e2f40;
+  --color-cell: #16283a;
   --color-line: #2a475e;
   --color-line-soft: #223749;
 
@@ -42,6 +43,23 @@
   --font-num: 'Oxanium', 'Share Tech Mono', ui-monospace, monospace;
 
   --ease-arcade: cubic-bezier(0.22, 0.8, 0.3, 1);
+
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  @keyframes shimmer {
+    from {
+      background-position: -200px 0;
+    }
+    to {
+      background-position: 400px 0;
+    }
+  }
+
+  --animate-blip: blip 1s steps(2) infinite;
+  @keyframes blip {
+    50% {
+      opacity: 0.25;
+    }
+  }
 
   --animate-info-in: info-in 0.2s var(--ease-arcade) both;
   @keyframes info-in {
@@ -120,6 +138,41 @@
 
 @utility text-outline {
   text-shadow: 0 3px 0 var(--color-ink-out), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* HUD 숫자 — 검은 외곽선 + 아래 그림자, 고정폭 숫자 */
+@utility num-hud {
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 0 var(--color-ink-out), 0 3px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* 로딩 자리 — 실제 콘텐츠와 같은 크기로 두어 도착 시 화면이 튀지 않게 한다 */
+@utility skeleton {
+  border-radius: 2px;
+  background-image: linear-gradient(90deg, #1e2f40 0%, #2a475e 50%, #1e2f40 100%);
+  background-size: 400px 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* HP 게이지 — 칸으로 끊긴 채움 */
+@utility hp-track {
+  position: relative;
+  overflow: hidden;
+  height: 26px;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  background: var(--color-deep);
+  padding: 2px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 4px;
+    background: repeating-linear-gradient(90deg, transparent 0 17px, rgba(0, 0, 0, 0.3) 17px 18px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

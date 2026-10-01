@@ -26,7 +26,7 @@ export function LangSwitch() {
 }
 
 /** 라이트 ↔ 헤비 스위치 — 끄면 라이트, 켜면 헤비 */
-export function ViewSwitch({ view, onToggle }: { view: View; onToggle: () => void }) {
+export function ViewSwitch({ view, onToggle, ariaLabel }: { view: View; onToggle: () => void; ariaLabel?: string }) {
   const { t } = useI18n()
   const heavy = view === 'heavy'
   const lab = 'font-display text-xs font-medium transition-colors'
@@ -35,7 +35,7 @@ export function ViewSwitch({ view, onToggle }: { view: View; onToggle: () => voi
       type="button"
       role="switch"
       aria-checked={heavy}
-      aria-label={t.viewSwitchAria}
+      aria-label={ariaLabel ?? t.viewSwitchAria}
       onClick={onToggle}
       className="flex flex-none items-center gap-[9px] px-0.5"
     >

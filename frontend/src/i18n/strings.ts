@@ -36,16 +36,64 @@ export interface Strings {
   keyLight: string
   keyHeavy: string
 
-  reportTitle: (name: string) => string
-  reportBody: (view: string) => string
   back: string
-
   loading: string
   retry: string
   statsErrors: Record<'notFound' | 'unavailable' | 'network' | 'generic', string>
-  statLabels: Record<'rank' | 'tr' | 'winRate' | 'matches', string>
+  report: ReportStrings
+}
+
+export interface ReportStrings {
+  meta: (games: number) => string
+  viewTag: { light: string; lightCold: string; heavy: string }
+  viewSwitchAria: string
+  keyRefresh: string
+  keyBack: string
+  refresh: string
+  refreshing: string
+  refreshFailed: string
   unranked: string
-  coldStart: string
+  profile: {
+    season: string
+    trSub: string
+    basis: string
+    trDelta: string
+    wl: (w: number, l: number) => string
+    rd: (rd: string) => string
+    gamesSub: string
+    note: string
+  }
+  ai: { loading: string; failed: string; unavailable: string; hint: string }
+  win: {
+    title: string
+    recent: (n: number) => string
+    w: string
+    l: string
+    overall: (n: number, rate: string) => string
+    boardHint: string
+    empty: string
+  }
+  tr: {
+    title: string
+    games: (n: number) => string
+    high: string
+    low: string
+    change: string
+    perGame: string
+    emptyTitle: string
+    emptyBody: (n: number) => string
+  }
+  hl: {
+    caption: string
+    coldCaption: string
+    evidence: string
+    coldTitle: string
+    coldBody: (n: number) => string
+    noneTitle: string
+    noneBody: string
+    failed: string
+  }
+  heavy: { title: string; body: string; toLight: string }
 }
 
 const ko: Strings = {
@@ -101,8 +149,6 @@ const ko: Strings = {
   keyLight: '라이트',
   keyHeavy: '헤비',
 
-  reportTitle: (name) => `${name} 리포트`,
-  reportBody: (view) => `${view} 뷰 화면은 다음 단계에서 연결됩니다.`,
   back: '다른 유저 검색',
 
   loading: '전적을 불러오는 중입니다…',
@@ -113,9 +159,67 @@ const ko: Strings = {
     network: '서버에 연결할 수 없습니다. 백엔드가 켜져 있는지 확인해 주세요.',
     generic: '전적을 불러오지 못했습니다.',
   },
-  statLabels: { rank: '랭크', tr: 'TR', winRate: '승률', matches: '분석한 경기' },
-  unranked: '랭크 없음',
-  coldStart: '최근 매치가 10판 미만이라 하이라이트 없이 기본 지표만 표시합니다.',
+  report: {
+    meta: (n) => `최근 ${n}경기 분석 · 공식 API`,
+    viewTag: { light: '라이트 · 고정 지표 + 하이라이트 3', lightCold: '라이트 · 표본 부족', heavy: '헤비 · 8개 챕터' },
+    viewSwitchAria: '뷰 전환 — 끄면 라이트, 켜면 헤비',
+    keyRefresh: '갱신',
+    keyBack: '처음으로',
+    refresh: '전적 갱신',
+    refreshing: '전적을 불러오는 중입니다…',
+    refreshFailed: '전적을 갱신하지 못했습니다. 이전 결과를 그대로 보여줍니다.',
+    unranked: '랭크 없음',
+    profile: {
+      season: '현재 시즌 랭크',
+      trSub: '시즌 대전 점수',
+      basis: '비교 기준',
+      trDelta: '최근 10경기',
+      wl: (w, l) => `${w}승 ${l}패`,
+      rd: (rd) => `편차 ±${rd}`,
+      gamesSub: '분석한 최근 경기',
+      note: 'TR 옆 증감은 최근 10경기 평균과 그 이전 10경기 평균의 차이입니다.',
+    },
+    ai: {
+      loading: '코멘트 생성 중… 통계는 이미 표시됨',
+      failed: '코멘트를 불러오지 못했습니다.',
+      unavailable: '일시적으로 코멘트를 생성할 수 없습니다.',
+      hint: '카드에 마우스를 올리면 근거가 켜집니다',
+    },
+    win: {
+      title: '승패 분포',
+      recent: (n) => `최근 ${n}경기`,
+      w: '승',
+      l: '패',
+      overall: (n, rate) => `전체 ${n}경기 ${rate}`,
+      boardHint: '아래에서 위로 쌓입니다 · 채워진 칸이 승리',
+      empty: '최근 1년 안에 치른 랭크 경기가 없습니다.',
+    },
+    tr: {
+      title: 'TR 추이',
+      games: (n) => `최근 ${n}경기`,
+      high: '구간 최고',
+      low: '구간 최저',
+      change: '전체 변동',
+      perGame: '경기당 평균',
+      emptyTitle: '추이를 그릴 만큼 기록이 없습니다.',
+      emptyBody: (n) => `10경기가 쌓이면 경기마다 TR 변화를 그립니다. 현재 ${n}경기.`,
+    },
+    hl: {
+      caption: 'AI가 고른 지표 · 문장마다 근거가 된 수치',
+      coldCaption: '데이터 부족',
+      evidence: '근거',
+      coldTitle: '최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.',
+      coldBody: (n) => `10경기 이상 기록이 쌓이면 상대 대비 강점·약점 분석을 시작합니다. 현재 ${n}경기 기록됨.`,
+      noneTitle: '근거와 이어지는 하이라이트가 없습니다.',
+      noneBody: 'AI가 고른 지표가 이번 전적에서 계산되지 않아 표시하지 않았습니다.',
+      failed: '하이라이트를 불러오지 못했습니다.',
+    },
+    heavy: {
+      title: '헤비 뷰는 다음 단계에서 연결됩니다.',
+      body: '8개 챕터 화면은 준비 중입니다. 지금은 라이트 뷰에서 결과를 볼 수 있습니다.',
+      toLight: '라이트 뷰로 보기',
+    },
+  },
 }
 
 const en: Strings = {
@@ -171,8 +275,6 @@ const en: Strings = {
   keyLight: 'Light',
   keyHeavy: 'Heavy',
 
-  reportTitle: (name) => `Report for ${name}`,
-  reportBody: (view) => `The ${view} view screen is wired up in the next step.`,
   back: 'Search another player',
 
   loading: 'Loading match history…',
@@ -183,9 +285,67 @@ const en: Strings = {
     network: 'Cannot reach the server. Check that the backend is running.',
     generic: 'Could not load the match history.',
   },
-  statLabels: { rank: 'Rank', tr: 'TR', winRate: 'Win rate', matches: 'Games analyzed' },
-  unranked: 'Unranked',
-  coldStart: 'Fewer than 10 recent matches, so only the basic metrics are shown without highlights.',
+  report: {
+    meta: (n) => `Last ${n} games analyzed · official API`,
+    viewTag: { light: 'Light · fixed metrics + 3 highlights', lightCold: 'Light · too few games', heavy: 'Heavy · 8 chapters' },
+    viewSwitchAria: 'View — off is Light, on is Heavy',
+    keyRefresh: 'Refresh',
+    keyBack: 'Home',
+    refresh: 'Refresh',
+    refreshing: 'Loading match history…',
+    refreshFailed: 'Could not refresh. Showing the previous result.',
+    unranked: 'Unranked',
+    profile: {
+      season: 'Current season rank',
+      trSub: 'Season ranked score',
+      basis: 'BASIS',
+      trDelta: 'last 10 games',
+      wl: (w, l) => `${w}W ${l}L`,
+      rd: (rd) => `RD ±${rd}`,
+      gamesSub: 'Recent games analyzed',
+      note: 'The change next to TR is the average of your last 10 games minus the 10 before that.',
+    },
+    ai: {
+      loading: 'Generating comment… stats are already shown',
+      failed: 'Could not load the comment.',
+      unavailable: 'Comments are temporarily unavailable.',
+      hint: 'Hover a card to light up its evidence',
+    },
+    win: {
+      title: 'Win / loss',
+      recent: (n) => `Last ${n} games`,
+      w: 'W',
+      l: 'L',
+      overall: (n, rate) => `Overall ${n} games ${rate}`,
+      boardHint: 'Stacks bottom-up · filled cells are wins',
+      empty: 'No ranked games in the last year.',
+    },
+    tr: {
+      title: 'TR trend',
+      games: (n) => `Last ${n} games`,
+      high: 'Period high',
+      low: 'Period low',
+      change: 'Total change',
+      perGame: 'Per game',
+      emptyTitle: 'Not enough history to plot a trend.',
+      emptyBody: (n) => `The TR line starts at 10 games. ${n} games so far.`,
+    },
+    hl: {
+      caption: 'Metrics picked by AI · with the number behind each sentence',
+      coldCaption: 'Not enough data',
+      evidence: 'Evidence',
+      coldTitle: 'Not enough recent match data to show highlights.',
+      coldBody: (n) => `Analysis starts once 10 or more games are on record. ${n} games so far.`,
+      noneTitle: 'No highlight could be tied to a number.',
+      noneBody: 'The metrics the AI picked were not computed for this record, so they are hidden.',
+      failed: 'Could not load the highlights.',
+    },
+    heavy: {
+      title: 'The Heavy view is wired up in the next step.',
+      body: 'The 8-chapter screen is still in progress. For now the results are in the Light view.',
+      toLight: 'Open Light view',
+    },
+  },
 }
 
 export const STRINGS: Record<Lang, Strings> = { ko, en }
