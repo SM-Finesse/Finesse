@@ -1,7 +1,7 @@
-/* 닉네임 제약: 3~16자, 영문 대소문자·숫자·_ 만 허용 (프로토타입 · 마스킹 규칙과 같은 기준) */
+/* 닉네임 제약: 3~16자, 영문 대소문자·숫자·_·- 만 허용 (TETR.IO 유저명 규칙 — 예: -error404-) */
 export const USERNAME_MIN = 3
 export const USERNAME_MAX = 16
-const USERNAME_CHARS = /^[A-Za-z0-9_]+$/
+const USERNAME_CHARS = /^[A-Za-z0-9_-]+$/
 
 export type UsernameError = 'empty' | 'tooShort' | 'tooLong' | 'invalidChars'
 

@@ -57,11 +57,11 @@ describe('LandingPage — 유저명 받아오기', () => {
 
   it('치는 도중에는 오류를 띄우지 않고, 제출 실패 뒤에는 고치는 즉시 오류가 사라진다', async () => {
     const { user, input } = setup()
-    await user.type(input, 'a-')
+    await user.type(input, 'a.')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
     await user.keyboard('{Enter}')
-    expect(screen.getByRole('alert')).toHaveTextContent('영문 · 숫자 · _')
+    expect(screen.getByRole('alert')).toHaveTextContent('영문 · 숫자 · _ · -')
 
     await user.clear(input)
     await user.type(input, 'ab')
