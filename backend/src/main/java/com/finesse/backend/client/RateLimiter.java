@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
  * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈이 완성되면 그쪽 수집 로직으로
  * 교체 예정 (2026-09-29 팀 확인).
  */
-@Component
+@Component("backendTetrioRateLimiter") // calc.collector.RateLimiter와 빈 이름이 겹치지 않게
 public class RateLimiter {
 
     private final Object lock = new Object();

@@ -53,6 +53,24 @@ app:
     heavy-seconds: 60
     heavy-single-server-seconds: 120
 
+# data-eng calc 모듈(StatCalculatorFacade) 설정 — 값은 data-eng 테스트 기준값,
+# max-retry-attempts만 타임아웃 기준 문서(23번)의 "TETR.IO 재시도 1회"에 맞춤 (최초 포함 2회)
+finesse:
+  analytics:
+    cold-start-threshold: 10
+    max-match-window: 300
+    recent-win-loss-window: 40
+    collector:
+      base-url: https://ch.tetr.io/api
+      min-request-interval: 1s
+      max-pages: 3
+      max-matches-per-page: 100
+      max-age-days: 365
+      min-partial-matches: 30
+      max-retry-attempts: 2
+      request-timeout: 5s
+      session-refresh-timeout: 5s
+
 logging:
   level:
     com.finesse.backend: DEBUG

@@ -25,6 +25,10 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	// Swagger UI(/swagger-ui.html) + OpenAPI 문서(/v3/api-docs). 3.x가 Spring Boot 4 대응 라인
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
+	// data-eng calc 모듈(com.finesse.backend.calc) 의존성 — TETR.IO 호출 재시도·서킷브레이커, 운영 지표
+	implementation 'io.github.resilience4j:resilience4j-retry:2.4.0'
+	implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.4.0'
+	implementation 'io.micrometer:micrometer-core'
 	implementation 'com.github.ben-manes.caffeine:caffeine'
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
@@ -35,6 +39,7 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testImplementation 'com.tngtech.archunit:archunit-junit5:1.5.1' // calc 모듈 경계 규칙(ArchitectureTest)
 	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 

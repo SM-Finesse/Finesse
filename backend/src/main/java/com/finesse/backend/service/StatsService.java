@@ -1,15 +1,21 @@
 package com.finesse.backend.service;
 
-import com.finesse.backend.client.RecordNormalizer;
+import com.finesse.backend.calc.collector.UserSummary;
+import com.finesse.backend.calc.domain.DeltaStats;
+import com.finesse.backend.calc.domain.HighlightStats;
+import com.finesse.backend.calc.domain.MatchResult;
+import com.finesse.backend.calc.domain.RecentWinLossStats;
+import com.finesse.backend.calc.domain.RivalryStats;
+import com.finesse.backend.calc.domain.StatResult;
+import com.finesse.backend.calc.service.AnalysisMeta;
+import com.finesse.backend.calc.service.AnalysisOutcome;
+import com.finesse.backend.calc.service.StatCalculatorFacade;
 import com.finesse.backend.client.TetrioClient;
 import com.finesse.backend.config.CacheConfig;
 import com.finesse.backend.config.EndpointProperties;
 import com.finesse.backend.dto.StatsResponse;
 import com.finesse.backend.exception.TetrioApiException;
-import com.finesse.backend.model.NormalizedMatch;
-import com.finesse.backend.service.calc.RivalAggregator;
-import com.finesse.backend.service.calc.StatsCalculator;
-import tools.jackson.databind.JsonNode;
+import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,7 +24,6 @@ import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -36,21 +41,18 @@ public class StatsService {
 
     private static final Logger log = LoggerFactory.getLogger(StatsService.class);
 
+    private static final int RIVAL_PAGE_SIZE = 20;
+
+    private final StatCalculatorFacade statCalculatorFacade;
     private final TetrioClient tetrioClient;
-    private final RecordNormalizer normalizer;
-    private final StatsCalculator calculator;
-    private final RivalAggregator rivalAggregator;
     private final CacheManager cacheManager;
     private final EndpointProperties endpointProperties;
     private final ExecutorService statsExecutor;
 
-    public StatsService(TetrioClient tetrioClient, RecordNormalizer normalizer, StatsCalculator calculator,
-                         RivalAggregator rivalAggregator, CacheManager cacheManager,
+    public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
                          EndpointProperties endpointProperties, @Qualifier("statsExecutor") ExecutorService statsExecutor) {
+        this.statCalculatorFacade = statCalculatorFacade;
         this.tetrioClient = tetrioClient;
-        this.normalizer = normalizer;
-        this.calculator = calculator;
-        this.rivalAggregator = rivalAggregator;
         this.cacheManager = cacheManager;
         this.endpointProperties = endpointProperties;
         this.statsExecutor = statsExecutor;
@@ -119,68 +121,100 @@ public class StatsService {
         }
     }
 
+    /**
+     * 라이트뷰 1차 병합(2026-10-01) — 닉네임을 data-eng calc 모듈(StatCalculatorFacade)에 넘기고,
+     * TETR.IO 호출·수집·정제·콜드스타트 판정·계산 결과를 받아 API 응답(4.1절)으로 옮긴다.
+     * 백엔드는 calc의 공개 타입만 쓴다(ArchitectureTest "백엔드는_calc의_공개_타입만_사용한다").
+     */
     private StatsResponse computeInternal(String normalized) {
-        String sessionId = TetrioClient.newSessionId();
-        TetrioClient.LeagueSummary summary = tetrioClient.fetchLeagueSummary(normalized, sessionId);
+        AnalysisOutcome outcome = statCalculatorFacade.analyze(normalized);
+        // 툴체인이 Java 17이라 sealed 타입 switch 패턴 대신 instanceof로 분기한다
+        if (outcome instanceof AnalysisOutcome.Analyzed analyzed) {
+            return analyzedResponse(normalized, analyzed);
+        }
+        if (outcome instanceof AnalysisOutcome.ColdStartBypass cold) {
+            return coldStartResponse(normalized, cold);
+        }
+        if (outcome instanceof AnalysisOutcome.UserNotFound) {
+            throw new UserNotFoundException(normalized);
+        }
+        AnalysisOutcome.CollectionFailed failed = (AnalysisOutcome.CollectionFailed) outcome;
+        throw new TetrioApiException("TETR.IO 수집 실패(" + failed.status() + "): " + normalized, null);
+    }
 
-        // 프로필 사진·XP·국가·가입일 — 화면 꾸밈용이라 이 호출이 실패해도 stats 전체를 실패시키지 않고 해당 필드만 비운다
+    private StatsResponse coldStartResponse(String normalized, AnalysisOutcome.ColdStartBypass cold) {
+        // TODO(data-eng 협의): 콜드스타트 결과에는 승패 기록이 없어 win_rate·recent_form을 채울 수 없다.
+        //  병합 전에는 10판 미만이어도 있는 만큼 계산해 보냈음 — ColdStartBypass에 RecentWinLossStats 포함 요청.
+        StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(0.0, List.of(), List.of());
+        return new StatsResponse(normalized, true, cold.availableMatches(), Instant.now(),
+                profile(normalized, cold.summary()), fixed, null,
+                new StatsResponse.RoundCurves(List.of(), List.of()),
+                new StatsResponse.Rivals(List.of(), 1, RIVAL_PAGE_SIZE, 0),
+                Map.of("note", "콜드스타트 — 챕터 데이터 없음", "cold_start_reason", cold.reason().name()));
+    }
+
+    private StatsResponse analyzedResponse(String normalized, AnalysisOutcome.Analyzed analyzed) {
+        StatResult r = analyzed.result();
+        AnalysisMeta meta = analyzed.meta();
+        RecentWinLossStats winLoss = r.recentWinLoss();
+        DeltaStats delta = r.delta();
+        HighlightStats highlight = r.highlight();
+
+        // recentResults는 최신순 — recent_form의 "index 0이 가장 최근"과 같은 순서
+        List<String> recentForm = winLoss.recentResults().stream()
+                .map(m -> m == MatchResult.WIN ? "W" : "L")
+                .toList();
+        // TODO(data-eng 협의): 경기별 TR 시계열(tr_trend)·라운드별 곡선(round_curves)은 calc 결과에 없어 빈 값.
+        StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(
+                winLoss.overallWinRate(), List.of(), recentForm);
+
+        StatsResponse.DeltaMetrics deltaMetrics = new StatsResponse.DeltaMetrics(
+                highlight.trTrendDelta(),
+                new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
+                        delta.deltaStride(), delta.deltaInfDs()),
+                new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp()),
+                new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex()),
+                highlight.strengthSplit(),
+                highlight.comebackRate(),
+                highlight.comebackRateAgainst(),
+                highlight.sessionVsSlope());
+
+        RivalryStats rivalry = r.rivalryStats();
+        List<StatsResponse.RivalItem> rivalItems = rivalry.rivals().stream()
+                .limit(RIVAL_PAGE_SIZE)
+                .map(o -> new StatsResponse.RivalItem(o.maskedNickname(), o.matchCount(), o.wins(), o.losses(), null))
+                .toList();
+
+        Map<String, Object> chapters = Map.of(
+                "dropped_records", meta.droppedRecords(),
+                "excluded_matches", meta.excludedMatches(),
+                "previous_matches", meta.previousMatches(),
+                "partial", meta.partial(),
+                "note", "8챕터 차트 데이터 세부 스키마는 [협의 필요]");
+
+        return new StatsResponse(normalized, false, meta.analyzedMatches(), Instant.now(),
+                profile(normalized, analyzed.summary()), fixed, deltaMetrics,
+                new StatsResponse.RoundCurves(List.of(), List.of()),
+                new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
+                chapters);
+    }
+
+    /**
+     * 랭크·TR 등은 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일은 백엔드가 /users/{username}을 직접 불러 채운다.
+     * TODO(data-eng 협의): /users/{username} 호출과 apm/pps/vs를 calc 모듈로 옮기면 백엔드 TetrioClient를 걷어낼 수 있다
+     *  (지금은 레이트리미터가 calc와 따로라 두 모듈 호출이 겹치면 초당 1회를 잠깐 넘길 수 있음).
+     */
+    private StatsResponse.Profile profile(String normalized, UserSummary summary) {
         TetrioClient.UserInfo user;
         try {
-            user = tetrioClient.fetchUserInfo(normalized, sessionId);
+            user = tetrioClient.fetchUserInfo(normalized, TetrioClient.newSessionId());
         } catch (TetrioApiException e) {
             log.warn("TETR.IO 유저 정보 조회 실패 — 프로필 사진·XP·국가·가입일 생략: {}", normalized, e);
             user = new TetrioClient.UserInfo(null, null, null, null, null);
         }
-        StatsResponse.Profile profile = new StatsResponse.Profile(
-                summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
-                summary.apm(), summary.pps(), summary.vs(),
+        return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
+                null, null, null,
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt());
-        Instant updatedAt = Instant.now();
-
-        List<JsonNode> raw = tetrioClient.collectRecentRecords(normalized, sessionId);
-        List<NormalizedMatch> matches = new ArrayList<>();
-        var meta = normalizer.normalize(raw, normalized, matches);
-
-        // 문서23 5.2 콜드스타트 2단계 판정 — ① 요약의 누적 gamesplayed < 10, 또는
-        // ② 수집 창(최근 300판·1년) 안에서 실제로 모인 경기 < 10. 누적 판수는 많아도 최근 1년에
-        // 경기가 없는 유저(예: osk)는 ②에 걸려야 cold_start=false + match_count=0 이 나오지 않는다.
-        if (calculator.isColdStart(summary.gamesPlayed()) || calculator.isColdStart(matches.size())) {
-            // FR-03 콜드스타트 처리 — Δ 계산 자체를 생략하지만, win_rate/recent_form은 표본 하한이 없는
-            // fixed 지표라 있는 만큼(10판 미만)은 그대로 계산해서 채운다 (기능 명세서 3절, 라이트뷰 승패 카드 반영).
-            StatsResponse.FixedMetrics coldFixedMetrics = new StatsResponse.FixedMetrics(
-                    calculator.winRate(matches), List.of(), calculator.recentForm(matches));
-            return new StatsResponse(normalized, true, matches.size(), updatedAt, profile,
-                    coldFixedMetrics,
-                    null, new StatsResponse.RoundCurves(List.of(), List.of()),
-                    new StatsResponse.Rivals(List.of(), 1, 20, 0),
-                    Map.of("note", "콜드스타트 — 챕터 데이터 없음"));
-        }
-
-        StatsResponse.FixedMetrics fixedMetrics = new StatsResponse.FixedMetrics(
-                calculator.winRate(matches), calculator.trTrendSeries(matches), calculator.recentForm(matches));
-
-        StatsResponse.RoundCurves roundCurves = calculator.roundCurves(matches);
-
-        StatsResponse.DeltaMetrics deltaMetrics = new StatsResponse.DeltaMetrics(
-                calculator.trTrendDelta(matches),
-                new StatsResponse.PlaystyleRelative(null, null, null, null), // TODO: statrank 공식 미확정
-                calculator.attackDelta(matches),
-                calculator.defenseDelta(matches),
-                calculator.strengthSplit(matches),
-                calculator.comebackRate(matches),
-                calculator.sessionVsSlope(roundCurves)
-        );
-
-        StatsResponse.Rivals rivals = rivalAggregator.aggregate(matches);
-
-        Map<String, Object> chapters = Map.of(
-                "dropped_records", meta.droppedRecords(),
-                "missing_tr_matches", meta.missingTrMatches(),
-                "note", "8챕터 차트 데이터 세부 스키마는 [협의 필요] — 우선 계산 원자료(round_curves, rivals, delta_metrics)로 구성 가능"
-        );
-
-        return new StatsResponse(normalized, false, matches.size(), updatedAt, profile, fixedMetrics,
-                deltaMetrics, roundCurves, rivals, chapters);
     }
 
     /** TETR.IO 프로필 사진 주소 — 사진을 올린 적 없는 유저는 avatar_revision이 없어 null(응답에서 생략). */

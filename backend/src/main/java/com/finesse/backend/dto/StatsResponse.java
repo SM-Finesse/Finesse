@@ -39,6 +39,7 @@ public record StatsResponse(
             Defense defense,
             Double strengthSplit, // 구간당 10판 미만이면 null (필드 자체 제외에 해당)
             Double comebackRate,
+            Double comebackRateAgainst, // 2판 이상 앞서다 역전당한 비율 (API 명세서 4.1 표)
             Double sessionVsSlope
     ) {
     }
