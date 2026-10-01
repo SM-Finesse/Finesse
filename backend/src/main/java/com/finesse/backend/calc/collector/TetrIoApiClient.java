@@ -3,6 +3,7 @@ package com.finesse.backend.calc.collector;
 import com.finesse.backend.calc.config.CollectorProperties;
 import com.finesse.backend.calc.exception.TetrIoApiException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
+import com.finesse.backend.calc.metrics.AnalyticsMetrics;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -28,14 +29,17 @@ public class TetrIoApiClient implements TetrIoApi {
 
     static final String USER_AGENT = "Finesse-calc/0.1";
     static final String SESSION_HEADER = "X-Session-ID";
+    static final String SUMMARY = "summary";
+    static final String RECORDS = "records";
 
     private final RestClient restClient;
     private final RateLimiter rateLimiter;
     private final RawMatchParser parser;
     private final TetrIoResilience resilience;
+    private final AnalyticsMetrics metrics;
 
     public TetrIoApiClient(CollectorProperties properties, RateLimiter rateLimiter, RawMatchParser parser,
-                           TetrIoResilience resilience) {
+                           TetrIoResilience resilience, AnalyticsMetrics metrics) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(properties.requestTimeout());
         requestFactory.setReadTimeout(properties.requestTimeout());
@@ -47,11 +51,12 @@ public class TetrIoApiClient implements TetrIoApi {
         this.rateLimiter = rateLimiter;
         this.parser = parser;
         this.resilience = resilience;
+        this.metrics = metrics;
     }
 
     @Override
     public UserSummary fetchLeagueSummary(String username, String sessionId) {
-        JsonNode data = get(username, sessionId,
+        JsonNode data = get(SUMMARY, username, sessionId,
                 b -> b.path("/users/{username}/summaries/league").build(username));
         return new UserSummary(
                 username,
@@ -66,7 +71,7 @@ public class TetrIoApiClient implements TetrIoApi {
 
     @Override
     public RecordPage fetchRecentRecords(String username, String sessionId, String afterCursor, int limit) {
-        JsonNode data = get(username, sessionId, b -> b
+        JsonNode data = get(RECORDS, username, sessionId, b -> b
                 .path("/users/{username}/records/league/recent")
                 .queryParam("limit", limit)
                 .queryParamIfPresent("after", Optional.ofNullable(afterCursor))
@@ -74,16 +79,36 @@ public class TetrIoApiClient implements TetrIoApi {
         return parser.parsePage(data);
     }
 
-    private JsonNode get(String username, String sessionId, Function<UriBuilder, URI> uri) {
+    private JsonNode get(String endpoint, String username, String sessionId, Function<UriBuilder, URI> uri) {
         if (sessionId == null || sessionId.isBlank()) {
             throw new IllegalArgumentException("X-Session-ID가 없습니다 (설계서 3.5절)");
         }
-        return resilience.call(() -> fetchOnce(username, sessionId, uri));
+        return resilience.call(() -> fetchOnceMeasured(endpoint, username, sessionId, uri));
+    }
+
+    /** HTTP 1회 시도의 결과와 지연시간을 기록한다 (설계서 27.3절). RateLimiter 대기 시간은 제외한다. */
+    private JsonNode fetchOnceMeasured(String endpoint, String username, String sessionId,
+                                       Function<UriBuilder, URI> uri) {
+        rateLimiter.acquire();
+        long start = System.nanoTime();
+        String outcome = "failure";
+        try {
+            JsonNode data = fetchOnce(username, sessionId, uri);
+            outcome = "success";
+            return data;
+        } catch (TetrIoUserNotFoundException e) {
+            outcome = "not_found";
+            throw e;
+        } catch (TetrIoApiException e) {
+            outcome = e.retryable() ? "retryable_failure" : "failure";
+            throw e;
+        } finally {
+            metrics.recordApiCall(endpoint, outcome, System.nanoTime() - start);
+        }
     }
 
     /** HTTP 1회 시도 — 재시도마다 다시 불린다. */
     private JsonNode fetchOnce(String username, String sessionId, Function<UriBuilder, URI> uri) {
-        rateLimiter.acquire();
         JsonNode root;
         try {
             root = restClient.get()

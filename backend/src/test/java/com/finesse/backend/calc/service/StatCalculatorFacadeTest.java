@@ -6,11 +6,13 @@ import com.finesse.backend.calc.config.AnalyticsProperties;
 import com.finesse.backend.calc.config.CollectorProperties;
 import com.finesse.backend.calc.exception.TetrIoApiException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
+import com.finesse.backend.calc.metrics.AnalyticsMetrics;
 import com.finesse.backend.calc.preprocessing.MatchPreprocessor;
 import com.finesse.backend.calc.preprocessing.MatchScopedPseudonymizer;
 import com.finesse.backend.calc.preprocessing.MatchValidator;
 import com.finesse.backend.calc.preprocessing.NicknamePseudonymizer;
 import com.finesse.backend.calc.service.AnalysisOutcome.ColdStartReason;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -19,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import static com.finesse.backend.calc.fixture.RawMatchFixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +49,10 @@ class StatCalculatorFacadeTest {
     }
 
     private static StatCalculatorFacade facade(TetrIoApi api) {
+        return facade(api, AnalyticsMetrics.noop());
+    }
+
+    private static StatCalculatorFacade facade(TetrIoApi api, AnalyticsMetrics metrics) {
         CollectorProperties cp = new CollectorProperties("http://unused", Duration.ZERO,
                 3, 100, 365, 30, 3, Duration.ofSeconds(3), Duration.ofSeconds(5));
         AnalyticsProperties ap = new AnalyticsProperties(10, 300, 40);
@@ -55,7 +62,7 @@ class StatCalculatorFacadeTest {
         return new StatCalculatorFacade(
                 new TetrIoCollector(api, cp),
                 new MatchPreprocessor(new MatchValidator(), new MatchScopedPseudonymizer()),
-                registry, new NicknamePseudonymizer(), ap, Clock.fixed(NOW, ZoneOffset.UTC));
+                registry, new NicknamePseudonymizer(), ap, Clock.fixed(NOW, ZoneOffset.UTC), metrics);
     }
 
     /** n판(1시간 간격), 앞의 invalid판은 결과가 "draw"라 정제에서 제외된다. 상대는 두 명이 번갈아 나온다. */
@@ -137,6 +144,32 @@ class StatCalculatorFacadeTest {
     void 빈_유저_이름은_거부한다() {
         assertThatThrownBy(() -> facade(api(50, List.of(), false, false)).analyze(" "))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 분석이_끝나면_결과와_계산기별_실행시간을_지표로_남긴다() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        facade(api(50, matches(12, 0), false, false), new AnalyticsMetrics(registry)).analyze("user");
+
+        assertThat(registry.get("finesse.analytics.outcome")
+                .tags("type", "analyzed", "reason", "none").counter().count()).isEqualTo(1.0);
+        for (CalculatorKey key : CalculatorKey.values()) {
+            assertThat(registry.get("finesse.analytics.calculation.duration")
+                    .tag("calculator", key.name().toLowerCase(Locale.ROOT)).timer().count()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void 정제에서_제외된_매치와_Cold_Start_사유를_지표로_남긴다() {
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        facade(api(50, matches(12, 5), false, false), new AnalyticsMetrics(registry)).analyze("user");
+
+        assertThat(registry.get("finesse.analytics.preprocess.excluded")
+                .tag("reason", "invalid_stats").counter().count()).isEqualTo(5.0);
+        assertThat(registry.get("finesse.analytics.outcome")
+                .tags("type", "cold_start", "reason", "too_many_invalid").counter().count()).isEqualTo(1.0);
     }
 
     /** extracting에 쓸 메서드 참조용 */

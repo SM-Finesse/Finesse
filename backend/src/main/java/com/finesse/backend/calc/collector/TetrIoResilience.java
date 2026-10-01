@@ -2,6 +2,7 @@ package com.finesse.backend.calc.collector;
 
 import com.finesse.backend.calc.config.CollectorProperties;
 import com.finesse.backend.calc.exception.TetrIoApiException;
+import com.finesse.backend.calc.metrics.AnalyticsMetrics;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
@@ -32,13 +33,19 @@ public class TetrIoResilience {
 
     private final Retry retry;
     private final CircuitBreaker circuitBreaker;
+    private final AnalyticsMetrics metrics;
 
     @Autowired
-    public TetrIoResilience(CollectorProperties properties) {
-        this(properties.maxRetryAttempts(), Duration.ofMillis(500), defaultCircuitBreakerConfig());
+    public TetrIoResilience(CollectorProperties properties, AnalyticsMetrics metrics) {
+        this(properties.maxRetryAttempts(), Duration.ofMillis(500), defaultCircuitBreakerConfig(), metrics);
     }
 
     TetrIoResilience(int maxAttempts, Duration initialWait, CircuitBreakerConfig circuitBreakerConfig) {
+        this(maxAttempts, initialWait, circuitBreakerConfig, AnalyticsMetrics.noop());
+    }
+
+    TetrIoResilience(int maxAttempts, Duration initialWait, CircuitBreakerConfig circuitBreakerConfig,
+                     AnalyticsMetrics metrics) {
         RetryConfig retryConfig = RetryConfig.custom()
                 .maxAttempts(maxAttempts)                    // 최초 호출 포함 (3 = 최초 1 + 재시도 2)
                 .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(
@@ -47,6 +54,8 @@ public class TetrIoResilience {
                 .build();
         this.retry = Retry.of(NAME, retryConfig);
         this.circuitBreaker = CircuitBreaker.of(NAME, circuitBreakerConfig);
+        this.metrics = metrics;
+        metrics.bindCircuitState(circuitBreaker::getState);
     }
 
     /** 설계서 3.10절 값. 단, 느린 호출 판정은 끈다(아래 주석). */
@@ -73,6 +82,7 @@ public class TetrIoResilience {
         try {
             return decorated.get();
         } catch (CallNotPermittedException e) {
+            metrics.recordCircuitRejected();
             throw new TetrIoApiException("TETR.IO 호출 차단 중 (CircuitBreaker OPEN)", e, false);
         }
     }
