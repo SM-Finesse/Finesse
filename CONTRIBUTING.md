@@ -15,7 +15,7 @@
 다른 담당 브랜치가 main에 병합된 뒤에는, 내 브랜치에서도 며칠 단위로 main을 받아옵니다.
 
 ```bash
-git checkout <내 브랜치>
+git switch <내 브랜치>
 git pull origin main      # 또는 git fetch origin && git merge origin/main
 git push origin <내 브랜치>
 ```
@@ -26,3 +26,14 @@ git push origin <내 브랜치>
 ## 5. 커밋
 - 커밋 작성자 정보(`git config user.name/email`)를 본인 GitHub 계정과 맞춰 주세요. 기여 확인에 사용됩니다.
 - 커밋 메시지 예: `feat(frontend): 매치 목록 페이지 추가`, `fix(calc): APM 계산 오류 수정`
+
+## 6. 브랜치 전환은 `git switch`로
+`frontend`, `backend`, `infra`는 브랜치 이름이면서 폴더 이름이기도 해서, `git checkout frontend`처럼 쓰면 "파일인지 브랜치인지 모호하다"는 오류가 납니다. 브랜치 전환은 항상 `git switch`를 사용하세요.
+
+| 담당 | 입력할 명령 |
+|---|---|
+| 호준수 | `git switch frontend` |
+| 정한비 | `git switch backend` |
+| 위성훈 | `git switch data-eng` |
+| 윤세연 | `git switch llm` |
+| 박덕현 | `git switch infra` |
