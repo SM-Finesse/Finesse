@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,9 +38,12 @@ public class CommentController {
                     scope=light — 단일 JSON 응답 (요약 + 하이라이트 3개). 엔드포인트 상한 40초.
 
                     scope=heavy — SSE 스트림(text/event-stream). 챕터가 끝나는 대로 하나씩 보낸다.
-                    - `event: chapter` / `data: {챕터 결과 JSON}` — 8건 (chapter_id 중복 없음)
-                    - `event: done` / `data: (빈 값)` — 마지막 1건. 받으면 연결을 닫을 것
+                    - `event: chapter` / `id: {chapter_id}` / `data: {챕터 결과 JSON}` — 8건 (chapter_id 중복 없음)
+                    - `event: done` / `data: {"completed": ok 챕터 수, "failed_chapters": [...], "meta": {"elapsed_ms": ...}}`
+                      — 마지막 1건. 받으면 연결을 닫을 것 (닫지 않으면 브라우저가 자동 재연결함)
+                    - `: ping` — 10초마다 보내는 주석 하트비트 (이벤트 아님)
                     상한 60초(LLM 서버 1대면 120초) 안에 못 끝난 챕터는 status=timeout으로 채워서 보낸다.
+                    성공(ok) 챕터만 챕터 단위로 10분 캐시 — 다시 요청하면 캐시된 챕터는 즉시, 나머지만 LLM 재호출.
 
                     Swagger의 Try it out은 스트림이 전부 끝난 뒤 한꺼번에 보여준다.
                     순차 도착을 보려면 브라우저 EventSource나 `curl -N`으로 호출할 것.""")
@@ -65,7 +69,11 @@ public class CommentController {
             @RequestParam String scope) {
         return switch (scope) {
             case "light" -> ResponseEntity.ok(commentService.getLight(username));
-            case "heavy" -> commentService.getHeavyStream(username);
+            // X-Accel-Buffering: no — 앞단 프록시(nginx 등)가 스트림을 모아서 한꺼번에 내보내지 않게
+            case "heavy" -> ResponseEntity.ok()
+                    .header(HttpHeaders.CACHE_CONTROL, "no-cache")
+                    .header("X-Accel-Buffering", "no")
+                    .body(commentService.getHeavyStream(username));
             default -> throw new IllegalArgumentException("scope는 light 또는 heavy만 허용됩니다: " + scope);
         };
     }

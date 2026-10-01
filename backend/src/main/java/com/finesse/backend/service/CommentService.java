@@ -23,8 +23,10 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -40,6 +42,15 @@ public class CommentService {
             "tr_trend", "playstyle", "attack", "defense",
             "strength_split", "comeback_rate", "session_vs_slope", "rivals"
     );
+
+    // heavy SSE 하트비트 간격 — 이벤트가 한동안 없을 때 프록시·브라우저가 유휴 연결로 보고 끊지 않게
+    private static final long HEARTBEAT_SECONDS = 10;
+
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "sse-heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
 
     private final StatsService statsService;
     private final LlmClient llmClient;
@@ -71,7 +82,7 @@ public class CommentService {
     /**
      * scope=heavy — 12절 4번(2026-09-29 확정): 챕터가 완료되는 대로 SSE로 개별 전달한다(순차/스트리밍).
      * 전체를 모아 한 번에 응답하던 allOf 방식은 폐기 — 사용자가 채워진 부분부터 바로 볼 수 있게 하기 위함.
-     * 캐시 히트면 저장된 8개 챕터를 그대로(빠르게) 스트리밍하고, 미스면 실제 계산하며 하나씩 흘려보낸다.
+     * 캐시는 성공(ok)한 챕터만 챕터 단위로 둔다 — 캐시에 있는 챕터는 즉시 보내고, 없는 챕터만 LLM에 돌린다.
      */
     public SseEmitter getHeavyStream(String username) {
         String normalized = username.toLowerCase();
@@ -80,14 +91,30 @@ public class CommentService {
         SseEmitter emitter = new SseEmitter(150_000L);
         Cache cache = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_CACHE);
 
-        HeavyCommentResponse cached = cache != null ? cache.get(normalized, HeavyCommentResponse.class) : null;
-        if (cached != null) {
-            llmExecutor.execute(() -> streamAndComplete(emitter, cached.chapters()));
+        HeavyChapterCache cached = cache != null ? cache.get(normalized, HeavyChapterCache.class) : null;
+        Map<String, HeavyCommentResponse.ChapterResult> cachedOk = cached != null ? cached.ok() : Map.of();
+        if (cachedOk.size() == HEAVY_CHAPTER_IDS.size()) {
+            llmExecutor.execute(() -> streamAndComplete(emitter,
+                    HEAVY_CHAPTER_IDS.stream().map(cachedOk::get).toList()));
             return emitter;
         }
 
-        llmExecutor.execute(() -> computeHeavyStreaming(normalized, emitter, cache));
+        llmExecutor.execute(() -> computeHeavyStreaming(normalized, emitter, cache, cachedOk));
         return emitter;
+    }
+
+    /**
+     * comment-heavy 캐시 값 — status=ok인 챕터만 담는다. failed/timeout까지 통째로 넣으면 10분 동안 실패가
+     * 고정되므로(새로고침해도 같은 빈 각주), 실패 챕터는 다음 요청 때 그것만 다시 시도하게 한다.
+     * light의 "하이라이트 3개 미만 응답은 캐시하지 않음"과 같은 원칙.
+     */
+    private record HeavyChapterCache(Map<String, HeavyCommentResponse.ChapterResult> ok) {
+    }
+
+    /** done 이벤트 data — 프론트가 "다 끝났다"와 "몇 개가 실패했는지"를 한 번에 알 수 있게. */
+    private record HeavyStreamDone(int completed, List<String> failedChapters, Meta meta) {
+        private record Meta(long elapsedMs) {
+        }
     }
 
     private void streamAndComplete(SseEmitter emitter, List<HeavyCommentResponse.ChapterResult> results) {
@@ -96,13 +123,13 @@ public class CommentService {
                 return;
             }
         }
-        sendDone(emitter);
+        sendDone(emitter, results, 0);
         emitter.complete();
     }
 
     private boolean sendChapter(SseEmitter emitter, HeavyCommentResponse.ChapterResult result) {
         try {
-            emitter.send(SseEmitter.event().name("chapter").data(result));
+            emitter.send(SseEmitter.event().id(result.chapterId()).name("chapter").data(result));
             return true;
         } catch (IOException e) {
             // 클라이언트가 이미 연결을 끊음 — 더 보내지 않는다 (이미 LLM에 보낸 호출은 계속 진행해서 캐싱에는 반영)
@@ -115,9 +142,15 @@ public class CommentService {
      * (SSE 스펙 동작) — 그래서 "다 보냈다"는 걸 알리는 이벤트를 명시적으로 하나 보내고, 프론트는 이걸
      * 받으면 자기가 먼저 EventSource를 닫도록 한다. 8개를 다 못 채웠어도(타임아웃 등) 항상 보낸다.
      */
-    private void sendDone(SseEmitter emitter) {
+    private void sendDone(SseEmitter emitter, List<HeavyCommentResponse.ChapterResult> results, long elapsedMs) {
+        List<String> failed = results.stream()
+                .filter(r -> !HeavyCommentResponse.STATUS_OK.equals(r.status()))
+                .map(HeavyCommentResponse.ChapterResult::chapterId)
+                .toList();
+        HeavyStreamDone done = new HeavyStreamDone(results.size() - failed.size(), failed,
+                new HeavyStreamDone.Meta(elapsedMs));
         try {
-            emitter.send(SseEmitter.event().name("done").data(""));
+            emitter.send(SseEmitter.event().name("done").data(done));
         } catch (IOException e) {
             // 이미 끊긴 연결 — 무시
         }
@@ -139,7 +172,8 @@ public class CommentService {
      * 8챕터를 각각 dispatch하고, 챕터 하나가 끝날 때마다(thenAccept) 바로 SSE로 전송한다.
      * allOf는 "다 끝났는지" 판정에만 쓰고, 전달 자체는 더 이상 allOf 완료를 기다리지 않는다.
      */
-    private void computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache) {
+    private void computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache,
+                                       Map<String, HeavyCommentResponse.ChapterResult> cachedOk) {
         StatsResponse stats = statsService.getStats(normalized, false);
         if (stats.coldStart()) {
             List<HeavyCommentResponse.ChapterResult> results = HEAVY_CHAPTER_IDS.stream()
@@ -163,8 +197,40 @@ public class CommentService {
         List<CompletableFuture<Void>> allDone = new ArrayList<>();
         // 챕터 선점+전송과 마감(timeout 채우기+done)을 한 락으로 묶는다 — 선점한 챕터가 done 뒤에 나가는 일이 없게
         Object streamLock = new Object();
+        emitter.onError(e -> clientGone.set(true));
+        emitter.onTimeout(() -> clientGone.set(true));
+
+        // 캐시에 남아 있던 성공 챕터는 LLM을 다시 부르지 않고 바로 보낸다
+        synchronized (streamLock) {
+            for (String chapterId : HEAVY_CHAPTER_IDS) {
+                HeavyCommentResponse.ChapterResult hit = cachedOk.get(chapterId);
+                if (hit != null) {
+                    collected.put(chapterId, hit);
+                    if (!clientGone.get() && !sendChapter(emitter, hit)) {
+                        clientGone.set(true);
+                    }
+                }
+            }
+        }
+
+        // 챕터가 늦게 올 때 프록시·브라우저가 유휴 스트림을 끊지 않도록 주석 줄(": ping")을 주기적으로 보낸다
+        ScheduledFuture<?> heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
+            synchronized (streamLock) {
+                if (clientGone.get()) {
+                    return;
+                }
+                try {
+                    emitter.send(SseEmitter.event().comment("ping"));
+                } catch (IOException | IllegalStateException e) {
+                    clientGone.set(true);
+                }
+            }
+        }, HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
 
         for (String chapterId : HEAVY_CHAPTER_IDS) {
+            if (collected.containsKey(chapterId)) {
+                continue;
+            }
             Object data = chapterData.get(chapterId);
             CompletableFuture<Void> f = CompletableFuture
                     .supplyAsync(() -> llmClient.callHeavyChapter(chapterId, data, deadline), llmExecutor)
@@ -184,18 +250,23 @@ public class CommentService {
         }
 
         long startedAt = System.currentTimeMillis();
-        CompletableFuture<Void> all = CompletableFuture.allOf(allDone.toArray(new CompletableFuture[0]));
-        try {
-            all.get(heavyTimeoutSeconds, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            // 전체 상한 시간 초과 — 엔드포인트 타임아웃이 개별 챕터 재시도보다 우선 (4.2-1절)
-        } catch (Exception e) {
-            // 개별 실패는 각 future에서 이미 흡수됨 (LlmClient가 예외를 던지지 않으므로 여기 도달할 일은 드묾)
-        }
-        long elapsedMs = System.currentTimeMillis() - startedAt;
-        log.info("heavy 코멘트 8챕터 처리 종료: {}ms (한도 {}s, 서버 {}대) ({}) - {}",
-                elapsedMs, heavyTimeoutSeconds, serverCount, normalized, HEAVY_CHAPTER_IDS);
+        // 마감까지 블로킹으로 기다리지 않는다 — 기다리는 동안 llmExecutor 스레드를 붙잡으면 동시 heavy 요청이
+        // 늘 때 챕터 호출이 돌 스레드가 모자라진다. 전체 상한이 되면 completeOnTimeout이 마감 처리를 깨운다
+        // (엔드포인트 타임아웃이 개별 챕터 재시도보다 우선, 4.2-1절).
+        CompletableFuture.allOf(allDone.toArray(new CompletableFuture[0]))
+                .completeOnTimeout(null, heavyTimeoutSeconds, TimeUnit.SECONDS)
+                .whenComplete((ignored, error) -> {
+                    heartbeat.cancel(false);
+                    long elapsedMs = System.currentTimeMillis() - startedAt;
+                    log.info("heavy 코멘트 처리 종료: {}ms (한도 {}s, 서버 {}대, 캐시 재사용 {}챕터) ({})",
+                            elapsedMs, heavyTimeoutSeconds, serverCount, cachedOk.size(), normalized);
+                    finishHeavyStream(normalized, emitter, cache, collected, clientGone, streamLock, elapsedMs);
+                });
+    }
 
+    private void finishHeavyStream(String normalized, SseEmitter emitter, Cache cache,
+                                   Map<String, HeavyCommentResponse.ChapterResult> collected,
+                                   AtomicBoolean clientGone, Object streamLock, long elapsedMs) {
         // 마감까지 못 끝난 챕터는 timeout으로 채워서 전송 — putIfAbsent라 늦게 도착한 실제 결과와 겹쳐도
         // 챕터당 1건만 나가고, done 전에 항상 정확히 8건이 간다(프론트가 이 전제로 짜여 있음)
         List<HeavyCommentResponse.ChapterResult> finalResults = new ArrayList<>();
@@ -210,12 +281,18 @@ public class CommentService {
                 finalResults.add(existing != null ? existing : timeout);
             }
             if (!clientGone.get()) {
-                sendDone(emitter);
+                sendDone(emitter, finalResults, elapsedMs);
             }
         }
 
-        if (cache != null) {
-            cache.put(normalized, new HeavyCommentResponse(finalResults));
+        Map<String, HeavyCommentResponse.ChapterResult> ok = new LinkedHashMap<>();
+        for (HeavyCommentResponse.ChapterResult r : finalResults) {
+            if (HeavyCommentResponse.STATUS_OK.equals(r.status())) {
+                ok.put(r.chapterId(), r);
+            }
+        }
+        if (cache != null && !ok.isEmpty()) {
+            cache.put(normalized, new HeavyChapterCache(Map.copyOf(ok)));
         }
         emitter.complete();
     }
