@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.*;
 class DeltaStatCalculatorTest {
 
     private static final double TOL = 1e-9;
+    private static final double TOL4 = 1e-4; // tan이 들어가는 Weighted APP은 소수점 4자리 비교
     private final DeltaStatCalculator calculator = new DeltaStatCalculator();
 
     private DeltaStats calc(MatchHistory... matches) {
@@ -34,6 +35,18 @@ class DeltaStatCalculatorTest {
     }
 
     @Test
+    void 공격_수비_하이라이트_Delta를_FancyMath_공식으로_계산한다() {
+        // 본인 APM 60 / PPS 1.0 / VS 120 → VS/APM 2.0, Cheese −20.0,  wAPP 0.8545
+        // 상대 APM 30 / PPS 1.0 / VS 60  → VS/APM 2.0, Cheese  27.5,  wAPP 0.4927
+        //   (상대 DS/S = 0.6 − 0.5 = 0.1 → Cheese = 0.1×150 + 0×50 + 0.1×125 = 27.5)
+        DeltaStats s = calc(delta(60, 1.0, 120, 30, 1.0, 60));
+
+        assertThat(s.deltaVsApm()).isCloseTo(0.0, within(TOL));
+        assertThat(s.deltaCheeseIndex()).isCloseTo(-47.5, within(TOL));
+        assertThat(s.deltaWeightedApp()).isCloseTo(0.3618, within(TOL4));
+    }
+
+    @Test
     void 매치별_Delta를_산술평균한다() {
         // 매치1: ΔPPS 0,   ΔAPM 30, ΔVS 60, ΔAPP +0.5
         // 매치2: ΔPPS 0.5, ΔAPM 0,  ΔVS 0,  ΔAPP 1.0 − 1.5 = −0.5
@@ -44,6 +57,11 @@ class DeltaStatCalculatorTest {
         assertThat(s.deltaApm()).isCloseTo(15.0, within(TOL));
         assertThat(s.deltaVs()).isCloseTo(30.0, within(TOL));
         assertThat(s.deltaApp()).isCloseTo(0.0, within(TOL));
+        // 매치2: 본인 Cheese −66.6667 / wAPP 0.7185, 상대 (90, 1.0, 150) Cheese −129.1667 / wAPP 1.0357
+        //   ΔCheese: (−47.5 + 62.5) / 2 = 7.5, ΔwAPP: (0.3618 − 0.3172) / 2 = 0.0223
+        assertThat(s.deltaVsApm()).isCloseTo(0.0, within(TOL));
+        assertThat(s.deltaCheeseIndex()).isCloseTo(7.5, within(TOL));
+        assertThat(s.deltaWeightedApp()).isCloseTo(0.0223, within(TOL4));
     }
 
     @Test

@@ -16,8 +16,7 @@ import java.util.List;
 @Component
 public class FancyMathCalculator implements AnalyticsCalculator<FancyStats> {
 
-    static final double MIN_PPS = 0.1;
-    static final double DIVERGENCE_EPSILON = 1e-6;
+    static final double MIN_PPS = FancyFormulas.MIN_PPS;
 
     @Override
     public CalculatorKey key() {
@@ -74,36 +73,33 @@ public class FancyMathCalculator implements AnalyticsCalculator<FancyStats> {
         return m.myApm() > 0.0 && m.myPps() >= MIN_PPS;
     }
 
+    // 공식은 FancyFormulas에 있다 (DeltaStatCalculator와 공유).
+
     static double app(double apm, double pps) {
-        return apm / (pps * 60.0);
+        return FancyFormulas.app(apm, pps);
     }
 
     static double vsApm(double vs, double apm) {
-        return vs / apm;
+        return FancyFormulas.vsApm(vs, apm);
     }
 
     static double dsS(double vs, double apm) {
-        return (vs / 100.0) - (apm / 60.0);
+        return FancyFormulas.dsS(vs, apm);
     }
 
     static double dsP(double dsS, double pps) {
-        return dsS / pps;
+        return FancyFormulas.dsP(dsS, pps);
     }
 
     static double cheeseIndex(double dsP, double vsApm, double app) {
-        return (dsP * 150.0) + ((vsApm - 2.0) * 50.0) + (0.6 - app) * 125.0;
+        return FancyFormulas.cheeseIndex(dsP, vsApm, app);
     }
 
     static double gbE(double app, double dsS, double pps) {
-        return ((app * dsS) / pps) * 2.0;
+        return FancyFormulas.gbE(app, dsS, pps);
     }
 
-    /** tan 입력이 ±90°에 가까워 발산하면 APP 원값으로 대체한다 (설계서 6.4절). */
     static double weightedApp(double app, double cheese) {
-        double radians = Math.toRadians((cheese / -30.0) + 1.0);
-        if (Math.abs(Math.cos(radians)) < DIVERGENCE_EPSILON) {
-            return app;
-        }
-        return app - 5.0 * Math.tan(radians);
+        return FancyFormulas.weightedApp(app, cheese);
     }
 }

@@ -22,7 +22,6 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
     static final double TR_TREND_RATIO = 0.1;               // 11.1절
     static final int QUINTILES = 5;                         // 11.2절
     static final int COMEBACK_ROUND_GAP = 2;                // 11.3절: 2판 이상 열세/우세
-    static final int COMEBACK_AGAINST_MIN_OPPORTUNITIES = 10; // 11.3부절
 
     /** 11.6절 tie-breaker: TR Gap(상대 − 본인) 내림차순 → playedAt 내림차순 → matchId 오름차순 */
     static final Comparator<MatchHistory> BY_TR_GAP_DESC =
@@ -53,8 +52,12 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
         List<MatchHistory> leadOpp = matches.stream()
                 .filter(m -> hadRoundGap(m, true)).toList();
         int comebackAgainstAllowed = (int) leadOpp.stream().filter(m -> !m.isWin()).count();
-        Double comebackRateAgainst = leadOpp.size() < COMEBACK_AGAINST_MIN_OPPORTUNITIES
+        Double comebackRateAgainst = leadOpp.isEmpty()
                 ? null : (double) comebackAgainstAllowed / leadOpp.size();
+
+        // 하이라이트 지표 설계(2026-09-30): 둘 중 하나라도 분모 0이면 null
+        Double deltaComeback = comebackRate == null || comebackRateAgainst == null
+                ? null : comebackRate - comebackRateAgainst;
 
         double vsSlope = sessionVsSlope(matches);
 
@@ -65,6 +68,7 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
                 trTrend, strengthSplit,
                 comebackOpp.size(), comebackWon, comebackRate,
                 leadOpp.size(), comebackAgainstAllowed, comebackRateAgainst,
+                deltaComeback,
                 vsSlope, eligible
         );
     }

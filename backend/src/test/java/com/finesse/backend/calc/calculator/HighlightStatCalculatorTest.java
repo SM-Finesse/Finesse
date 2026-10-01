@@ -112,7 +112,7 @@ class HighlightStatCalculatorTest {
     // ── comeback_rate_against (11.3부) ────────────────────
 
     @Test
-    void 역전_허용_기회가_10회_이상이면_역전당한_비율을_계산한다() {
+    void 역전_허용_기회가_있으면_역전당한_비율을_계산한다() {
         // W W L L L (LOSE) × 3 → 역전당함 / W W W (WIN) × 7 → 지켜냄
         List<MatchHistory> matches = new ArrayList<>();
         for (int i = 0; i < 3; i++) matches.add(rounds(LOSE, true, true, false, false, false));
@@ -126,14 +126,54 @@ class HighlightStatCalculatorTest {
     }
 
     @Test
-    void 역전_허용_기회가_10회_미만이면_null이지만_모수는_반환한다() {
+    void 역전_허용_기회가_10회_미만이어도_비율을_계산한다() {
+        // 최소 표본 10회 조건 폐기 (하이라이트 지표 설계 2026-09-30: 분모 0일 때만 null)
         List<MatchHistory> matches = new ArrayList<>();
         for (int i = 0; i < 9; i++) matches.add(rounds(WIN, true, true, true));
 
         HighlightStats s = calc(matches);
 
         assertThat(s.comebackAgainstOpportunities()).isEqualTo(9);
+        assertThat(s.comebackAgainstAllowed()).isZero();
+        assertThat(s.comebackRateAgainst()).isCloseTo(0.0, within(TOL));
+    }
+
+    @Test
+    void 역전_허용_기회가_0회면_comeback_rate_against는_null이다() {
+        HighlightStats s = calc(List.of(rounds(WIN, true, false, true)));
+
+        assertThat(s.comebackAgainstOpportunities()).isZero();
         assertThat(s.comebackRateAgainst()).isNull();
+    }
+
+    // ── delta_comeback (하이라이트 지표 설계 2026-09-30) ──
+
+    @Test
+    void delta_comeback은_comeback_rate에서_comeback_rate_against를_뺀다() {
+        // 역전 기회: L L W W W (WIN, 성공), L L W L (LOSE, 실패)      → comeback_rate 1/2
+        // 역전 허용 기회: W W L L L (LOSE, 역전당함), W W W (WIN) × 2 → comeback_rate_against 1/3
+        // delta_comeback = 0.5 − 0.3333 = 0.1667
+        HighlightStats s = calc(List.of(
+                rounds(WIN, false, false, true, true, true),
+                rounds(LOSE, false, false, true, false),
+                rounds(LOSE, true, true, false, false, false),
+                rounds(WIN, true, true, true),
+                rounds(WIN, true, true, true)));
+
+        assertThat(s.comebackRate()).isCloseTo(0.5, within(TOL));
+        assertThat(s.comebackRateAgainst()).isCloseTo(1.0 / 3, within(TOL));
+        assertThat(s.deltaComeback()).isCloseTo(0.5 - 1.0 / 3, within(TOL));
+    }
+
+    @Test
+    void 두_비율_중_하나라도_분모가_0이면_delta_comeback은_null이다() {
+        HighlightStats onlyComeback = calc(List.of(rounds(WIN, false, false, true, true, true)));
+        HighlightStats onlyLead = calc(List.of(rounds(WIN, true, true, true)));
+
+        assertThat(onlyComeback.comebackRate()).isNotNull();
+        assertThat(onlyComeback.deltaComeback()).isNull();
+        assertThat(onlyLead.comebackRateAgainst()).isNotNull();
+        assertThat(onlyLead.deltaComeback()).isNull();
     }
 
     // ── session_vs_slope (11.4, 11.5) ─────────────────────
@@ -171,6 +211,7 @@ class HighlightStatCalculatorTest {
         assertThat(s.strengthSplit()).isNull();
         assertThat(s.comebackRate()).isNull();
         assertThat(s.comebackRateAgainst()).isNull();
+        assertThat(s.deltaComeback()).isNull();
         assertThat(s.sessionVsSlope()).isEqualTo(0.0);
         assertThat(s.eligible()).isFalse();
     }
