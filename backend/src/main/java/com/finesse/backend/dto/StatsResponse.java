@@ -12,6 +12,7 @@ public record StatsResponse(
         String username,
         boolean coldStart,
         int matchCount,
+        Instant updatedAt, // TETR.IO에서 수집·계산한 시각 — 캐시 hit여도 이 값 그대로 ("N분 전 갱신" 표시용)
         Profile profile,
         FixedMetrics fixedMetrics,
         DeltaMetrics deltaMetrics,
@@ -20,7 +21,11 @@ public record StatsResponse(
         Map<String, Object> chapters // 헤비 뷰 8챕터 차트 데이터 — 세부 스키마 [협의 필요], 확정 전까지 자유 구조
 ) {
 
-    public record Profile(String rank, double tr, double glicko, double rd) {
+    // avatarUrl·xp·country·joinedAt은 /users/{username} 호출이 실패했거나 값이 없는 계정이면 null(응답에서 생략).
+    // avatarUrl은 검색한 본인 것만 — 상대(라이벌) 사진은 닉네임 마스킹 원칙(FR-09)에 어긋나 내려주지 않는다.
+    public record Profile(String rank, double tr, double glicko, double rd,
+                          Double apm, Double pps, Double vs,
+                          String avatarUrl, Double xp, String country, Instant joinedAt) {
     }
 
     // recentForm: 최근 최대 40경기 승패("W"/"L"), matches[0]이 최신이므로 index 0이 가장 최근 경기

@@ -18,6 +18,7 @@ import java.util.UUID;
  * TETR.IO 공식 API 호출 — Finesse-API명세서 4.1-1절, TETR.IO API 연동확인 문서, 데이터 수집 명세 1~4장.
  * 실제 검증된 엔드포인트만 사용한다:
  *   GET /users/{username}/summaries/league
+ *   GET /users/{username}  (프로필 사진·XP·국가·가입일)
  *   GET /users/{username}/records/league/recent?limit=100&after={pri}:{sec}:{ter}
  *
  * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈(CollectorProperties 등)이 완성되면
@@ -36,7 +37,12 @@ public class TetrioClient {
         this.rateLimiter = rateLimiter;
     }
 
-    public record LeagueSummary(String rank, double tr, double glicko, double rd, Double gxe, int gamesPlayed) {
+    public record LeagueSummary(String rank, double tr, double glicko, double rd, Double gxe, int gamesPlayed,
+                                Double apm, Double pps, Double vs) {
+    }
+
+    /** GET /users/{username} — 프로필 패널용 유저 정보. ts·country·avatar_revision은 없는 계정도 있다. */
+    public record UserInfo(String id, Double xp, String country, Instant joinedAt, Long avatarRevision) {
     }
 
     public record RecordPage(List<JsonNode> entries, String nextAfterCursor) {
@@ -58,7 +64,33 @@ public class TetrioClient {
                 data.path("glicko").asDouble(),
                 data.path("rd").asDouble(),
                 data.hasNonNull("gxe") ? data.path("gxe").asDouble() : null,
-                data.path("gamesplayed").asInt()
+                data.path("gamesplayed").asInt(),
+                doubleOrNull(data, "apm"),
+                doubleOrNull(data, "pps"),
+                doubleOrNull(data, "vs")
+        );
+    }
+
+    /**
+     * 프로필 사진(_id + avatar_revision)·XP·국가·가입일은 이 API에서만 나온다.
+     * 유저 존재 확인은 fetchLeagueSummary가 먼저 끝낸 뒤라, 여기서는 404도 일반 실패로 본다.
+     */
+    public UserInfo fetchUserInfo(String usernameLower, String sessionId) {
+        JsonNode data;
+        try {
+            data = getJson("/users/" + usernameLower, sessionId);
+        } catch (UserNotFoundException e) {
+            throw new TetrioApiException("TETR.IO 유저 정보 없음: " + usernameLower, e);
+        }
+        String ts = textOrNull(data, "ts");
+        Double xp = doubleOrNull(data, "xp");
+        return new UserInfo(
+                textOrNull(data, "_id"),
+                xp != null && xp >= 0 ? xp : null, // 시스템 계정 등은 xp=-1 — 레벨 계산에 쓰면 안 되므로 생략
+
+                textOrNull(data, "country"),
+                ts != null ? Instant.parse(ts) : null,
+                data.hasNonNull("avatar_revision") ? data.path("avatar_revision").asLong() : null
         );
     }
 
@@ -141,5 +173,9 @@ public class TetrioClient {
 
     private static String textOrNull(JsonNode node, String field) {
         return node.hasNonNull(field) ? node.path(field).asText() : null;
+    }
+
+    private static Double doubleOrNull(JsonNode node, String field) {
+        return node.hasNonNull(field) ? node.path(field).asDouble() : null;
     }
 }

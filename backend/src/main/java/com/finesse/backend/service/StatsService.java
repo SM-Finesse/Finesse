@@ -10,11 +10,14 @@ import com.finesse.backend.model.NormalizedMatch;
 import com.finesse.backend.service.calc.RivalAggregator;
 import com.finesse.backend.service.calc.StatsCalculator;
 import tools.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +33,8 @@ import java.util.concurrent.TimeoutException;
  */
 @Service
 public class StatsService {
+
+    private static final Logger log = LoggerFactory.getLogger(StatsService.class);
 
     private final TetrioClient tetrioClient;
     private final RecordNormalizer normalizer;
@@ -118,8 +123,19 @@ public class StatsService {
         String sessionId = TetrioClient.newSessionId();
         TetrioClient.LeagueSummary summary = tetrioClient.fetchLeagueSummary(normalized, sessionId);
 
+        // 프로필 사진·XP·국가·가입일 — 화면 꾸밈용이라 이 호출이 실패해도 stats 전체를 실패시키지 않고 해당 필드만 비운다
+        TetrioClient.UserInfo user;
+        try {
+            user = tetrioClient.fetchUserInfo(normalized, sessionId);
+        } catch (TetrioApiException e) {
+            log.warn("TETR.IO 유저 정보 조회 실패 — 프로필 사진·XP·국가·가입일 생략: {}", normalized, e);
+            user = new TetrioClient.UserInfo(null, null, null, null, null);
+        }
         StatsResponse.Profile profile = new StatsResponse.Profile(
-                summary.rank(), summary.tr(), summary.glicko(), summary.rd());
+                summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
+                summary.apm(), summary.pps(), summary.vs(),
+                avatarUrl(user), user.xp(), user.country(), user.joinedAt());
+        Instant updatedAt = Instant.now();
 
         List<JsonNode> raw = tetrioClient.collectRecentRecords(normalized, sessionId);
         List<NormalizedMatch> matches = new ArrayList<>();
@@ -133,7 +149,7 @@ public class StatsService {
             // fixed 지표라 있는 만큼(10판 미만)은 그대로 계산해서 채운다 (기능 명세서 3절, 라이트뷰 승패 카드 반영).
             StatsResponse.FixedMetrics coldFixedMetrics = new StatsResponse.FixedMetrics(
                     calculator.winRate(matches), List.of(), calculator.recentForm(matches));
-            return new StatsResponse(normalized, true, matches.size(), profile,
+            return new StatsResponse(normalized, true, matches.size(), updatedAt, profile,
                     coldFixedMetrics,
                     null, new StatsResponse.RoundCurves(List.of(), List.of()),
                     new StatsResponse.Rivals(List.of(), 1, 20, 0),
@@ -163,7 +179,15 @@ public class StatsService {
                 "note", "8챕터 차트 데이터 세부 스키마는 [협의 필요] — 우선 계산 원자료(round_curves, rivals, delta_metrics)로 구성 가능"
         );
 
-        return new StatsResponse(normalized, false, matches.size(), profile, fixedMetrics,
+        return new StatsResponse(normalized, false, matches.size(), updatedAt, profile, fixedMetrics,
                 deltaMetrics, roundCurves, rivals, chapters);
+    }
+
+    /** TETR.IO 프로필 사진 주소 — 사진을 올린 적 없는 유저는 avatar_revision이 없어 null(응답에서 생략). */
+    private static String avatarUrl(TetrioClient.UserInfo user) {
+        if (user.id() == null || user.avatarRevision() == null) {
+            return null;
+        }
+        return "https://tetr.io/user-content/avatars/" + user.id() + ".jpg?rv=" + user.avatarRevision();
     }
 }
