@@ -4,6 +4,7 @@ import { InfoBadge, InfoPanel } from '../components/InfoPanel'
 import { Kbd, KeyHint } from '../components/Kbd'
 import { LogoMark } from '../components/LogoMark'
 import { ModeCard } from '../components/ModeCard'
+import { RecentSearches } from '../components/RecentSearches'
 import { SiteFooter } from '../components/SiteFooter'
 import { SiteHeader } from '../components/SiteHeader'
 import { UsernameForm } from '../components/UsernameForm'
@@ -12,16 +13,16 @@ import { useI18n } from '../i18n/context'
 import { validateUsername } from '../lib/username'
 import type { AnalyzeRequest, View } from '../types'
 
-const EXAMPLES = ['ExamplePlayer', 'NewPlayer'] as const
-
 interface Props {
   view: View
   onViewChange: (view: View) => void
   onAnalyze: (req: AnalyzeRequest) => void
   initialUsername?: string
+  recent?: string[]
+  onRemoveRecent?: (name: string) => void
 }
 
-export function LandingPage({ view, onViewChange, onAnalyze, initialUsername = '' }: Props) {
+export function LandingPage({ view, onViewChange, onAnalyze, initialUsername = '', recent = [], onRemoveRecent = () => {} }: Props) {
   const { t } = useI18n()
   const [query, setQuery] = useState(initialUsername)
   /* 제출을 한 번 시도한 뒤부터 입력마다 다시 검사한다 — 치는 도중에 빨간 글씨를 띄우지 않기 위해 */
@@ -43,10 +44,9 @@ export function LandingPage({ view, onViewChange, onAnalyze, initialUsername = '
     onAnalyze({ username: check.value, view })
   }
 
-  function fillExample(name: string) {
+  function searchRecent(name: string) {
     setQuery(name)
-    setAttempted(false)
-    inputRef.current?.focus()
+    onAnalyze({ username: name, view })
   }
 
   function closeInfo() {
@@ -117,21 +117,9 @@ export function LandingPage({ view, onViewChange, onAnalyze, initialUsername = '
                 inputRef={inputRef}
               />
 
-              {/* 예시는 왼쪽, 단축키 안내는 오른쪽 — 좁아지면 두 줄로 접힌다 */}
+              {/* 최근 검색은 왼쪽, 단축키 안내는 오른쪽 — 좁아지면 두 줄로 접힌다 */}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-x-7 gap-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[13px] text-[#7A8A99]">{t.examples}</span>
-                  {EXAMPLES.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      onClick={() => fillExample(name)}
-                      className="rounded border-2 border-[#35617F] bg-surface px-3 py-[5px] font-display text-xs text-muted shadow-[inset_0_1px_0_rgba(255,255,255,.06)] transition-colors hover:border-primary-bright hover:text-primary-bright"
-                    >
-                      {name === 'NewPlayer' ? t.exampleCold : name}
-                    </button>
-                  ))}
-                </div>
+                <RecentSearches names={recent} onPick={searchRecent} onRemove={onRemoveRecent} />
                 <div className="flex flex-wrap items-center justify-end gap-4 font-mono text-[11px] tracking-[.1em] text-faint max-sm:hidden">
                   {keyCaps}
                   <span>{t.noLogin}</span>

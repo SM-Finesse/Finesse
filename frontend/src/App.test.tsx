@@ -56,6 +56,25 @@ describe('App — 랜딩 → 결과 화면', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('서버에 연결할 수 없습니다')
   })
 
+  it('조회에 성공한 유저만 최근 검색에 남고, 다음 방문에도 유지된다', async () => {
+    routeFetch({
+      stats: [() => json({ error_code: 'USER_NOT_FOUND', message: 'x' }, 404), () => json(STATS)],
+      comment: [pending],
+    })
+    const user = await submit('ghost_user')
+    await screen.findByRole('alert')
+    await user.keyboard('{Escape}')
+    expect(screen.getByText('검색한 유저가 여기에 쌓입니다')).toBeInTheDocument()
+
+    const input = screen.getByRole('textbox', { name: '유저명' })
+    await user.clear(input)
+    await user.type(input, 'ExamplePlayer{Enter}')
+    await screen.findByRole('region', { name: 'PROFILE' })
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('list', { name: '최근 검색' })).toHaveTextContent('exampleplayer')
+    expect(JSON.parse(localStorage.getItem('finesse.recent') ?? '[]')).toEqual(['exampleplayer'])
+  })
+
   it('고른 뷰는 저장돼 다음 방문의 기본값이 된다', async () => {
     const user = userEvent.setup()
     const { unmount } = render(<App />)

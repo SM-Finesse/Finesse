@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react'
 import { LangProvider } from './i18n/LangProvider'
+import { addRecent, readRecent, removeRecent } from './lib/recent'
 import { readStored, writeStored } from './lib/storage'
 import { LandingPage } from './pages/LandingPage'
 import type { AnalyzeRequest, View } from './types'
@@ -15,6 +16,7 @@ function App() {
   const [request, setRequest] = useState<AnalyzeRequest | null>(null)
   /* 결과 화면에서 돌아왔을 때 방금 넣은 유저명을 다시 치지 않도록 */
   const [lastUsername, setLastUsername] = useState('')
+  const [recent, setRecent] = useState(readRecent)
 
   const changeView = (next: View) => {
     setView(next)
@@ -31,10 +33,23 @@ function App() {
     <LangProvider>
       {request ? (
         <Suspense fallback={<div className="min-h-screen" />}>
-          <ReportPage username={request.username} view={view} onViewChange={changeView} onBack={() => setRequest(null)} />
+          <ReportPage
+            username={request.username}
+            view={view}
+            onViewChange={changeView}
+            onBack={() => setRequest(null)}
+            onFound={(name) => setRecent((list) => addRecent(list, name))}
+          />
         </Suspense>
       ) : (
-        <LandingPage view={view} onViewChange={changeView} onAnalyze={analyze} initialUsername={lastUsername} />
+        <LandingPage
+          view={view}
+          onViewChange={changeView}
+          onAnalyze={analyze}
+          initialUsername={lastUsername}
+          recent={recent}
+          onRemoveRecent={(name) => setRecent((list) => removeRecent(list, name))}
+        />
       )}
     </LangProvider>
   )

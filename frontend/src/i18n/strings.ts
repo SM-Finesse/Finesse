@@ -23,8 +23,9 @@ export interface Strings {
   view: Record<View, string>
   errors: Record<UsernameError, string>
 
-  examples: string
-  exampleCold: string
+  recentTitle: string
+  recentEmpty: string
+  recentRemove: (name: string) => string
   keyAnalyze: string
   keyView: string
   noLogin: string
@@ -125,8 +126,9 @@ const ko: Strings = {
     invalidChars: '유저명에는 영문 · 숫자 · _ 만 쓸 수 있습니다.',
   },
 
-  examples: '예시로 열어보기',
-  exampleCold: 'NewPlayer · 7경기',
+  recentTitle: '최근 검색',
+  recentEmpty: '검색한 유저가 여기에 쌓입니다',
+  recentRemove: (name) => `${name} 최근 검색에서 지우기`,
   keyAnalyze: '분석',
   keyView: '뷰 전환',
   noLogin: '로그인 없이 유저명만',
@@ -251,8 +253,9 @@ const en: Strings = {
     invalidChars: 'Usernames can only contain letters, digits and _.',
   },
 
-  examples: 'Try an example',
-  exampleCold: 'NewPlayer · 7 games',
+  recentTitle: 'Recent',
+  recentEmpty: 'Players you look up will show here',
+  recentRemove: (name) => `Remove ${name} from recent searches`,
   keyAnalyze: 'Analyze',
   keyView: 'View',
   noLogin: 'No login, just a username',

@@ -1,3 +1,4 @@
+import { useEffect, useEffectEvent } from 'react'
 import type { ApiError } from '../api/client'
 import { FloorArt, SkyArt } from '../components/BackgroundArt'
 import { Kbd, KeyHint } from '../components/Kbd'
@@ -33,14 +34,21 @@ interface Props {
   view: View
   onViewChange: (view: View) => void
   onBack: () => void
+  /** 조회에 성공한 유저명 — 최근 검색에 남긴다 */
+  onFound?: (username: string) => void
 }
 
 /** 결과 화면 — GET /stats를 먼저 그리고, 라이트 코멘트는 도착하는 대로 채운다 */
-export function ReportPage({ username, view, onViewChange, onBack }: Props) {
+export function ReportPage({ username, view, onViewChange, onBack, onFound }: Props) {
   const { t } = useI18n()
   const r = t.report
   const stats = useStats(username)
   const data = stats.state.status === 'success' ? stats.state.data : null
+  const found = useEffectEvent((name: string) => onFound?.(name))
+  const foundName = data?.username
+  useEffect(() => {
+    if (foundName) found(foundName)
+  }, [foundName])
   /* 콜드스타트는 LLM을 부르지 않는다. 갱신 중에는 새 stats가 올 때까지 기다린다 */
   const comment = useLightComment(username, data && !data.cold_start && view === 'light' ? stats.dataKey : null)
   const [hit, flash] = useKeyFlash()

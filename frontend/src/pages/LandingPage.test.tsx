@@ -6,11 +6,21 @@ import { LangProvider } from '../i18n/LangProvider'
 import type { AnalyzeRequest, Lang, View } from '../types'
 import { LandingPage } from './LandingPage'
 
-function setup({ lang = 'ko' as Lang, initialView = 'light' as View, initialUsername = '' } = {}) {
+function setup({ lang = 'ko' as Lang, initialView = 'light' as View, initialUsername = '', recent = [] as string[] } = {}) {
   const onAnalyze = vi.fn<(req: AnalyzeRequest) => void>()
+  const onRemoveRecent = vi.fn<(name: string) => void>()
   function Harness() {
     const [view, setView] = useState<View>(initialView)
-    return <LandingPage view={view} onViewChange={setView} onAnalyze={onAnalyze} initialUsername={initialUsername} />
+    return (
+      <LandingPage
+        view={view}
+        onViewChange={setView}
+        onAnalyze={onAnalyze}
+        initialUsername={initialUsername}
+        recent={recent}
+        onRemoveRecent={onRemoveRecent}
+      />
+    )
   }
   const user = userEvent.setup()
   render(
@@ -18,7 +28,7 @@ function setup({ lang = 'ko' as Lang, initialView = 'light' as View, initialUser
       <Harness />
     </LangProvider>,
   )
-  return { user, onAnalyze, input: screen.getByRole('textbox', { name: '유저명' }) }
+  return { user, onAnalyze, onRemoveRecent, input: screen.getByRole('textbox', { name: '유저명' }) }
 }
 
 describe('LandingPage — 유저명 받아오기', () => {
@@ -69,12 +79,23 @@ describe('LandingPage — 유저명 받아오기', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('16자 이하')
   })
 
-  it('예시 칩은 입력칸을 채우기만 하고 바로 제출하지는 않는다', async () => {
-    const { user, onAnalyze, input } = setup()
-    await user.click(screen.getByRole('button', { name: /NewPlayer/ }))
-    expect(input).toHaveValue('NewPlayer')
-    expect(input).toHaveFocus()
+  it('최근 검색이 없으면 안내만 보인다', () => {
+    setup()
+    expect(screen.getByText('검색한 유저가 여기에 쌓입니다')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: '최근 검색' })).not.toBeInTheDocument()
+  })
+
+  it('최근 검색을 누르면 그 유저로 바로 조회하고, ×는 지우기만 한다', async () => {
+    const { user, onAnalyze, onRemoveRecent } = setup({ recent: ['icly', 'turtle'] })
+    const list = screen.getByRole('list', { name: '최근 검색' })
+    expect(list).toHaveTextContent(/icly.*turtle/)
+
+    await user.click(screen.getByRole('button', { name: 'turtle 최근 검색에서 지우기' }))
+    expect(onRemoveRecent).toHaveBeenCalledWith('turtle')
     expect(onAnalyze).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'icly' }))
+    expect(onAnalyze).toHaveBeenCalledExactlyOnceWith({ username: 'icly', view: 'light' })
   })
 
   it('스위치와 모드 카드가 같은 뷰 상태를 가리키고, 제출값에 반영된다', async () => {
