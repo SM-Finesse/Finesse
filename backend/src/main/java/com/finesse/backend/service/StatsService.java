@@ -169,9 +169,10 @@ public class StatsService {
     }
 
     private StatsResponse coldStartResponse(String normalized, AnalysisOutcome.ColdStartBypass cold) {
-        // TODO(data-eng 협의): 콜드스타트 결과에는 승패 기록이 없어 win_rate·recent_form을 채울 수 없다.
-        //  병합 전에는 10판 미만이어도 있는 만큼 계산해 보냈음 — ColdStartBypass에 RecentWinLossStats 포함 요청.
-        StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(0.0, List.of(), List.of());
+        // TODO(data-eng 진행 중): 콜드스타트 결과에는 아직 승패 기록이 없어 win_rate·recent_form을 채울 수 없다.
+        //  ColdStartBypass에 RecentWinLossStats가 들어오면 여기서 채운다(10/2 확정: 1~9판은 승률·승패 칸만).
+        //  그 전까지 win_rate는 0.0이 아니라 null(생략) — 프론트는 "—"로 표시(frontend 1dbd9bd).
+        StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(null, List.of(), List.of());
         return new StatsResponse(normalized, true, cold.availableMatches(), Instant.now(),
                 profile(normalized, cold.summary()), fixed, null,
                 new StatsResponse.RoundCurves(List.of(), List.of()),
