@@ -21,6 +21,8 @@ export interface StatsResponse {
 
 export interface Profile {
   rank?: string
+  /** 이번 시즌 최고 랭크 (TETR.IO summaries/league의 bestrank). 랭크를 받은 적 없으면 빠진다 */
+  best_rank?: string
   /** tr·glicko·rd — 랭크 기록이 없으면 TETR.IO가 주는 -1이 그대로 온다 */
   tr: number
   glicko: number
@@ -49,9 +51,29 @@ export interface Profile {
   supporter_tier?: number
   /** 이 유저를 친구로 추가한 플레이어 수 (ch.tetr.io의 하트 숫자) */
   friend_count?: number
+  /** 유저가 프로필에 걸어 둔 대표 업적(최대 3개, 유저가 고른 순서). 유저 정보 호출이 실패하면 빠진다 */
+  featured_achievements?: FeaturedAchievement[]
 }
 
-/** 그림은 https://tetr.io/res/badges/{id}.png. 같은 group끼리는 겹쳐 쌓아 보여준다 */
+/** TETR.IO /users/{user}/summaries/achievements 한 줄 중 메달·툴팁에 쓰는 값 */
+export interface FeaturedAchievement {
+  /** 업적 번호 — 아이콘 위치를 정한다 */
+  k: number
+  name: string
+  /** 달성 조건 (예: Clear 40 LINES using only T-Spin Doubles) */
+  object?: string
+  desc?: string
+  /** 0 없음 · 1 브론즈 · 2 실버 · 3 골드 · 4 플래티넘 · 5 다이아몬드 · 100 발급 */
+  rank: number
+  /** 업적 리더보드 순위(0부터). 없으면 -1 */
+  pos: number
+  /** 업적 리더보드 전체 인원 */
+  total?: number
+  /** 0 AR 없음 · 1 일반 · 2 경쟁(리더보드 Top 100이면 화환) */
+  art: number
+}
+
+/** 프로필 배지 — 백엔드는 보내 주지만 지금 화면에서는 대표 업적 메달만 보여준다 */
 export interface Badge {
   id: string
   label?: string
@@ -62,8 +84,8 @@ export interface Badge {
 }
 
 export interface FixedMetrics {
-  /** 0~1 비율 */
-  win_rate: number
+  /** 0~1 비율. 모를 때(콜드스타트에서 승패 기록이 없을 때)는 빠진다 */
+  win_rate?: number
   tr_trend: number[]
   /** 최근 최대 40경기 'W' | 'L', index 0이 가장 최근 */
   recent_form: ('W' | 'L')[]

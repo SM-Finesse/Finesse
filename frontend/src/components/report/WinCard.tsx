@@ -45,8 +45,9 @@ export function WinCard({ data }: { data: StatsResponse }) {
   const w = t.report.win
   const form = data.fixed_metrics.recent_form
   const s = formSummary(form)
-  const gap = (s.rate - data.fixed_metrics.win_rate) * 100
-  const showGap = s.games > 0 && data.match_count > s.games
+  /* 전체 승률과의 차이 — 전체 승률을 모르면(win_rate 없음) 비교하지 않는다 */
+  const overall = data.fixed_metrics.win_rate
+  const compare = typeof overall === 'number' && s.games > 0 && data.match_count > s.games ? { overall, gap: (s.rate - overall) * 100 } : null
 
   return (
     <section className="panel bg-surface p-[22px]" aria-label={w.title}>
@@ -72,10 +73,10 @@ export function WinCard({ data }: { data: StatsResponse }) {
         <Caption>{w.w}</Caption>
         <span className="ml-3 font-num text-[30px] font-bold text-loss">{s.losses}</span>
         <Caption>{w.l}</Caption>
-        {showGap && (
+        {compare && (
           <span className="ml-auto flex items-baseline gap-2">
-            <Caption>{w.overall(data.match_count, `${(data.fixed_metrics.win_rate * 100).toFixed(1)}%`)}</Caption>
-            <DeltaInline text={`${signed(gap, 1)}%p`} trend={trendOf(gap, 1)} />
+            <Caption>{w.overall(data.match_count, `${(compare.overall * 100).toFixed(1)}%`)}</Caption>
+            <DeltaInline text={`${signed(compare.gap, 1)}%p`} trend={trendOf(compare.gap, 1)} />
           </span>
         )}
       </div>

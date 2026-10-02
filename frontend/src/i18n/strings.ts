@@ -62,8 +62,8 @@ export interface ReportStrings {
   refreshing: string
   refreshFailed: string
   unranked: string
-  badges: string
-  badgeAchieved: (date: string) => string
+  featuredAchievements: string
+  achievementRanks: Record<'none' | 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'issued', string>
   friendCount: string
   profile: {
     season: string
@@ -95,10 +95,21 @@ export interface ReportStrings {
     low: string
     change: string
     perGame: string
-    emptyTitle: string
-    emptyBody: (n: number) => string
     missingTitle: string
     missingBody: string
+  }
+  /** 표본 부족(콜드스타트) — 분석이 열리기까지 남은 경기 수 */
+  cold: {
+    title: string
+    /** 큰 숫자 옆 단위 — '8' + '판 남음' */
+    leftUnit: string
+    progress: (done: number, need: number) => string
+    win: string
+    loss: string
+    /** 치렀지만 승패 기록이 오지 않은 판 */
+    unknown: string
+    winRate: string
+    body: (need: number) => string
   }
   hl: {
     caption: string
@@ -194,8 +205,8 @@ const ko: Strings = {
     refreshing: '전적을 불러오는 중입니다…',
     refreshFailed: '전적을 갱신하지 못했습니다. 이전 결과를 그대로 보여줍니다.',
     unranked: '랭크 없음',
-    badges: '배지',
-    badgeAchieved: (date) => `${date} 획득`,
+    featuredAchievements: '대표 업적',
+    achievementRanks: { none: '등급 없음', bronze: '브론즈', silver: '실버', gold: '골드', platinum: '플래티넘', diamond: '다이아몬드', issued: '발급' },
     friendCount: '이 유저를 친구로 추가한 플레이어 수',
     profile: {
       season: '현재 시즌 랭크',
@@ -232,10 +243,18 @@ const ko: Strings = {
       low: '구간 최저',
       change: '전체 변동',
       perGame: '경기당 평균',
-      emptyTitle: '추이를 그릴 만큼 기록이 없습니다.',
-      emptyBody: (n) => `10경기가 쌓이면 경기마다 TR 변화를 그립니다. 현재 ${n}경기.`,
       missingTitle: 'TR 추이 데이터를 받지 못했습니다.',
       missingBody: '경기 기록은 있지만 서버가 TR 변화 값을 보내지 않았습니다. 잠시 뒤 전적 갱신을 눌러 보세요.',
+    },
+    cold: {
+      title: '분석이 열리기까지',
+      leftUnit: '판 남음',
+      progress: (done, need) => `${need}판 중 ${done}판 완료`,
+      win: '승',
+      loss: '패',
+      unknown: '결과 미수신',
+      winRate: '지금까지 승률',
+      body: (need) => `테트라 리그 랭크 경기를 ${need}판 채우면 AI 총평과 강점·약점 하이라이트가 열립니다. 경기를 더 치른 뒤 전적 갱신(R)을 눌러 주세요.`,
     },
     hl: {
       caption: 'AI가 고른 지표 · 문장마다 근거가 된 수치',
@@ -336,8 +355,8 @@ const en: Strings = {
     refreshing: 'Loading match history…',
     refreshFailed: 'Could not refresh. Showing the previous result.',
     unranked: 'Unranked',
-    badges: 'Badges',
-    badgeAchieved: (date) => `Achieved on ${date}`,
+    featuredAchievements: 'Featured achievements',
+    achievementRanks: { none: 'Unranked', bronze: 'Bronze', silver: 'Silver', gold: 'Gold', platinum: 'Platinum', diamond: 'Diamond', issued: 'Issued' },
     friendCount: 'Players who have friended this user',
     profile: {
       season: 'Current season rank',
@@ -374,10 +393,18 @@ const en: Strings = {
       low: 'Period low',
       change: 'Total change',
       perGame: 'Per game',
-      emptyTitle: 'Not enough history to plot a trend.',
-      emptyBody: (n) => `The TR line starts at 10 games. ${n} games so far.`,
       missingTitle: 'No TR trend data came back.',
       missingBody: 'There are games on record, but the server sent no TR values. Try Refresh in a moment.',
+    },
+    cold: {
+      title: 'Until analysis unlocks',
+      leftUnit: 'to go',
+      progress: (done, need) => `${done} of ${need} games played`,
+      win: 'Win',
+      loss: 'Loss',
+      unknown: 'No result yet',
+      winRate: 'Win rate so far',
+      body: (need) => `Play ${need} Tetra League ranked games to unlock the AI summary and strength/weakness highlights. Then press Refresh (R).`,
     },
     hl: {
       caption: 'Metrics picked by AI · with the number behind each sentence',

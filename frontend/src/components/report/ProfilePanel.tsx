@@ -21,6 +21,17 @@ function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNod
   )
 }
 
+/** 이번 시즌 최고 랭크 — 아이콘과 랭크 글자 */
+function TopRank({ rank }: { rank: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <span className="font-display text-[9.5px] font-bold tracking-[.18em] text-faint">TOP RANK</span>
+      <RankIcon rank={rank} size={22} />
+      <span className="font-display text-[15px] font-extrabold text-head">{rankLabel(rank)}</span>
+    </span>
+  )
+}
+
 /** 아래 띠의 작은 값 — GLICKO · GAMES */
 function Strip({ k, v, unit }: { k: string; v: string; unit?: string }) {
   return (
@@ -40,7 +51,9 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   const p = t.report.profile
   const pr = data.profile
   const rank = rankLabel(pr.rank)
-  const wins = Math.round(data.fixed_metrics.win_rate * data.match_count)
+  const topRank = pr.best_rank && rankLabel(pr.best_rank) ? pr.best_rank : null
+  const winRate = data.fixed_metrics.win_rate
+  const wins = typeof winRate === 'number' ? Math.round(winRate * data.match_count) : null
   const trDelta = data.delta_metrics?.tr_trend_delta
 
   return (
@@ -74,8 +87,9 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
         >
           <BigNum value={numOrDash(pr.tr, 2)} />
         </Cell>
-        <Cell k="WIN RATE" sub={p.wl(wins, data.match_count - wins)}>
-          <BigNum value={(data.fixed_metrics.win_rate * 100).toFixed(1)} suffix="%" />
+        {/* 승률을 모르면 지어내지 않고 '—' */}
+        <Cell k="WIN RATE" sub={wins !== null && p.wl(wins, data.match_count - wins)}>
+          {typeof winRate === 'number' ? <BigNum value={(winRate * 100).toFixed(1)} suffix="%" /> : '—'}
         </Cell>
         <Cell k="APM" sub={p.apmSub}>
           <BigNum value={numOrDash(pr.apm, 2)} />
@@ -89,6 +103,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-3">
         <Strip k="GLICKO" v={numOrDash(pr.glicko, 1)} unit={pr.rd >= 0 ? p.rd(num(pr.rd, 1)) : undefined} />
+        {topRank && <TopRank rank={topRank} />}
         <Strip k="GAMES" v={num(data.match_count)} unit={p.gamesSub} />
         {typeof trDelta === 'number' && <Caption className="text-xs lg:ml-auto">{p.note}</Caption>}
       </div>

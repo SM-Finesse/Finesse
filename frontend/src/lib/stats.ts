@@ -31,6 +31,9 @@ export const num = (v: number, decimals = 0) =>
  */
 export const numOrDash = (v: number | undefined, decimals = 0) => (typeof v === 'number' && v >= 0 ? num(v, decimals) : '—')
 
+/** 이만큼 경기가 쌓여야 분석(Δ 지표·AI 코멘트)을 시작한다 — 백엔드 cold_start 기준과 같다 */
+export const COLD_START_GAMES = 10
+
 export const pct = (ratio: number, decimals = 1) => `${(ratio * 100).toFixed(decimals)}%`
 
 /** TETR.IO 랭크 문자 — 'z'는 이번 시즌 랭크가 없는 상태 */

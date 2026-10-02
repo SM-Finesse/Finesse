@@ -6,7 +6,7 @@ import type { View } from '../../types'
 import { Avatar } from './Avatar'
 import { Flag } from './Flag'
 import { LevelTag } from './LevelTag'
-import { Badges, FriendCount, SupporterTag } from './ProfileExtras'
+import { FeaturedAchievements, FriendCount, SupporterTag } from './ProfileExtras'
 import { Caption } from './parts'
 import { RankIcon } from './RankIcon'
 
@@ -29,7 +29,7 @@ function PlayerPhoto({ name, url }: { name: string; url?: string }) {
   )
 }
 
-/** 리포트 머리 — 사진 · 레벨 · 유저명 · 랭크 · 국가 · 서포터 · 친구 수 · 배지 / 지금 보는 뷰 · 단축키 */
+/** 리포트 머리 — 사진 · 레벨 · 유저명 · 랭크 · 국가 · 서포터 · 친구 수 · 대표 업적 / 지금 보는 뷰 · 단축키 */
 export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsResponse; view: View; keys: ReactNode; viewSwitch: ReactNode }) {
   const { t, lang } = useI18n()
   const r = t.report
@@ -76,9 +76,9 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
             </div>
           )}
           <Caption className="mt-1.5 block">{meta}</Caption>
-          {p.badges && p.badges.length > 0 && (
+          {p.featured_achievements && p.featured_achievements.length > 0 && (
             <div className="mt-2.5">
-              <Badges badges={p.badges} />
+              <FeaturedAchievements achievements={p.featured_achievements} />
             </div>
           )}
         </div>

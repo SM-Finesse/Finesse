@@ -8,6 +8,7 @@ export const STATS: StatsResponse = {
   updated_at: '2026-10-01T08:00:00Z',
   profile: {
     rank: 'x',
+    best_rank: 'x+',
     tr: 24321.6,
     glicko: 3000,
     rd: 60,
@@ -23,6 +24,12 @@ export const STATS: StatsResponse = {
       { id: 'secretgrade', label: 'Achieved the full Secret Grade', ts: '2020-12-27T03:59:00.900Z' },
       { id: 'snowman_2', label: 'Bottled Snowman', group: 'snowman' },
       { id: 'snowman_3', label: 'Snowman', group: 'snowman' },
+    ],
+    featured_achievements: [
+      { k: 8, name: '20TSD', object: 'Clear 40 LINES using only T-Spin Doubles', rank: 5, pos: 3, total: 15121, art: 2 },
+      { k: 19, name: 'The Emperor', rank: 5, pos: 12, total: 13801, art: 2 },
+      { k: 9, name: '10PC', rank: 5, pos: 140, total: 2325, art: 2 },
+      { k: 30, name: 'Not ranked yet', rank: 0, pos: -1, art: 1 },
     ],
     supporter: true,
     supporter_tier: 3,

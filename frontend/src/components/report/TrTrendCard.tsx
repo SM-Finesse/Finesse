@@ -30,7 +30,8 @@ export function TrTrendCard({ data }: { data: StatsResponse }) {
     </>
   )
 
-  if (data.cold_start || series.length < 2) {
+  /* 표본 부족(콜드스타트)이면 이 카드는 그리지 않는다(LightView). 여기서는 경기는 충분한데 값이 안 온 경우만 안내 */
+  if (series.length < 2) {
     return (
       <section className="panel bg-surface p-[22px]" aria-label={tr.title}>
         <PanelHead tag="TR TREND" title={tr.title} right={<Caption>{tr.games(data.match_count)}</Caption>} />
@@ -38,12 +39,7 @@ export function TrTrendCard({ data }: { data: StatsResponse }) {
           <BigNum value={numOrDash(data.profile.tr, 2)} />
         </p>
         <div className="mt-3.5">
-          {/* 표본이 모자란 것(콜드스타트)과, 경기는 충분한데 값이 안 온 것을 구분해 안내한다 */}
-          {data.cold_start ? (
-            <Notice title={tr.emptyTitle}>{tr.emptyBody(data.match_count)}</Notice>
-          ) : (
-            <Notice title={tr.missingTitle}>{tr.missingBody}</Notice>
-          )}
+          <Notice title={tr.missingTitle}>{tr.missingBody}</Notice>
         </div>
       </section>
     )
