@@ -40,12 +40,16 @@ export interface Strings {
   back: string
   loading: string
   retry: string
-  statsErrors: Record<'notFound' | 'unavailable' | 'network' | 'generic', string>
+  /** 서버가 Retry-After로 기다리라고 한 동안 다시 시도 버튼에 남은 초를 보여준다 */
+  retryIn: (sec: number) => string
+  statsErrors: Record<'notFound' | 'busy' | 'unavailable' | 'network' | 'generic', string>
   report: ReportStrings
 }
 
 export interface ReportStrings {
   joined: (ago: string) => string
+  /** 총 플레이 시간 — 시간 단위, 이미 천 단위 구분이 된 문자열 */
+  playTime: (hours: string) => string
   games: (n: number) => string
   updated: (ago: string) => string
   officialApi: string
@@ -58,6 +62,9 @@ export interface ReportStrings {
   refreshing: string
   refreshFailed: string
   unranked: string
+  badges: string
+  badgeAchieved: (date: string) => string
+  friendCount: string
   profile: {
     season: string
     trSub: string
@@ -164,14 +171,17 @@ const ko: Strings = {
 
   loading: '전적을 불러오는 중입니다…',
   retry: '다시 시도',
+  retryIn: (sec) => `${sec}초 후 다시 시도`,
   statsErrors: {
     notFound: '해당 유저를 찾을 수 없습니다. 유저명을 확인해 주세요.',
+    busy: '사용자가 많습니다. 잠시 후 다시 시도해 주세요.',
     unavailable: '일시적으로 조회할 수 없습니다. 잠시 후 다시 시도해 주세요.',
     network: '서버에 연결할 수 없습니다. 백엔드가 켜져 있는지 확인해 주세요.',
     generic: '전적을 불러오지 못했습니다.',
   },
   report: {
     joined: (ago) => `가입 ${ago}`,
+    playTime: (hours) => `플레이 ${hours}시간`,
     games: (n) => `최근 ${n}경기`,
     updated: (ago) => `${ago} 갱신`,
     officialApi: '공식 API',
@@ -184,6 +194,9 @@ const ko: Strings = {
     refreshing: '전적을 불러오는 중입니다…',
     refreshFailed: '전적을 갱신하지 못했습니다. 이전 결과를 그대로 보여줍니다.',
     unranked: '랭크 없음',
+    badges: '배지',
+    badgeAchieved: (date) => `${date} 획득`,
+    friendCount: '이 유저를 친구로 추가한 플레이어 수',
     profile: {
       season: '현재 시즌 랭크',
       trSub: '시즌 대전 점수',
@@ -300,14 +313,17 @@ const en: Strings = {
 
   loading: 'Loading match history…',
   retry: 'Try again',
+  retryIn: (sec) => `Try again in ${sec}s`,
   statsErrors: {
     notFound: 'No player with that username. Check the spelling.',
+    busy: 'Too many users right now. Please try again shortly.',
     unavailable: 'Temporarily unavailable. Please try again shortly.',
     network: 'Cannot reach the server. Check that the backend is running.',
     generic: 'Could not load the match history.',
   },
   report: {
     joined: (ago) => `Joined ${ago}`,
+    playTime: (hours) => `${hours}h played`,
     games: (n) => `Last ${n} games`,
     updated: (ago) => `updated ${ago}`,
     officialApi: 'official API',
@@ -320,6 +336,9 @@ const en: Strings = {
     refreshing: 'Loading match history…',
     refreshFailed: 'Could not refresh. Showing the previous result.',
     unranked: 'Unranked',
+    badges: 'Badges',
+    badgeAchieved: (date) => `Achieved on ${date}`,
+    friendCount: 'Players who have friended this user',
     profile: {
       season: 'Current season rank',
       trSub: 'Season ranked score',

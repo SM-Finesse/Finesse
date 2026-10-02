@@ -69,9 +69,9 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(img).toHaveAttribute('src', STATS.profile.avatar_url)
     expect(screen.getByRole('img', { name: 'RANK X' }).getAttribute('src')).toMatch(/x\.png$/)
     expect(profile.querySelector('img')!.getAttribute('src')).toMatch(/x\.png$/)
-    expect(screen.getByText(/^LV 3,7\d\d$/)).toBeInTheDocument()
+    expect(screen.getByText(/^37\d\d$/)).toHaveAttribute('title', expect.stringMatching(/^다음 레벨까지 \d+%$/))
     await waitFor(() => expect(screen.getByRole('img', { name: '말레이시아' }).getAttribute('src')).toMatch(/svg/))
-    expect(screen.getByText(/가입 \d+년 전 · 최근 120경기/)).toBeInTheDocument()
+    expect(screen.getByText(/가입 \d+년 전 · 플레이 1,804시간 · 최근 120경기/)).toBeInTheDocument()
     expect(within(profile).getByText('237')).toBeInTheDocument()
 
     fireEvent.error(img)
@@ -79,7 +79,7 @@ describe('ReportPage — 라이트 뷰', () => {
   })
 
   it('유저 정보 값이 빠지면 지어내지 않는다 — 레벨·국가 없음, APM 등은 —', async () => {
-    const { avatar_url: _a, xp: _x, country: _c, joined_at: _j, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
+    const { avatar_url: _a, xp: _x, country: _c, joined_at: _j, play_time_seconds: _t, badges: _b, supporter: _u, supporter_tier: _ut, friend_count: _f, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
     routeFetch({ stats: [() => json({ ...STATS, profile: rest })], comment: [pending] })
     const { container } = render(
       <LangProvider initial="ko">
@@ -88,9 +88,49 @@ describe('ReportPage — 라이트 뷰', () => {
     )
     const profile = await screen.findByRole('region', { name: 'PROFILE' })
     expect(container.querySelector('img[src*="user-content"]')).toBeNull()
-    expect(screen.queryByText(/^LV /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^LV/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^가입/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/플레이 \d/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: '배지' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/^SUPPORTER/)).not.toBeInTheDocument()
+    expect(screen.queryByTitle('이 유저를 친구로 추가한 플레이어 수')).not.toBeInTheDocument()
     expect(within(profile).getAllByText('—')).toHaveLength(3)
+  })
+
+  it('배지 · 서포터 · 친구 수를 보여주고, 그림을 못 불러온 배지는 뺀다', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [pending] })
+    setup()
+
+    const list = await screen.findByRole('list', { name: '배지' })
+    const imgs = within(list).getAllByRole('img')
+    expect(imgs.map((i) => i.getAttribute('src'))).toEqual([
+      'https://tetr.io/res/badges/secretgrade.png',
+      'https://tetr.io/res/badges/snowman_2.png',
+      'https://tetr.io/res/badges/snowman_3.png',
+    ])
+    /* 같은 group은 한 칸에 겹쳐 쌓는다 */
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+    expect(imgs[0].getAttribute('title')).toMatch(/^Achieved the full Secret Grade\n\n.+ 획득$/)
+
+    /* 서포터 3단계 → ★ 2개 */
+    expect(screen.getByText(/^SUPPORTER/)).toHaveTextContent(/^SUPPORTER★★$/)
+    expect(screen.getByTitle('이 유저를 친구로 추가한 플레이어 수')).toHaveTextContent('2,438')
+
+    fireEvent.error(imgs[0])
+    expect(within(list).getAllByRole('img')).toHaveLength(2)
+  })
+
+  it('랭크 기록이 없는 유저(tr·glicko·rd = -1)와 플레이 시간을 숨긴 유저(-1)도 화면이 깨지지 않고 —로 보여준다', async () => {
+    const profile = { ...STATS.profile, rank: 'z', tr: -1, glicko: -1, rd: -1, play_time_seconds: -1 }
+    routeFetch({ stats: [() => json({ ...STATS, profile })], comment: [pending] })
+    setup()
+
+    const panel = await screen.findByRole('region', { name: 'PROFILE' })
+    expect(within(panel).getByText('랭크 없음')).toBeInTheDocument()
+    expect(within(panel).getAllByText('—')).toHaveLength(2)
+    expect(within(panel).queryByText(/편차/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/-1/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/플레이 -?\d/)).not.toBeInTheDocument()
   })
 
   it('최근 경기 승패 보드와 TR 추이를 보여준다', async () => {
@@ -133,6 +173,41 @@ describe('ReportPage — 라이트 뷰', () => {
     await user.click(screen.getByRole('button', { name: '다시 시도' }))
     expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
     expect(urls().filter((u) => u.includes('/comment/'))).toHaveLength(2)
+  })
+})
+
+const busy = (retryAfter?: string) => () =>
+  Promise.resolve(
+    new Response(JSON.stringify({ error_code: 'SERVER_BUSY', message: '사용자가 많습니다' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json', ...(retryAfter ? { 'Retry-After': retryAfter } : {}) },
+    }),
+  )
+
+describe('ReportPage — 서버 혼잡 (503 SERVER_BUSY)', () => {
+  it('사용자가 많다고 안내하고, Retry-After 동안 다시 시도 버튼을 잠갔다가 풀어 준다', async () => {
+    const { urls } = routeFetch({ stats: [busy('1'), () => json(STATS)], comment: [pending] })
+    setup()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('사용자가 많습니다. 잠시 후 다시 시도해 주세요.')
+    expect(screen.getByRole('button', { name: '1초 후 다시 시도' })).toBeDisabled()
+
+    const retry = await screen.findByRole('button', { name: '다시 시도' }, { timeout: 2500 })
+    expect(retry).toBeEnabled()
+    /* 기다리는 동안 저절로 다시 요청하지 않는다 */
+    expect(urls()).toHaveLength(1)
+
+    fireEvent.click(retry)
+    expect(await screen.findByRole('region', { name: 'PROFILE' })).toBeInTheDocument()
+  })
+
+  it('코멘트가 SERVER_BUSY면 통계는 그대로 두고 같은 안내를 띄운다', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [busy('3')] })
+    setup()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('사용자가 많습니다. 잠시 후 다시 시도해 주세요.')
+    expect(screen.getByRole('button', { name: '3초 후 다시 시도' })).toBeDisabled()
+    expect(screen.getByRole('region', { name: 'PROFILE' })).toBeInTheDocument()
   })
 })
 

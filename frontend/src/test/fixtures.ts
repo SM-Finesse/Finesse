@@ -18,6 +18,15 @@ export const STATS: StatsResponse = {
     xp: 30503753.95,
     country: 'MY',
     joined_at: '2020-03-26T14:25:41Z',
+    play_time_seconds: 6496543.2,
+    badges: [
+      { id: 'secretgrade', label: 'Achieved the full Secret Grade', ts: '2020-12-27T03:59:00.900Z' },
+      { id: 'snowman_2', label: 'Bottled Snowman', group: 'snowman' },
+      { id: 'snowman_3', label: 'Snowman', group: 'snowman' },
+    ],
+    supporter: true,
+    supporter_tier: 3,
+    friend_count: 2438,
   },
   fixed_metrics: {
     win_rate: 0.625,

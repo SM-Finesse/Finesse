@@ -1,5 +1,7 @@
 import type { CommentState } from '../../hooks/useLightComment'
 import { useI18n } from '../../i18n/context'
+import { retryWait } from '../../lib/retry'
+import { RetryButton } from '../RetryButton'
 import { Caption, PanelTag } from './parts'
 
 /** AI 총평 — stats가 먼저 그려진 뒤 도착한다(FR-04). 오는 동안은 같은 크기의 자리를 잡아 둔다 */
@@ -20,18 +22,17 @@ export function AiReadout({ comment, onRetry }: { comment: CommentState; onRetry
       </>
     )
   } else if (comment.status === 'error') {
-    const msg = comment.error.code === 'LLM_UNAVAILABLE' ? a.unavailable : a.failed
+    const { code } = comment.error
+    const msg = code === 'SERVER_BUSY' ? t.statsErrors.busy : code === 'LLM_UNAVAILABLE' ? a.unavailable : a.failed
     body = (
       <>
         <PanelTag>AI READOUT</PanelTag>
         <p role="alert" className="m-0 flex-1 text-[15px] text-muted">{msg}</p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="h-[34px] rounded border-2 border-[#5E90B0] bg-surface-2 px-3 text-sm text-ink transition-colors hover:bg-line hover:text-white"
-        >
-          {t.retry}
-        </button>
+        <RetryButton
+          wait={retryWait(comment.error)}
+          onRetry={onRetry}
+          className="h-[34px] rounded border-2 border-[#5E90B0] bg-surface-2 px-3 text-sm text-ink transition-colors hover:bg-line hover:text-white disabled:cursor-wait disabled:border-line disabled:text-faint disabled:hover:bg-surface-2"
+        />
       </>
     )
   } else {

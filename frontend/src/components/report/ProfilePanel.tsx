@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { StatsResponse } from '../../api/types'
 import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
-import { num, rankLabel, signed, trendOf } from '../../lib/stats'
+import { num, numOrDash, rankLabel, signed, trendOf } from '../../lib/stats'
 import { BigNum, Caption, DeltaInline } from './parts'
 import { RankIcon } from './RankIcon'
 
@@ -33,9 +33,6 @@ function Strip({ k, v, unit }: { k: string; v: string; unit?: string }) {
     </span>
   )
 }
-
-/** 값이 없으면(유저 정보 호출 실패 등) 지어내지 않고 '—' */
-const orDash = (v: number | undefined, decimals: number) => (typeof v === 'number' ? num(v, decimals) : '—')
 
 /** 유저 기본 정보 — /stats의 profile · fixed_metrics 값을 그대로 보여준다 */
 export function ProfilePanel({ data }: { data: StatsResponse }) {
@@ -75,23 +72,23 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
             </>
           }
         >
-          <BigNum value={num(pr.tr, 2)} />
+          <BigNum value={numOrDash(pr.tr, 2)} />
         </Cell>
         <Cell k="WIN RATE" sub={p.wl(wins, data.match_count - wins)}>
           <BigNum value={(data.fixed_metrics.win_rate * 100).toFixed(1)} suffix="%" />
         </Cell>
         <Cell k="APM" sub={p.apmSub}>
-          <BigNum value={orDash(pr.apm, 2)} />
+          <BigNum value={numOrDash(pr.apm, 2)} />
         </Cell>
         <Cell k="PPS" sub={p.ppsSub}>
-          <BigNum value={orDash(pr.pps, 2)} />
+          <BigNum value={numOrDash(pr.pps, 2)} />
         </Cell>
         <Cell k="VS" sub={p.vsSub}>
-          <BigNum value={orDash(pr.vs, 2)} />
+          <BigNum value={numOrDash(pr.vs, 2)} />
         </Cell>
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-3">
-        <Strip k="GLICKO" v={num(pr.glicko, 1)} unit={p.rd(num(pr.rd, 1))} />
+        <Strip k="GLICKO" v={numOrDash(pr.glicko, 1)} unit={pr.rd >= 0 ? p.rd(num(pr.rd, 1)) : undefined} />
         <Strip k="GAMES" v={num(data.match_count)} unit={p.gamesSub} />
         {typeof trDelta === 'number' && <Caption className="text-xs lg:ml-auto">{p.note}</Caption>}
       </div>

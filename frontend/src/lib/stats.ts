@@ -25,6 +25,12 @@ export function signed(v: number, decimals: number): string {
 export const num = (v: number, decimals = 0) =>
   v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
 
+/**
+ * 없을 수 있는 값 — 빠졌거나 음수면 지어내지 않고 '—'.
+ * TETR.IO는 랭크 기록이 없는 유저의 tr·glicko·rd를 -1로 주고, 백엔드는 그대로 전달한다.
+ */
+export const numOrDash = (v: number | undefined, decimals = 0) => (typeof v === 'number' && v >= 0 ? num(v, decimals) : '—')
+
 export const pct = (ratio: number, decimals = 1) => `${(ratio * 100).toFixed(decimals)}%`
 
 /** TETR.IO 랭크 문자 — 'z'는 이번 시즌 랭크가 없는 상태 */

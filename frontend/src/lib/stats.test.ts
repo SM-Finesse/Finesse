@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeltaMetrics } from '../api/types'
-import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, rankLabel, signed, timeAgo, trendOf } from './stats'
+import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, numOrDash, rankLabel, signed, timeAgo, trendOf } from './stats'
 
 const DELTA: DeltaMetrics = {
   tr_trend_delta: 12.34,
@@ -18,6 +18,13 @@ describe('표시 규칙', () => {
     expect(trendOf(-0.06, 1)).toBe('down')
     expect(signed(-1.25, 2)).toBe('−1.25')
     expect(signed(0.0001, 2)).toBe('±0.00')
+  })
+
+  it('빠졌거나 음수(TETR.IO의 -1)인 값은 —', () => {
+    expect(numOrDash(24321.6, 2)).toBe('24,321.60')
+    expect(numOrDash(0)).toBe('0')
+    expect(numOrDash(-1, 2)).toBe('—')
+    expect(numOrDash(undefined)).toBe('—')
   })
 
   it("랭크 'z'는 랭크 없음", () => {

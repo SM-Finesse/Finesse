@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, getComment, getHeavyStream, getStats } from './client'
+import { ApiError, getComment, getHeavyStream, getStats, parseRetryAfter } from './client'
 
 function mockFetch(impl: () => Promise<Response>) {
   const fn = vi.fn<typeof fetch>(impl)
@@ -41,6 +41,24 @@ describe('api client', () => {
   it('JSON이 아닌 에러 응답은 HTTP 상태로 코드를 만든다', async () => {
     mockFetch(() => Promise.resolve(new Response('<html>', { status: 502, statusText: 'Bad Gateway' })))
     await expect(getStats('player')).rejects.toMatchObject({ status: 502, code: 'HTTP_502' })
+  })
+
+  it('503 SERVER_BUSY의 Retry-After(초)를 함께 넘긴다', async () => {
+    mockFetch(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error_code: 'SERVER_BUSY', message: '혼잡' }), { status: 503, headers: { 'Retry-After': '5' } }),
+      ),
+    )
+    await expect(getStats('player')).rejects.toMatchObject({ status: 503, code: 'SERVER_BUSY', retryAfter: 5 })
+  })
+
+  it('Retry-After는 초 또는 HTTP 날짜 — 읽을 수 없으면 undefined', () => {
+    const now = Date.parse('2026-10-02T06:00:00Z')
+    expect(parseRetryAfter('5', now)).toBe(5)
+    expect(parseRetryAfter('Fri, 02 Oct 2026 06:00:07 GMT', now)).toBe(7)
+    expect(parseRetryAfter('Fri, 02 Oct 2026 05:59:00 GMT', now)).toBe(0)
+    expect(parseRetryAfter('soon', now)).toBeUndefined()
+    expect(parseRetryAfter(null, now)).toBeUndefined()
   })
 
   it('서버에 닿지 못하면 NETWORK_ERROR', async () => {
@@ -107,6 +125,24 @@ describe('getHeavyStream (SSE)', () => {
 
     es.emit('chapter', chapter('defense'))
     expect(handlers.onChapter).toHaveBeenCalledOnce()
+  })
+
+  it('시작 전에 서버가 event: error로 실패를 알리면 그 코드를 넘기고 닫는다', () => {
+    const { es, handlers } = openStream()
+    es.emit('error', JSON.stringify({ error_code: 'SERVER_BUSY', message: '사용자가 많습니다' }))
+    expect(handlers.onError).toHaveBeenCalledOnce()
+    expect(handlers.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'SERVER_BUSY', message: '사용자가 많습니다' }))
+    expect(es.closed).toBe(true)
+
+    /* 서버가 스트림을 닫으면서 오는 연결 끊김 error는 무시된다 */
+    es.emit('error')
+    expect(handlers.onError).toHaveBeenCalledOnce()
+  })
+
+  it('event: error의 data가 형식에 안 맞으면 연결 끊김으로 본다', () => {
+    const { handlers } = openStream()
+    FakeEventSource.last.emit('error', 'not json')
+    expect(handlers.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'STREAM_ERROR' }))
   })
 
   it('취소 함수를 부르면 닫히고 이후 이벤트는 무시한다', () => {

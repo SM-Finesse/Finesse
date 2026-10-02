@@ -10,13 +10,25 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
+  /** 503 SERVER_BUSY 등에서 서버가 Retry-After로 알려 준 대기 시간(초) */
+  readonly retryAfter?: number
 
-  constructor(status: number, code: string, message: string) {
+  constructor(status: number, code: string, message: string, retryAfter?: number) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.retryAfter = retryAfter
   }
+}
+
+/** Retry-After — 초(숫자) 또는 HTTP 날짜. 읽을 수 없으면 undefined */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined
+  const v = value.trim()
+  if (/^\d+$/.test(v)) return Number(v)
+  const at = Date.parse(v)
+  return Number.isNaN(at) ? undefined : Math.max(0, Math.ceil((at - now) / 1000))
 }
 
 async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -31,7 +43,12 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
   if (!res.ok) {
     /* 백엔드 공통 에러 포맷이 아니면(프록시 502, Tomcat 404 HTML 등) HTTP 상태만으로 판단 */
     const body = (await res.json().catch(() => null)) as Partial<ApiErrorBody> | null
-    throw new ApiError(res.status, body?.error_code ?? `HTTP_${res.status}`, body?.message ?? res.statusText)
+    throw new ApiError(
+      res.status,
+      body?.error_code ?? `HTTP_${res.status}`,
+      body?.message ?? res.statusText,
+      parseRetryAfter(res.headers.get('Retry-After')),
+    )
   }
   return (await res.json()) as T
 }
@@ -54,7 +71,10 @@ export interface HeavyStreamHandlers {
   onChapter: (chapter: HeavyChapterResult) => void
   /** 서버가 done을 보냄 — 정상 종료 */
   onDone: () => void
-  /** done 전에 연결이 끊기거나 연결 자체가 실패함 (404·502 등 HTTP 에러도 EventSource에선 여기로 온다) */
+  /**
+   * done 전에 끝남. 서버가 시작 전 실패를 event: error {error_code, message}로 알리면 그 코드(예: SERVER_BUSY)가,
+   * 연결이 끊기거나 연결 자체가 실패하면(404·502 등 HTTP 에러도 EventSource에선 여기로 온다) STREAM_ERROR가 온다.
+   */
   onError: (error: ApiError) => void
 }
 
@@ -90,11 +110,25 @@ export function getHeavyStream(username: string, handlers: HeavyStreamHandlers):
     finish()
     handlers.onDone()
   })
-  es.addEventListener('error', () => {
+  /* 서버가 보낸 event: error는 data가 있는 MessageEvent, 연결 실패는 data 없는 Event — 같은 'error'로 온다 */
+  es.addEventListener('error', (e) => {
     if (finished) return
     finish()
-    handlers.onError(new ApiError(0, 'STREAM_ERROR', '코멘트 스트림 연결이 끊겼습니다'))
+    handlers.onError(streamError(e))
   })
 
   return finish
+}
+
+function streamError(e: Event): ApiError {
+  const data = e instanceof MessageEvent && typeof e.data === 'string' ? e.data : ''
+  if (data) {
+    try {
+      const body = JSON.parse(data) as Partial<ApiErrorBody>
+      if (body.error_code) return new ApiError(0, body.error_code, body.message ?? '')
+    } catch {
+      /* 형식이 다르면 연결 끊김과 같이 다룬다 */
+    }
+  }
+  return new ApiError(0, 'STREAM_ERROR', '코멘트 스트림 연결이 끊겼습니다')
 }

@@ -5,6 +5,8 @@ import { countryName, levelFromXp, num, rankLabel, timeAgo } from '../../lib/sta
 import type { View } from '../../types'
 import { Avatar } from './Avatar'
 import { Flag } from './Flag'
+import { LevelTag } from './LevelTag'
+import { Badges, FriendCount, SupporterTag } from './ProfileExtras'
 import { Caption } from './parts'
 import { RankIcon } from './RankIcon'
 
@@ -27,7 +29,7 @@ function PlayerPhoto({ name, url }: { name: string; url?: string }) {
   )
 }
 
-/** 리포트 머리 — 사진 · 레벨 · 유저명 · 랭크 · 국가 / 지금 보는 뷰 · 단축키 */
+/** 리포트 머리 — 사진 · 레벨 · 유저명 · 랭크 · 국가 · 서포터 · 친구 수 · 배지 / 지금 보는 뷰 · 단축키 */
 export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsResponse; view: View; keys: ReactNode; viewSwitch: ReactNode }) {
   const { t, lang } = useI18n()
   const r = t.report
@@ -35,9 +37,10 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
   const rank = rankLabel(p.rank)
   const lv = typeof p.xp === 'number' ? levelFromXp(p.xp) : null
   const joined = p.joined_at ? timeAgo(p.joined_at, lang) : null
+  const playTime = typeof p.play_time_seconds === 'number' && p.play_time_seconds >= 0 ? r.playTime(num(Math.floor(p.play_time_seconds / 3600))) : null
   const updated = data.updated_at ? timeAgo(data.updated_at, lang) : null
   const tag = view === 'heavy' ? r.viewTag.heavy : data.cold_start ? r.viewTag.lightCold : r.viewTag.light
-  const meta = [joined && r.joined(joined), r.games(data.match_count), updated && r.updated(updated), r.officialApi].filter(Boolean).join(' · ')
+  const meta = [joined && r.joined(joined), playTime, r.games(data.match_count), updated && r.updated(updated), r.officialApi].filter(Boolean).join(' · ')
 
   return (
     <div className="mb-[22px] flex flex-wrap items-end gap-4">
@@ -45,9 +48,9 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
         <div className="relative size-[94px] flex-none rounded-[9px] border-3 border-white shadow-[0_5px_0_rgba(0,0,0,.42),0_16px_26px_-12px_rgba(0,0,0,.7)]">
           <PlayerPhoto name={data.username} url={p.avatar_url} />
           {lv && (
-            <span className="absolute -bottom-[11px] -left-[11px] flex h-[26px] items-center gap-1.5 rounded-[6px] border-2 border-white bg-deep px-2.5 font-num text-[13px] font-bold whitespace-nowrap text-white shadow-[0_2px_0_rgba(0,0,0,.45)]">
-              LV {num(lv.level)}
-              <i aria-hidden="true" className="block h-3.5 w-[3px] -skew-x-[18deg] rounded-[1px] bg-loss" />
+            <span className="absolute -bottom-[11px] -left-[13px] drop-shadow-[0_2px_0_rgba(0,0,0,.5)]">
+              <span className="sr-only">LV </span>
+              <LevelTag level={lv.level} title={r.xpProgress(Math.floor(lv.progress * 100))} className="text-[17px]" />
             </span>
           )}
         </div>
@@ -56,6 +59,8 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
             <h2 className="m-0 truncate font-display text-[30px] font-extrabold tracking-[.01em] text-head">{data.username}</h2>
             {rank && <RankIcon rank={p.rank} size={30} label={`RANK ${rank}`} />}
             {p.country && <Flag code={p.country} label={countryName(p.country, lang)} />}
+            {p.supporter && <SupporterTag tier={p.supporter_tier ?? 1} />}
+            {typeof p.friend_count === 'number' && p.friend_count > 0 && <FriendCount count={p.friend_count} />}
           </div>
           {lv && p.xp !== undefined && (
             <div className="mt-2 flex items-center gap-2.5" title={r.xpProgress(Math.floor(lv.progress * 100))}>
@@ -71,6 +76,11 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
             </div>
           )}
           <Caption className="mt-1.5 block">{meta}</Caption>
+          {p.badges && p.badges.length > 0 && (
+            <div className="mt-2.5">
+              <Badges badges={p.badges} />
+            </div>
+          )}
         </div>
       </div>
       <div className="ml-auto flex flex-col items-end gap-2">

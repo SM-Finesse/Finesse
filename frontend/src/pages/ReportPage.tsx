@@ -4,6 +4,7 @@ import { FloorArt, SkyArt } from '../components/BackgroundArt'
 import { Kbd, KeyHint } from '../components/Kbd'
 import { LightView } from '../components/report/LightView'
 import { Notice } from '../components/report/parts'
+import { RetryButton } from '../components/RetryButton'
 import { ProfilePanel } from '../components/report/ProfilePanel'
 import { ReportHead } from '../components/report/ReportHead'
 import { SiteFooter } from '../components/SiteFooter'
@@ -13,6 +14,7 @@ import { isTyping, useHotkeys, useKeyFlash } from '../hooks/useHotkeys'
 import { useLightComment } from '../hooks/useLightComment'
 import { useStats } from '../hooks/useStats'
 import { useI18n } from '../i18n/context'
+import { retryWait } from '../lib/retry'
 import type { Strings } from '../i18n/strings'
 import type { View } from '../types'
 
@@ -23,6 +25,8 @@ const wrapCls = 'mx-auto w-[min(1200px,calc(100%-32px))] sm:w-[min(1200px,calc(1
 function errorMessage(error: ApiError, t: Strings): string {
   if (error.code === 'USER_NOT_FOUND') return t.statsErrors.notFound
   if (error.code === 'NETWORK_ERROR') return t.statsErrors.network
+  /* 처음 조회하는 유저가 한꺼번에 몰리면 503 SERVER_BUSY (Retry-After) */
+  if (error.code === 'SERVER_BUSY') return t.statsErrors.busy
   if (error.code === 'TETRIO_API_UNAVAILABLE' || [502, 503, 504].includes(error.status)) return t.statsErrors.unavailable
   return t.statsErrors.generic
 }
@@ -129,7 +133,7 @@ export function ReportPage({ username, view, onViewChange, onBack, onFound }: Pr
           <p className="mt-1 mb-0 font-mono text-xs text-faint">{error.code}</p>
         </div>
         <div className="mt-5 flex flex-wrap gap-2.5">
-          <button type="button" onClick={stats.reload} className={btnCls}>{t.retry}</button>
+          <RetryButton wait={retryWait(error)} onRetry={stats.reload} className={btnCls} />
           <button type="button" onClick={onBack} className={btnCls}>{t.back}</button>
         </div>
       </div>

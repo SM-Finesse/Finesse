@@ -21,6 +21,7 @@ export interface StatsResponse {
 
 export interface Profile {
   rank?: string
+  /** tr·glicko·rd — 랭크 기록이 없으면 TETR.IO가 주는 -1이 그대로 온다 */
   tr: number
   glicko: number
   rd: number
@@ -28,7 +29,7 @@ export interface Profile {
   pps?: number
   vs?: number
   /*
-   * 아래 4개는 TETR.IO /users/{user}에서 온다. 그 호출이 실패하면 전부 빠진다.
+   * 아래 5개는 TETR.IO /users/{user}에서 온다. 그 호출이 실패하면 전부 빠진다.
    * 상대(라이벌) 사진은 마스킹 원칙 때문에 오지 않는다 — 검색한 본인 것만.
    */
   /** 사진을 올린 적 없는 유저는 빠진다 */
@@ -39,6 +40,25 @@ export interface Profile {
   country?: string
   /** 가입 시각(ISO-8601) */
   joined_at?: string
+  /** 총 플레이 시간(초) — 유저가 숨겼으면 TETR.IO가 주는 -1이 그대로 온다. 유저 정보 호출이 실패하면 빠진다 */
+  play_time_seconds?: number
+  /** 프로필 배지 — 유저 정보 호출이 실패하면 빠진다 */
+  badges?: Badge[]
+  /** TETR.IO 서포터 여부와 단계 — 단계가 2 이상이면 ★가 (단계 - 1)개 붙는다 */
+  supporter?: boolean
+  supporter_tier?: number
+  /** 이 유저를 친구로 추가한 플레이어 수 (ch.tetr.io의 하트 숫자) */
+  friend_count?: number
+}
+
+/** 그림은 https://tetr.io/res/badges/{id}.png. 같은 group끼리는 겹쳐 쌓아 보여준다 */
+export interface Badge {
+  id: string
+  label?: string
+  desc?: string
+  group?: string
+  /** 획득 시각(ISO-8601) */
+  ts?: string
 }
 
 export interface FixedMetrics {

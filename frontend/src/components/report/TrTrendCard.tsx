@@ -1,7 +1,7 @@
 import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts'
 import type { StatsResponse } from '../../api/types'
 import { useI18n } from '../../i18n/context'
-import { num, signed, trendOf } from '../../lib/stats'
+import { num, numOrDash, signed, trendOf } from '../../lib/stats'
 import { BigNum, Caption, DeltaPill, Notice, PanelHead } from './parts'
 
 const AXIS_TICK = { fill: '#6E7D88', fontSize: 11, fontFamily: 'Oxanium, sans-serif', fontWeight: 700 }
@@ -35,7 +35,7 @@ export function TrTrendCard({ data }: { data: StatsResponse }) {
       <section className="panel bg-surface p-[22px]" aria-label={tr.title}>
         <PanelHead tag="TR TREND" title={tr.title} right={<Caption>{tr.games(data.match_count)}</Caption>} />
         <p className="num-hud -mt-1 mb-0 text-[30px] text-white">
-          <BigNum value={num(data.profile.tr, 2)} />
+          <BigNum value={numOrDash(data.profile.tr, 2)} />
         </p>
         <div className="mt-3.5">
           {/* 표본이 모자란 것(콜드스타트)과, 경기는 충분한데 값이 안 온 것을 구분해 안내한다 */}
@@ -59,7 +59,7 @@ export function TrTrendCard({ data }: { data: StatsResponse }) {
     <section className="panel bg-surface p-[22px]" aria-label={tr.title}>
       <PanelHead tag="TR TREND" title={tr.title} right={right} />
       <p className="num-hud -mt-1 mb-2 text-[30px] text-white">
-        <BigNum value={num(data.profile.tr, 2)} />
+        <BigNum value={numOrDash(data.profile.tr, 2)} />
       </p>
 
       <div data-testid="tr-chart">
