@@ -226,7 +226,8 @@ public class StatsService {
     }
 
     /**
-     * 랭크·TR 등은 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일은 백엔드가 /users/{username}을 직접 불러 채운다.
+     * 랭크·TR 등은 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·배지·서포터·친구 수는
+     * 백엔드가 /users/{username}을 직접 불러 채운다.
      * TODO(data-eng 협의): /users/{username} 호출과 apm/pps/vs를 calc 모듈로 옮기면 백엔드 TetrioClient를 걷어낼 수 있다
      *  (지금은 레이트리미터가 calc와 따로라 두 모듈 호출이 겹치면 초당 1회를 잠깐 넘길 수 있음).
      */
@@ -236,11 +237,15 @@ public class StatsService {
             user = tetrioClient.fetchUserInfo(normalized, TetrioClient.newSessionId());
         } catch (TetrioApiException e) {
             log.warn("TETR.IO 유저 정보 조회 실패 — 프로필 사진·XP·국가·가입일 생략: {}", normalized, e);
-            user = new TetrioClient.UserInfo(null, null, null, null, null);
+            user = TetrioClient.UserInfo.empty();
         }
+        List<StatsResponse.Badge> badges = user.badges() == null ? null : user.badges().stream()
+                .map(b -> new StatsResponse.Badge(b.id(), b.label(), b.desc(), b.group(), b.ts()))
+                .toList();
         return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
                 null, null, null,
-                avatarUrl(user), user.xp(), user.country(), user.joinedAt());
+                avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
+                user.gametime(), badges, user.supporter(), user.supporterTier(), user.friendCount());
     }
 
     /** TETR.IO 프로필 사진 주소 — 사진을 올린 적 없는 유저는 avatar_revision이 없어 null(응답에서 생략). */

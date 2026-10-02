@@ -9,11 +9,14 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
  * 백엔드가 TETR.IO를 직접 부르는 유일한 호출 — 프로필 패널용 유저 정보:
- *   GET /users/{username}  (프로필 사진·XP·국가·가입일)
+ *   GET /users/{username}  (프로필 사진·XP·국가·가입일·플레이 시간·배지·서포터·친구 수)
  *
  * 리그 요약·매치 기록 수집·계산은 data-eng calc 모듈(StatCalculatorFacade)이 맡는다(라이트뷰 1차 병합, 2026-10-01).
  * TODO(data-eng 협의): 이 호출도 calc 모듈로 옮기면 레이트리미터를 하나로 합치고 이 클래스를 걷어낼 수 있다.
@@ -31,12 +34,25 @@ public class TetrioClient {
         this.rateLimiter = rateLimiter;
     }
 
-    /** GET /users/{username} — 프로필 패널용 유저 정보. ts·country·avatar_revision은 없는 계정도 있다. */
-    public record UserInfo(String id, Double xp, String country, Instant joinedAt, Long avatarRevision) {
+    /**
+     * GET /users/{username} — 프로필 패널용 유저 정보. ts·country·avatar_revision 등은 없는 계정도 있다.
+     * gametime은 유저가 숨기면 -1 — 그대로 둔다(프론트가 tr·glicko·rd처럼 음수를 숨김).
+     */
+    public record UserInfo(String id, Double xp, String country, Instant joinedAt, Long avatarRevision,
+                           Double gametime, List<Badge> badges, Boolean supporter, Integer supporterTier,
+                           Integer friendCount) {
+
+        public static UserInfo empty() {
+            return new UserInfo(null, null, null, null, null, null, null, null, null, null);
+        }
+    }
+
+    /** TETR.IO 배지 — desc·group·ts는 없는 배지도 있다. ts는 날짜 문자열 대신 false로 오기도 한다. */
+    public record Badge(String id, String label, String desc, String group, Instant ts) {
     }
 
     /**
-     * 프로필 사진(_id + avatar_revision)·XP·국가·가입일은 이 API에서만 나온다.
+     * 프로필 사진(_id + avatar_revision)·XP·국가·가입일·플레이 시간·배지·서포터·친구 수는 이 API에서만 나온다.
      * 유저 존재 확인은 calc 모듈이 먼저 끝낸 뒤라, 여기서는 404도 일반 실패로 본다.
      */
     public UserInfo fetchUserInfo(String usernameLower, String sessionId) {
@@ -46,14 +62,32 @@ public class TetrioClient {
         } catch (UserNotFoundException e) {
             throw new TetrioApiException("TETR.IO 유저 정보 없음: " + usernameLower, e);
         }
-        String ts = textOrNull(data, "ts");
+        return parseUserInfo(data);
+    }
+
+    /** 응답 해석만 따로 — 값 모양이 예상과 달라도(예: 배지 ts=false) 예외 없이 그 값만 null로 둔다. */
+    static UserInfo parseUserInfo(JsonNode data) {
         Double xp = doubleOrNull(data, "xp");
+        List<Badge> badges = new ArrayList<>();
+        for (JsonNode b : data.path("badges")) {
+            String id = textOrNull(b, "id");
+            if (id == null) {
+                continue;
+            }
+            badges.add(new Badge(id, textOrNull(b, "label"), textOrNull(b, "desc"), textOrNull(b, "group"),
+                    instantOrNull(b, "ts")));
+        }
         return new UserInfo(
                 textOrNull(data, "_id"),
                 xp != null && xp >= 0 ? xp : null, // 시스템 계정 등은 xp=-1 — 레벨 계산에 쓰면 안 되므로 생략
                 textOrNull(data, "country"),
-                ts != null ? Instant.parse(ts) : null,
-                data.hasNonNull("avatar_revision") ? data.path("avatar_revision").asLong() : null
+                instantOrNull(data, "ts"),
+                data.path("avatar_revision").isNumber() ? data.path("avatar_revision").asLong() : null,
+                doubleOrNull(data, "gametime"),
+                List.copyOf(badges),
+                data.path("supporter").isBoolean() ? data.path("supporter").asBoolean() : null,
+                data.path("supporter_tier").isNumber() ? data.path("supporter_tier").asInt() : null,
+                data.path("friend_count").isNumber() ? data.path("friend_count").asInt() : null
         );
     }
 
@@ -95,6 +129,19 @@ public class TetrioClient {
     }
 
     private static Double doubleOrNull(JsonNode node, String field) {
-        return node.hasNonNull(field) ? node.path(field).asDouble() : null;
+        return node.path(field).isNumber() ? node.path(field).asDouble() : null;
+    }
+
+    /** 날짜 문자열이 아니거나(false·숫자 등) 날짜로 안 읽히면 null — Instant.parse 예외로 /stats가 500이 되는 걸 막는다. */
+    private static Instant instantOrNull(JsonNode node, String field) {
+        JsonNode v = node.path(field);
+        if (!v.isString()) {
+            return null;
+        }
+        try {
+            return Instant.parse(v.asString());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 }

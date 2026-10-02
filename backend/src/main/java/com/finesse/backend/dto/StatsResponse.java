@@ -23,9 +23,16 @@ public record StatsResponse(
 
     // avatarUrl·xp·country·joinedAt은 /users/{username} 호출이 실패했거나 값이 없는 계정이면 null(응답에서 생략).
     // avatarUrl은 검색한 본인 것만 — 상대(라이벌) 사진은 닉네임 마스킹 원칙(FR-09)에 어긋나 내려주지 않는다.
+    // playTimeSeconds는 유저가 숨기면 -1 그대로 (프론트가 tr·glicko·rd처럼 음수를 숨김).
     public record Profile(String rank, double tr, double glicko, double rd,
                           Double apm, Double pps, Double vs,
-                          String avatarUrl, Double xp, String country, Instant joinedAt) {
+                          String avatarUrl, Double xp, String country, Instant joinedAt,
+                          Double playTimeSeconds, List<Badge> badges, Boolean supporter, Integer supporterTier,
+                          Integer friendCount) {
+    }
+
+    // TETR.IO 배지 — desc·group·ts는 없는 배지도 있어 null이면 생략. ts가 날짜가 아니게 오면(false 등) null.
+    public record Badge(String id, String label, String desc, String group, Instant ts) {
     }
 
     // recentForm: 최근 최대 40경기 승패("W"/"L"), matches[0]이 최신이므로 index 0이 가장 최근 경기
