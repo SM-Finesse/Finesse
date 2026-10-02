@@ -65,5 +65,36 @@ class TetrioClientUserInfoTest {
         assertThat(u.badges()).isEmpty(); // id 없는 배지는 버린다
         assertThat(u.supporter()).isNull();
         assertThat(u.friendCount()).isNull();
+        assertThat(u.featuredAchievementKeys()).isEmpty();
+    }
+
+    @Test
+    void 대표_업적_번호는_순서대로_읽는다() {
+        TetrioClient.UserInfo u = TetrioClient.parseUserInfo(json("""
+                {"_id":"turtle","achievements":[8,19,9,"x"]}"""));
+
+        assertThat(u.featuredAchievementKeys()).containsExactly(8, 19, 9);
+    }
+
+    @Test
+    void 대표_업적은_건_순서를_지키고_stub과_없는_번호는_뺀다() {
+        // turtle 실제 응답(2026-10-02)을 줄인 것 — 응답 배열 순서와 유저가 건 순서([8, 19, 9])가 다르다
+        JsonNode data = json("""
+                [
+                  {"k":9,"name":"10PC","object":"Clear 40 LINES using only All Clears","rank":5,"pos":4,"total":2325,"art":2},
+                  {"k":8,"name":"20TSD","object":"Clear 40 LINES using only T-Spin Doubles","desc":"The ancient tradition","rank":5,"pos":3,"total":15121,"art":2},
+                  {"k":19,"name":"The Emperor","rank":5,"pos":12,"total":13801,"art":2},
+                  {"k":30,"name":"stub 업적","stub":true},
+                  {"k":31,"name":"순위 없음","rank":1}
+                ]""");
+
+        var list = TetrioClient.parseFeaturedAchievements(data, java.util.List.of(8, 19, 9, 30, 31, 99));
+
+        assertThat(list).extracting(TetrioClient.Achievement::k).containsExactly(8, 19, 9, 31);
+        assertThat(list.get(0).name()).isEqualTo("20TSD");
+        assertThat(list.get(0).pos()).isEqualTo(3);
+        assertThat(list.get(1).object()).isNull();
+        assertThat(list.get(3).pos()).isEqualTo(-1); // pos 없음 → -1
+        assertThat(list.get(3).total()).isNull();
     }
 }

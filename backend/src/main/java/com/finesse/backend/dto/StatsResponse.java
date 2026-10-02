@@ -28,7 +28,12 @@ public record StatsResponse(
                           Double apm, Double pps, Double vs,
                           String avatarUrl, Double xp, String country, Instant joinedAt,
                           Double playTimeSeconds, List<Badge> badges, Boolean supporter, Integer supporterTier,
-                          Integer friendCount) {
+                          Integer friendCount, List<FeaturedAchievement> featuredAchievements) {
+    }
+
+    // 프로필에 걸어 둔 대표 업적(최대 3개, 유저가 건 순서). rank 0은 프론트가 거른다. pos는 0부터, 없으면 -1.
+    public record FeaturedAchievement(int k, String name, String object, String desc, Integer rank, int pos,
+                                      Integer total, Integer art) {
     }
 
     // TETR.IO 배지 — desc·group·ts는 없는 배지도 있어 null이면 생략. ts가 날짜가 아니게 오면(false 등) null.

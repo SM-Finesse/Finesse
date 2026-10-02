@@ -43,7 +43,7 @@ app:
   cache:
     ttl-minutes: 10
   # 트래픽 몰림 1단계(23번 5.4절) — 캐시 미스 수집을 동시에 2건까지만, 넘치면 바로 503 SERVER_BUSY.
-  # 유저 1명 TETR.IO 최대 8회 × 1초 간격 → 2명이면 약 16초로 stats 20초 마감 안. 대기열은 다음 단계.
+  # 유저 1명 TETR.IO 최대 9회(대표 업적 포함) × 1초 간격 → 2명이면 약 18초로 stats 20초 마감 안. 대기열은 다음 단계.
   stats:
     max-concurrent-collections: 2
     busy-retry-after-seconds: 5

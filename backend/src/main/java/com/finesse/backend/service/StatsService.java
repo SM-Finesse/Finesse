@@ -232,9 +232,10 @@ public class StatsService {
      *  (지금은 레이트리미터가 calc와 따로라 두 모듈 호출이 겹치면 초당 1회를 잠깐 넘길 수 있음).
      */
     private StatsResponse.Profile profile(String normalized, UserSummary summary) {
+        String sessionId = TetrioClient.newSessionId();
         TetrioClient.UserInfo user;
         try {
-            user = tetrioClient.fetchUserInfo(normalized, TetrioClient.newSessionId());
+            user = tetrioClient.fetchUserInfo(normalized, sessionId);
         } catch (TetrioApiException e) {
             log.warn("TETR.IO 유저 정보 조회 실패 — 프로필 사진·XP·국가·가입일 생략: {}", normalized, e);
             user = TetrioClient.UserInfo.empty();
@@ -245,7 +246,31 @@ public class StatsService {
         return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
                 null, null, null,
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
-                user.gametime(), badges, user.supporter(), user.supporterTier(), user.friendCount());
+                user.gametime(), badges, user.supporter(), user.supporterTier(), user.friendCount(),
+                featuredAchievements(normalized, user.featuredAchievementKeys(), sessionId));
+    }
+
+    /**
+     * 대표 업적 — 걸어 둔 업적이 없으면 TETR.IO를 부르지 않고 빈 배열, 유저 정보 조회가 실패했으면 null(생략).
+     * 업적 호출만 실패하면 이 필드만 생략하고 stats는 정상 응답한다.
+     */
+    private List<StatsResponse.FeaturedAchievement> featuredAchievements(String normalized, List<Integer> keys,
+                                                                         String sessionId) {
+        if (keys == null) {
+            return null;
+        }
+        if (keys.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return tetrioClient.fetchFeaturedAchievements(normalized, keys, sessionId).stream()
+                    .map(a -> new StatsResponse.FeaturedAchievement(a.k(), a.name(), a.object(), a.desc(), a.rank(),
+                            a.pos(), a.total(), a.art()))
+                    .toList();
+        } catch (TetrioApiException e) {
+            log.warn("TETR.IO 대표 업적 조회 실패 — featured_achievements 생략: {}", normalized, e);
+            return null;
+        }
     }
 
     /** TETR.IO 프로필 사진 주소 — 사진을 올린 적 없는 유저는 avatar_revision이 없어 null(응답에서 생략). */
