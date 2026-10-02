@@ -1,0 +1,200 @@
+package com.finesse.backend.client;
+
+import tools.jackson.databind.JsonNode;
+import com.finesse.backend.config.TetrioProperties;
+import com.finesse.backend.exception.TetrioApiException;
+import com.finesse.backend.exception.UserNotFoundException;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * 백엔드가 TETR.IO를 직접 부르는 유일한 호출 — 프로필 패널용 유저 정보:
+ *   GET /users/{username}  (프로필 사진·XP·국가·가입일·플레이 시간·배지·서포터·친구 수·대표 업적 번호)
+ *   GET /users/{username}/summaries/achievements  (대표 업적 내용 — 걸어 둔 업적이 있을 때만)
+ *
+ * 리그 요약·매치 기록 수집·계산은 data-eng calc 모듈(StatCalculatorFacade)이 맡는다(라이트뷰 1차 병합, 2026-10-01).
+ * TODO(data-eng 협의): 이 호출도 calc 모듈로 옮기면 레이트리미터를 하나로 합치고 이 클래스를 걷어낼 수 있다.
+ */
+@Component
+public class TetrioClient {
+
+    private final WebClient webClient;
+    private final TetrioProperties props;
+    private final RateLimiter rateLimiter;
+
+    public TetrioClient(WebClient tetrioWebClient, TetrioProperties props, RateLimiter rateLimiter) {
+        this.webClient = tetrioWebClient;
+        this.props = props;
+        this.rateLimiter = rateLimiter;
+    }
+
+    /**
+     * GET /users/{username} — 프로필 패널용 유저 정보. ts·country·avatar_revision 등은 없는 계정도 있다.
+     * gametime은 유저가 숨기면 -1 — 그대로 둔다(프론트가 tr·glicko·rd처럼 음수를 숨김).
+     */
+    public record UserInfo(String id, Double xp, String country, Instant joinedAt, Long avatarRevision,
+                           Double gametime, List<Badge> badges, Boolean supporter, Integer supporterTier,
+                           Integer friendCount, List<Integer> featuredAchievementKeys) {
+
+        public static UserInfo empty() {
+            return new UserInfo(null, null, null, null, null, null, null, null, null, null, null);
+        }
+    }
+
+    /**
+     * 대표 업적 1건 — GET /users/{username}/summaries/achievements 원소 중 프론트가 쓰는 값만.
+     * rank: 0 없음·1 브론즈·2 실버·3 골드·4 플래티넘·5 다이아몬드·100 발급 / pos: 리더보드 순위(0부터, 없으면 -1)
+     * / art: 2면 경쟁 업적. object·desc·total은 없는 업적도 있다.
+     */
+    public record Achievement(int k, String name, String object, String desc, Integer rank, int pos, Integer total,
+                              Integer art) {
+    }
+
+    /** TETR.IO 배지 — desc·group·ts는 없는 배지도 있다. ts는 날짜 문자열 대신 false로 오기도 한다. */
+    public record Badge(String id, String label, String desc, String group, Instant ts) {
+    }
+
+    /**
+     * 프로필 사진(_id + avatar_revision)·XP·국가·가입일·플레이 시간·배지·서포터·친구 수는 이 API에서만 나온다.
+     * 유저 존재 확인은 calc 모듈이 먼저 끝낸 뒤라, 여기서는 404도 일반 실패로 본다.
+     */
+    public UserInfo fetchUserInfo(String usernameLower, String sessionId) {
+        JsonNode data;
+        try {
+            data = getJson("/users/" + usernameLower, sessionId);
+        } catch (UserNotFoundException e) {
+            throw new TetrioApiException("TETR.IO 유저 정보 없음: " + usernameLower, e);
+        }
+        return parseUserInfo(data);
+    }
+
+    /**
+     * 유저가 프로필에 걸어 둔 대표 업적(최대 3개)의 내용 — /users의 achievements(k 배열) 순서 그대로 돌려준다.
+     * 새 TETR.IO 호출이라, 걸어 둔 업적이 없으면 부르지 않는다(호출부 책임).
+     */
+    public List<Achievement> fetchFeaturedAchievements(String usernameLower, List<Integer> keys, String sessionId) {
+        JsonNode data;
+        try {
+            data = getJson("/users/" + usernameLower + "/summaries/achievements", sessionId);
+        } catch (UserNotFoundException e) {
+            throw new TetrioApiException("TETR.IO 업적 정보 없음: " + usernameLower, e);
+        }
+        return parseFeaturedAchievements(data, keys);
+    }
+
+    /** stub(아직 달성 기록이 없는 자리표시) 항목과 응답에 없는 k는 빼고, keys 순서를 지킨다. */
+    static List<Achievement> parseFeaturedAchievements(JsonNode data, List<Integer> keys) {
+        List<Achievement> out = new ArrayList<>();
+        for (Integer key : keys) {
+            for (JsonNode a : data) {
+                if (!a.path("k").isNumber() || a.path("k").asInt() != key) {
+                    continue;
+                }
+                if (a.path("stub").asBoolean(false)) {
+                    break;
+                }
+                out.add(new Achievement(key, textOrNull(a, "name"), textOrNull(a, "object"), textOrNull(a, "desc"),
+                        a.path("rank").isNumber() ? a.path("rank").asInt() : null,
+                        a.path("pos").isNumber() ? a.path("pos").asInt() : -1,
+                        a.path("total").isNumber() ? a.path("total").asInt() : null,
+                        a.path("art").isNumber() ? a.path("art").asInt() : null));
+                break;
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** 응답 해석만 따로 — 값 모양이 예상과 달라도(예: 배지 ts=false) 예외 없이 그 값만 null로 둔다. */
+    static UserInfo parseUserInfo(JsonNode data) {
+        Double xp = doubleOrNull(data, "xp");
+        List<Badge> badges = new ArrayList<>();
+        List<Integer> featured = new ArrayList<>();
+        for (JsonNode k : data.path("achievements")) {
+            if (k.isNumber()) {
+                featured.add(k.asInt());
+            }
+        }
+        for (JsonNode b : data.path("badges")) {
+            String id = textOrNull(b, "id");
+            if (id == null) {
+                continue;
+            }
+            badges.add(new Badge(id, textOrNull(b, "label"), textOrNull(b, "desc"), textOrNull(b, "group"),
+                    instantOrNull(b, "ts")));
+        }
+        return new UserInfo(
+                textOrNull(data, "_id"),
+                xp != null && xp >= 0 ? xp : null, // 시스템 계정 등은 xp=-1 — 레벨 계산에 쓰면 안 되므로 생략
+                textOrNull(data, "country"),
+                instantOrNull(data, "ts"),
+                data.path("avatar_revision").isNumber() ? data.path("avatar_revision").asLong() : null,
+                doubleOrNull(data, "gametime"),
+                List.copyOf(badges),
+                data.path("supporter").isBoolean() ? data.path("supporter").asBoolean() : null,
+                data.path("supporter_tier").isNumber() ? data.path("supporter_tier").asInt() : null,
+                data.path("friend_count").isNumber() ? data.path("friend_count").asInt() : null,
+                List.copyOf(featured)
+        );
+    }
+
+    /**
+     * 최초 호출 포함 retry+1회 시도 (calc 모듈의 max-retry-attempts와 같은 "총 3회"로 맞춤).
+     * 404(유저 없음)는 재시도 대상이 아니라 즉시 던진다.
+     */
+    private JsonNode getJson(String path, String sessionId) {
+        Exception last = null;
+        for (int attempt = 0; attempt <= props.retry(); attempt++) {
+            rateLimiter.await(props.minRequestIntervalMs());
+            try {
+                return webClient.get()
+                        .uri(path)
+                        .header("User-Agent", "Finesse/0.1 (team finesse-backend contact: team@finesse.example)")
+                        .header("X-Session-ID", sessionId)
+                        .retrieve()
+                        .bodyToMono(JsonNode.class)
+                        .map(root -> root.path("data"))
+                        .block();
+            } catch (WebClientResponseException.NotFound e) {
+                throw new UserNotFoundException(path);
+            } catch (Exception e) {
+                last = e;
+            }
+        }
+        if (last instanceof WebClientResponseException wcre) {
+            throw new TetrioApiException("TETR.IO API 오류 (" + wcre.getStatusCode() + "): " + path, wcre);
+        }
+        throw new TetrioApiException("TETR.IO API 호출 실패: " + path, last);
+    }
+
+    public static String newSessionId() {
+        return "finesse-" + UUID.randomUUID();
+    }
+
+    private static String textOrNull(JsonNode node, String field) {
+        return node.hasNonNull(field) ? node.path(field).asText() : null;
+    }
+
+    private static Double doubleOrNull(JsonNode node, String field) {
+        return node.path(field).isNumber() ? node.path(field).asDouble() : null;
+    }
+
+    /** 날짜 문자열이 아니거나(false·숫자 등) 날짜로 안 읽히면 null — Instant.parse 예외로 /stats가 500이 되는 걸 막는다. */
+    private static Instant instantOrNull(JsonNode node, String field) {
+        JsonNode v = node.path(field);
+        if (!v.isString()) {
+            return null;
+        }
+        try {
+            return Instant.parse(v.asString());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+}
