@@ -13,7 +13,9 @@ import com.finesse.backend.calc.service.StatCalculatorFacade;
 import com.finesse.backend.client.TetrioClient;
 import com.finesse.backend.config.CacheConfig;
 import com.finesse.backend.config.EndpointProperties;
+import com.finesse.backend.config.StatsLoadProperties;
 import com.finesse.backend.dto.StatsResponse;
+import com.finesse.backend.exception.ServerBusyException;
 import com.finesse.backend.exception.TetrioApiException;
 import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
@@ -29,7 +31,9 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -47,15 +51,20 @@ public class StatsService {
     private final TetrioClient tetrioClient;
     private final CacheManager cacheManager;
     private final EndpointProperties endpointProperties;
+    private final StatsLoadProperties statsLoadProperties;
     private final ExecutorService statsExecutor;
+    private final Semaphore collectionSlots;
 
     public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
-                         EndpointProperties endpointProperties, @Qualifier("statsExecutor") ExecutorService statsExecutor) {
+                         EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
+                         @Qualifier("statsExecutor") ExecutorService statsExecutor) {
         this.statCalculatorFacade = statCalculatorFacade;
         this.tetrioClient = tetrioClient;
         this.cacheManager = cacheManager;
         this.endpointProperties = endpointProperties;
+        this.statsLoadProperties = statsLoadProperties;
         this.statsExecutor = statsExecutor;
+        this.collectionSlots = new Semaphore(statsLoadProperties.maxConcurrentCollections());
     }
 
     public StatsResponse getStats(String username, boolean refresh) {
@@ -102,8 +111,29 @@ public class StatsService {
 
     // stats 엔드포인트 상한(타임아웃 기준 문서 23번 9절, EndpointProperties.statsSeconds) 강제 —
     // TETR.IO 호출은 블로킹이라 별도 스레드에서 실행하고 Future.get(timeout)으로 마감을 건다.
+    // 캐시 미스 수집은 동시에 maxConcurrentCollections건까지만 — 넘치면 줄 세우지 않고 바로 503 BUSY(23번 5.4절).
     private StatsResponse compute(String normalized) {
-        Future<StatsResponse> future = statsExecutor.submit(() -> computeInternal(normalized));
+        if (!collectionSlots.tryAcquire()) {
+            log.warn("stats 수집 동시 처리 상한({}건) 초과 — 503 BUSY: {}",
+                    statsLoadProperties.maxConcurrentCollections(), normalized);
+            throw new ServerBusyException("stats 수집 동시 처리 상한 초과: " + normalized,
+                    statsLoadProperties.busyRetryAfterSeconds());
+        }
+        // 자리는 수집이 "실제로 끝났을 때" 반납한다 — 마감(20초)으로 502를 먼저 돌려줘도 calc 안의 수집은
+        // 계속 TETR.IO를 부를 수 있으므로, 그 사이에 새 수집을 받으면 부하를 과소 계산하게 된다.
+        FutureTask<StatsResponse> future = new FutureTask<>(() -> computeInternal(normalized));
+        try {
+            statsExecutor.execute(() -> {
+                try {
+                    future.run();
+                } finally {
+                    collectionSlots.release();
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            collectionSlots.release();
+            throw new TetrioApiException("stats 실행 거부: " + normalized, e);
+        }
         try {
             return future.get(endpointProperties.statsSeconds(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {

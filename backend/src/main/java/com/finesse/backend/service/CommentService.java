@@ -4,10 +4,13 @@ import com.finesse.backend.client.LlmClient;
 import com.finesse.backend.config.CacheConfig;
 import com.finesse.backend.config.EndpointProperties;
 import com.finesse.backend.config.LlmProperties;
+import com.finesse.backend.dto.ApiErrorResponse;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.dto.StatsResponse;
+import com.finesse.backend.exception.ServerBusyException;
+import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
@@ -156,6 +159,22 @@ public class CommentService {
         }
     }
 
+    /** heavy 스트림 시작 전 stats 단계 실패 — event: error / data: {error_code, message} 후 종료. */
+    private void sendStatsFailure(SseEmitter emitter, RuntimeException e) {
+        String code = switch (e) {
+            case UserNotFoundException ignored -> "USER_NOT_FOUND";
+            case ServerBusyException ignored -> "SERVER_BUSY";
+            default -> "TETRIO_API_UNAVAILABLE";
+        };
+        log.warn("heavy 스트림 시작 전 stats 실패({}): {}", code, e.getMessage());
+        try {
+            emitter.send(SseEmitter.event().name("error").data(new ApiErrorResponse(code, e.getMessage())));
+        } catch (IOException ignored) {
+            // 이미 끊긴 연결
+        }
+        emitter.complete();
+    }
+
     private LightCommentResponse computeLight(String normalized) {
         StatsResponse stats = statsService.getStats(normalized, false);
         if (stats.coldStart()) {
@@ -174,7 +193,15 @@ public class CommentService {
      */
     private void computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache,
                                        Map<String, HeavyCommentResponse.ChapterResult> cachedOk) {
-        StatsResponse stats = statsService.getStats(normalized, false);
+        StatsResponse stats;
+        try {
+            stats = statsService.getStats(normalized, false);
+        } catch (RuntimeException e) {
+            // stats 실패(없는 유저·TETR.IO 장애·503 BUSY)를 잡지 않으면 스트림이 아무것도 못 받은 채
+            // SseEmitter 타임아웃(150초)까지 열려 있다 — 실패 이벤트 하나 보내고 바로 닫는다.
+            sendStatsFailure(emitter, e);
+            return;
+        }
         if (stats.coldStart()) {
             List<HeavyCommentResponse.ChapterResult> results = HEAVY_CHAPTER_IDS.stream()
                     .map(id -> new HeavyCommentResponse.ChapterResult(id, HeavyCommentResponse.STATUS_FAILED, null, 0))

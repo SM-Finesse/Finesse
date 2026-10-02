@@ -1,6 +1,7 @@
 package com.finesse.backend.exception;
 
 import com.finesse.backend.dto.ApiErrorResponse;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -22,6 +23,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleTetrioApiError(TetrioApiException ex) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(new ApiErrorResponse("TETRIO_API_UNAVAILABLE", "일시적으로 조회할 수 없습니다, 잠시 후 다시 시도"));
+    }
+
+    @ExceptionHandler(ServerBusyException.class)
+    public ResponseEntity<ApiErrorResponse> handleServerBusy(ServerBusyException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+                .body(new ApiErrorResponse("SERVER_BUSY", "사용자가 많습니다, 잠시 후 다시 시도"));
     }
 
     @ExceptionHandler(LlmFormatException.class)

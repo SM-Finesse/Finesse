@@ -36,6 +36,9 @@ public class StatsController {
             content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @ApiResponse(responseCode = "502", description = "TETRIO_API_UNAVAILABLE — TETR.IO 호출 실패/20초 초과",
             content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+    @ApiResponse(responseCode = "503", description = "SERVER_BUSY — 처음 조회하는 유저 수집이 동시 상한(기본 2건)을 넘음. "
+            + "Retry-After 헤더(초) 뒤 다시 시도",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @GetMapping("/api/v1/stats/{username}")
     public StatsResponse getStats(
             @Parameter(description = "TETR.IO 유저명 (대소문자 무관, 소문자로 정규화)", example = "icly")
