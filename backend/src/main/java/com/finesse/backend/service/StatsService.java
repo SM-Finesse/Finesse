@@ -128,18 +128,14 @@ public class StatsService {
      */
     private StatsResponse computeInternal(String normalized) {
         AnalysisOutcome outcome = statCalculatorFacade.analyze(normalized);
-        // 툴체인이 Java 17이라 sealed 타입 switch 패턴 대신 instanceof로 분기한다
-        if (outcome instanceof AnalysisOutcome.Analyzed analyzed) {
-            return analyzedResponse(normalized, analyzed);
-        }
-        if (outcome instanceof AnalysisOutcome.ColdStartBypass cold) {
-            return coldStartResponse(normalized, cold);
-        }
-        if (outcome instanceof AnalysisOutcome.UserNotFound) {
-            throw new UserNotFoundException(normalized);
-        }
-        AnalysisOutcome.CollectionFailed failed = (AnalysisOutcome.CollectionFailed) outcome;
-        throw new TetrioApiException("TETR.IO 수집 실패(" + failed.status() + "): " + normalized, null);
+        // AnalysisOutcome은 sealed — 새 분기가 생기면 여기서 컴파일 오류로 바로 드러난다
+        return switch (outcome) {
+            case AnalysisOutcome.Analyzed analyzed -> analyzedResponse(normalized, analyzed);
+            case AnalysisOutcome.ColdStartBypass cold -> coldStartResponse(normalized, cold);
+            case AnalysisOutcome.UserNotFound notFound -> throw new UserNotFoundException(normalized);
+            case AnalysisOutcome.CollectionFailed failed ->
+                    throw new TetrioApiException("TETR.IO 수집 실패(" + failed.status() + "): " + normalized, null);
+        };
     }
 
     private StatsResponse coldStartResponse(String normalized, AnalysisOutcome.ColdStartBypass cold) {

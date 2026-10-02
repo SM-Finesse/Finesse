@@ -9,20 +9,14 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.UUID;
 
 /**
- * TETR.IO 공식 API 호출 — Finesse-API명세서 4.1-1절, TETR.IO API 연동확인 문서, 데이터 수집 명세 1~4장.
- * 실제 검증된 엔드포인트만 사용한다:
- *   GET /users/{username}/summaries/league
+ * 백엔드가 TETR.IO를 직접 부르는 유일한 호출 — 프로필 패널용 유저 정보:
  *   GET /users/{username}  (프로필 사진·XP·국가·가입일)
- *   GET /users/{username}/records/league/recent?limit=100&after={pri}:{sec}:{ter}
  *
- * ※ 임시 구현 — 데이터팀(위성훈, data-eng 브랜치)의 calc 모듈(CollectorProperties 등)이 완성되면
- * 그쪽으로 교체 예정 (2026-09-29 팀 확인).
+ * 리그 요약·매치 기록 수집·계산은 data-eng calc 모듈(StatCalculatorFacade)이 맡는다(라이트뷰 1차 병합, 2026-10-01).
+ * TODO(data-eng 협의): 이 호출도 calc 모듈로 옮기면 레이트리미터를 하나로 합치고 이 클래스를 걷어낼 수 있다.
  */
 @Component
 public class TetrioClient {
@@ -37,43 +31,13 @@ public class TetrioClient {
         this.rateLimiter = rateLimiter;
     }
 
-    public record LeagueSummary(String rank, double tr, double glicko, double rd, Double gxe, int gamesPlayed,
-                                Double apm, Double pps, Double vs) {
-    }
-
     /** GET /users/{username} — 프로필 패널용 유저 정보. ts·country·avatar_revision은 없는 계정도 있다. */
     public record UserInfo(String id, Double xp, String country, Instant joinedAt, Long avatarRevision) {
     }
 
-    public record RecordPage(List<JsonNode> entries, String nextAfterCursor) {
-    }
-
-    /**
-     * 4.1절 처리 흐름 2번 — 존재하지 않는 유저는 이 호출 자체가 HTTP 404.
-     */
-    public LeagueSummary fetchLeagueSummary(String usernameLower, String sessionId) {
-        JsonNode data;
-        try {
-            data = getJson("/users/" + usernameLower + "/summaries/league", sessionId);
-        } catch (UserNotFoundException e) {
-            throw new UserNotFoundException(usernameLower);
-        }
-        return new LeagueSummary(
-                textOrNull(data, "rank"),
-                data.path("tr").asDouble(),
-                data.path("glicko").asDouble(),
-                data.path("rd").asDouble(),
-                data.hasNonNull("gxe") ? data.path("gxe").asDouble() : null,
-                data.path("gamesplayed").asInt(),
-                doubleOrNull(data, "apm"),
-                doubleOrNull(data, "pps"),
-                doubleOrNull(data, "vs")
-        );
-    }
-
     /**
      * 프로필 사진(_id + avatar_revision)·XP·국가·가입일은 이 API에서만 나온다.
-     * 유저 존재 확인은 fetchLeagueSummary가 먼저 끝낸 뒤라, 여기서는 404도 일반 실패로 본다.
+     * 유저 존재 확인은 calc 모듈이 먼저 끝낸 뒤라, 여기서는 404도 일반 실패로 본다.
      */
     public UserInfo fetchUserInfo(String usernameLower, String sessionId) {
         JsonNode data;
@@ -87,7 +51,6 @@ public class TetrioClient {
         return new UserInfo(
                 textOrNull(data, "_id"),
                 xp != null && xp >= 0 ? xp : null, // 시스템 계정 등은 xp=-1 — 레벨 계산에 쓰면 안 되므로 생략
-
                 textOrNull(data, "country"),
                 ts != null ? Instant.parse(ts) : null,
                 data.hasNonNull("avatar_revision") ? data.path("avatar_revision").asLong() : null
@@ -95,51 +58,7 @@ public class TetrioClient {
     }
 
     /**
-     * 300판/1년 창(데이터 수집 명세 3.3절)에 걸릴 때까지 after 커서로 반복 호출한다.
-     * 반환값은 원시 entries 그대로 — 정규화는 RecordNormalizer가 담당한다.
-     */
-    public List<JsonNode> collectRecentRecords(String usernameLower, String sessionId) {
-        List<JsonNode> collected = new ArrayList<>();
-        Instant cutoff = Instant.now().minus(props.windowMaxDays(), ChronoUnit.DAYS);
-        String after = null;
-
-        while (collected.size() < props.windowMaxMatches()) {
-            String path = "/users/" + usernameLower + "/records/league/recent?limit=" + props.pageLimit()
-                    + (after != null ? "&after=" + after : "");
-            JsonNode data = getJson(path, sessionId);
-            JsonNode entries = data.path("entries");
-            if (!entries.isArray() || entries.isEmpty()) {
-                break; // 데이터 수집 명세 3.2절 — entries가 비면 종료
-            }
-
-            boolean hitPeriodLimit = false;
-            for (JsonNode entry : entries) {
-                Instant ts = Instant.parse(entry.path("ts").asText());
-                if (ts.isBefore(cutoff)) {
-                    hitPeriodLimit = true; // 3.3절 — 기간 조건에 걸린 레코드는 버리고 종료
-                    break;
-                }
-                collected.add(entry);
-                if (collected.size() >= props.windowMaxMatches()) {
-                    break;
-                }
-            }
-            if (hitPeriodLimit) {
-                break;
-            }
-
-            JsonNode last = entries.get(entries.size() - 1);
-            JsonNode p = last.path("p");
-            if (p.isMissingNode() || p.isNull()) {
-                break; // 3.2절 — 마지막 엔트리에 p가 없으면 종료
-            }
-            after = p.path("pri").asText() + ":" + p.path("sec").asText() + ":" + p.path("ter").asText();
-        }
-        return collected;
-    }
-
-    /**
-     * 재시도 1회로 통일 (타임아웃 기준 문서 23번 6.1절 — 기존 파이프라인 3회/백엔드설계 2회 혼재 정리).
+     * 최초 호출 포함 retry+1회 시도 (calc 모듈의 max-retry-attempts와 같은 "총 3회"로 맞춤).
      * 404(유저 없음)는 재시도 대상이 아니라 즉시 던진다.
      */
     private JsonNode getJson(String path, String sessionId) {

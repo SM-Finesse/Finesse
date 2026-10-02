@@ -18,10 +18,7 @@ tetrio:
   base-url: https://ch.tetr.io/api
   request-timeout-seconds: 5
   min-request-interval-ms: 1000
-  page-limit: 100
-  window-max-matches: 300
-  window-max-days: 365
-  retry: 1 # 재시도 1회로 통일 (기존 파이프라인 3회/백엔드설계 2회 혼재 정리, 6.1절)
+  retry: 2 # 최초 포함 총 3회 — calc 모듈 max-retry-attempts(3)와 맞춤 (팀 검토 2026-10-01)
 
 # LLM 추론 서버 목록 (Finesse-API명세서 6장/6.1절 — 라운드로빈 대상)
 # MVP: 학교 PC 8대 중 2대. 로컬 개발 중에는 실제 서버가 없으므로 placeholder로 둠.
@@ -53,8 +50,8 @@ app:
     heavy-seconds: 60
     heavy-single-server-seconds: 120
 
-# data-eng calc 모듈(StatCalculatorFacade) 설정 — 값은 data-eng 테스트 기준값,
-# max-retry-attempts만 타임아웃 기준 문서(23번)의 "TETR.IO 재시도 1회"에 맞춤 (최초 포함 2회)
+# data-eng calc 모듈(StatCalculatorFacade) 설정 — 값은 data-eng 테스트 기준값
+# max-retry-attempts: 최초 포함 총 3회, 페이지당 100판(max-matches-per-page) — 데이터 엔지니어 검토(2026-10-01)
 finesse:
   analytics:
     cold-start-threshold: 10
@@ -67,7 +64,7 @@ finesse:
       max-matches-per-page: 100
       max-age-days: 365
       min-partial-matches: 30
-      max-retry-attempts: 2
+      max-retry-attempts: 3
       request-timeout: 5s
       session-refresh-timeout: 5s
 

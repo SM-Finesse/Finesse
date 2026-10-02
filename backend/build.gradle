@@ -10,7 +10,7 @@ description = 'Finesse TETR.IO analysis service backend API'
 
 java {
 	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
+		languageVersion = JavaLanguageVersion.of(25) // 팀 확정: Java 25 + Spring Boot 4.1.1
 	}
 }
 
