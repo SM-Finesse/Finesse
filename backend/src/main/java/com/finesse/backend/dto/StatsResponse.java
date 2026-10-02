@@ -36,7 +36,8 @@ public record StatsResponse(
     }
 
     // recentForm: 최근 최대 40경기 승패("W"/"L"), matches[0]이 최신이므로 index 0이 가장 최근 경기
-    public record FixedMetrics(double winRate, List<Double> trTrend, List<String> recentForm) {
+    // winRate: 승패를 모르면 null(생략) — 0.0으로 보내면 "진짜 0%"와 "모름"이 구분되지 않는다(콜드스타트)
+    public record FixedMetrics(Double winRate, List<Double> trTrend, List<String> recentForm) {
     }
 
     public record DeltaMetrics(
