@@ -191,7 +191,12 @@ jobs:
       - name: compose 파일 찾기
         id: compose
         run: |
-          f=$(ls infra/docker-compose.yml infra/docker-compose.yaml docker-compose.yml 2>/dev/null | head -n1 || true)
+          # [2026-10-03 수정] infra/mocks/docker-compose.yml 경로 누락 — Mock LLM이
+          # infra/mocks/ 아래로 병합되면서(#7) compose 파일도 그 위치에 생겼는데
+          # 이 목록에 없어서 "compose 문법 검증"·"Mock 서버 기동 확인" 두 스텝이
+          # 전부 조용히 skipped 상태로 머지됨(CI는 success로 표시 — 아래 둘 다
+          # 실제로는 한 번도 실행 안 됨). infra/mocks/ 경로를 추가해 반영.
+          f=$(ls infra/docker-compose.yml infra/docker-compose.yaml infra/mocks/docker-compose.yml infra/mocks/docker-compose.yaml docker-compose.yml 2>/dev/null | head -n1 || true)
           echo "file=$f" >> "$GITHUB_OUTPUT"
           [ -z "$f" ] && echo "::notice::docker-compose 파일 없음 — compose 검증 건너뜀" || true
 
