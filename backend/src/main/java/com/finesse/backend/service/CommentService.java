@@ -74,12 +74,25 @@ public class CommentService {
     }
 
     public LightCommentResponse getLight(String username) {
-        String normalized = username.toLowerCase();
+        String normalized = Usernames.normalize(username);
+        // stats를 comment-light 캐시 계산 "밖에서" 먼저 받는다. stats가 새로 계산되면 comment 캐시를 연쇄 무효화하는데,
+        // 캐시 계산 안에서 받으면 지금 만들고 있는 comment-light 칸을 스스로 지우게 되어 Caffeine이
+        // "Recursive update"로 거부한다(stats가 캐시에 없을 때 light를 먼저 부르면 500 — 2026-10-06 발견).
+        StatsResponse stats = statsService.getStats(normalized, false);
         Cache cache = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
         if (cache == null) {
-            return computeLight(normalized);
+            return computeLight(stats);
         }
-        return cache.get(normalized, () -> computeLight(normalized));
+        try {
+            return cache.get(normalized, () -> computeLight(stats));
+        } catch (Cache.ValueRetrievalException e) {
+            // 원인 예외(UserNotFound·ServerBusy·TETR.IO·LLM)를 그대로 올려 GlobalExceptionHandler가 404/502/503으로
+            // 매핑하게 한다 — 감싼 채로 두면 공통 500 처리에 걸린다 (StatsService.getStats와 같은 처리)
+            if (e.getCause() instanceof RuntimeException re) {
+                throw re;
+            }
+            throw e;
+        }
     }
 
     /**
@@ -88,22 +101,36 @@ public class CommentService {
      * 캐시는 성공(ok)한 챕터만 챕터 단위로 둔다 — 캐시에 있는 챕터는 즉시 보내고, 없는 챕터만 LLM에 돌린다.
      */
     public SseEmitter getHeavyStream(String username) {
-        String normalized = username.toLowerCase();
+        String normalized = Usernames.normalize(username);
         // SseEmitter 자체 타임아웃은 heavy 최악 상한(단일 서버 120s)보다 넉넉히 잡는다 — 실제 컷오프는
         // 아래 heavyTimeoutSeconds(엔드포인트 데드라인)가 담당하므로 여기선 연결이 일찍 끊기지만 않으면 됨.
         SseEmitter emitter = new SseEmitter(150_000L);
-        Cache cache = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_CACHE);
+        llmExecutor.execute(() -> streamHeavy(normalized, emitter));
+        return emitter;
+    }
 
+    /**
+     * stats를 먼저 받고 나서 heavy 캐시를 읽는다 — stats가 새로 계산되면 comment 캐시가 연쇄 무효화되므로,
+     * 순서가 반대면 새 stats와 맞지 않는 옛 챕터 코멘트를 보낼 수 있다.
+     */
+    private void streamHeavy(String normalized, SseEmitter emitter) {
+        StatsResponse stats;
+        try {
+            stats = statsService.getStats(normalized, false);
+        } catch (RuntimeException e) {
+            // stats 실패(없는 유저·TETR.IO 장애·503 BUSY)를 잡지 않으면 스트림이 아무것도 못 받은 채
+            // SseEmitter 타임아웃(150초)까지 열려 있다 — 실패 이벤트 하나 보내고 바로 닫는다.
+            sendStatsFailure(emitter, e);
+            return;
+        }
+        Cache cache = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_CACHE);
         HeavyChapterCache cached = cache != null ? cache.get(normalized, HeavyChapterCache.class) : null;
         Map<String, HeavyCommentResponse.ChapterResult> cachedOk = cached != null ? cached.ok() : Map.of();
         if (cachedOk.size() == HEAVY_CHAPTER_IDS.size()) {
-            llmExecutor.execute(() -> streamAndComplete(emitter,
-                    HEAVY_CHAPTER_IDS.stream().map(cachedOk::get).toList()));
-            return emitter;
+            streamAndComplete(emitter, HEAVY_CHAPTER_IDS.stream().map(cachedOk::get).toList());
+            return;
         }
-
-        llmExecutor.execute(() -> computeHeavyStreaming(normalized, emitter, cache, cachedOk));
-        return emitter;
+        computeHeavyStreaming(normalized, emitter, cache, cachedOk, stats);
     }
 
     /**
@@ -175,8 +202,7 @@ public class CommentService {
         emitter.complete();
     }
 
-    private LightCommentResponse computeLight(String normalized) {
-        StatsResponse stats = statsService.getStats(normalized, false);
+    private LightCommentResponse computeLight(StatsResponse stats) {
         if (stats.coldStart()) {
             // FR-02/기능 명세서 3.3절 — 콜드스타트는 LLM 미호출, 즉시 안내 (재요청 대상 아님)
             return new LightCommentResponse("최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.", List.of());
@@ -192,16 +218,8 @@ public class CommentService {
      * allOf는 "다 끝났는지" 판정에만 쓰고, 전달 자체는 더 이상 allOf 완료를 기다리지 않는다.
      */
     private void computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache,
-                                       Map<String, HeavyCommentResponse.ChapterResult> cachedOk) {
-        StatsResponse stats;
-        try {
-            stats = statsService.getStats(normalized, false);
-        } catch (RuntimeException e) {
-            // stats 실패(없는 유저·TETR.IO 장애·503 BUSY)를 잡지 않으면 스트림이 아무것도 못 받은 채
-            // SseEmitter 타임아웃(150초)까지 열려 있다 — 실패 이벤트 하나 보내고 바로 닫는다.
-            sendStatsFailure(emitter, e);
-            return;
-        }
+                                       Map<String, HeavyCommentResponse.ChapterResult> cachedOk,
+                                       StatsResponse stats) {
         if (stats.coldStart()) {
             List<HeavyCommentResponse.ChapterResult> results = HEAVY_CHAPTER_IDS.stream()
                     .map(id -> new HeavyCommentResponse.ChapterResult(id, HeavyCommentResponse.STATUS_FAILED, null, 0))
@@ -280,7 +298,7 @@ public class CommentService {
         // 마감까지 블로킹으로 기다리지 않는다 — 기다리는 동안 llmExecutor 스레드를 붙잡으면 동시 heavy 요청이
         // 늘 때 챕터 호출이 돌 스레드가 모자라진다. 전체 상한이 되면 completeOnTimeout이 마감 처리를 깨운다
         // (엔드포인트 타임아웃이 개별 챕터 재시도보다 우선, 4.2-1절).
-        CompletableFuture.allOf(allDone.toArray(new CompletableFuture[0]))
+        CompletableFuture.allOf(allDone.toArray(CompletableFuture<?>[]::new))
                 .completeOnTimeout(null, heavyTimeoutSeconds, TimeUnit.SECONDS)
                 .whenComplete((ignored, error) -> {
                     heartbeat.cancel(false);

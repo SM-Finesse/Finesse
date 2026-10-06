@@ -31,11 +31,11 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 - `docs/diagrams/` — 활동 다이어그램, `tools/MockLlmServer.java` — 로컬 mock LLM 서버
 
 ### calc 모듈에 요청할 보완 (1차 병합 후)
-- 콜드스타트 결과에 최근 승패 포함 (지금은 승률 0.0%·승패 칸 빈 값)
+- 콜드스타트 결과에 최근 승패 포함 (지금은 win_rate 생략·승패 칸 빈 값)
 - 매치 당시 TR 시계열(`tr_trend`)·라운드별 곡선(`round_curves`)
 - `UserSummary`에 apm·pps·vs
 - `/users/{username}` 호출을 calc로 이전 (레이트리미터 일원화)
-- 폴더 `calc/matrics`와 package `calc.metrics` 불일치
+- (반영됨, 10/6) 폴더 `calc/matrics` → `calc/metrics` — package 선언과 일치하도록 backend 브랜치에서 이름만 변경
 
 ### 검증
-빌드·테스트 101개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
+빌드·테스트 116개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/6 실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.

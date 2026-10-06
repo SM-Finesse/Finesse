@@ -68,7 +68,7 @@ public class StatsService {
     }
 
     public StatsResponse getStats(String username, boolean refresh) {
-        String normalized = username.toLowerCase(); // 1번 — TETR.IO API는 소문자가 아니면 404를 반환함 (실측 확인)
+        String normalized = Usernames.normalize(username); // 1번 — 소문자 정규화 + 형식 검사(틀리면 400)
         Cache cache = cacheManager.getCache(CacheConfig.STATS_CACHE);
 
         if (refresh && cache != null) {

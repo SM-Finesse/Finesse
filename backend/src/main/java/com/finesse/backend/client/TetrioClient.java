@@ -125,7 +125,7 @@ public class TetrioClient {
     }
 
     private static String textOrNull(JsonNode node, String field) {
-        return node.hasNonNull(field) ? node.path(field).asText() : null;
+        return node.hasNonNull(field) ? node.path(field).asString() : null;
     }
 
     private static Double doubleOrNull(JsonNode node, String field) {
