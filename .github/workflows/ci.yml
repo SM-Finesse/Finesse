@@ -83,7 +83,7 @@ jobs:
         if: steps.detect.outputs.tool != 'none'
         with:
           distribution: temurin
-          java-version: '17'        # TODO: 백엔드(정한비)와 Java 버전 확인
+          java-version: '25'        # backend/build.gradle toolchain (Java 25) 과 일치
           cache: ${{ steps.detect.outputs.tool }}
 
       - name: Gradle build
@@ -214,7 +214,7 @@ jobs:
           done
 
       # Mock 서버(llm-mock-1/2: 9001/9002, tetrio-mock: 9003)가 뜨는지 확인
-      # TODO: mock 병합 후 실제 health 경로가 정해지면 curl 경로 교체
+      # 각 Mock 서버의 /health 가 200을 돌려줄 때까지 대기 (최대 60초)
       - name: Mock 서버 기동 확인
         if: steps.compose.outputs.file != '' && hashFiles('infra/mocks/**') != ''
         run: |
@@ -222,7 +222,7 @@ jobs:
           for port in 9001 9002 9003; do
             ok=false
             for i in $(seq 1 30); do
-              if curl -s -o /dev/null "http://localhost:$port/"; then ok=true; break; fi
+              if curl -fs -o /dev/null "http://localhost:$port/health"; then ok=true; break; fi
               sleep 2
             done
             $ok && echo "port $port OK" || { echo "port $port 응답 없음"; docker compose -f "${{ steps.compose.outputs.file }}" logs; exit 1; }
