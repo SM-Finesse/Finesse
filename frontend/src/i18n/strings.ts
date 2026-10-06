@@ -336,8 +336,8 @@ const ko: Strings = {
       evidence: '근거',
       coldTitle: '최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.',
       coldBody: (n) => `최근 1년 안의 랭크 경기가 10경기 이상 쌓이면 상대 대비 강점·약점 분석을 시작합니다. 현재 ${n}경기 기록됨.`,
-      noneTitle: '근거와 이어지는 하이라이트가 없습니다.',
-      noneBody: 'AI가 고른 지표가 이번 전적에서 계산되지 않아 표시하지 않았습니다.',
+      noneTitle: '하이라이트를 생성하지 못했습니다.',
+      noneBody: 'AI가 고른 지표를 이번 전적의 수치와 이을 수 없어 AI 총평만 보여드립니다.',
       failed: '하이라이트를 불러오지 못했습니다.',
     },
     heavy: {
@@ -569,8 +569,8 @@ const en: Strings = {
       evidence: 'Evidence',
       coldTitle: 'Not enough recent match data to show highlights.',
       coldBody: (n) => `Analysis starts once 10 or more ranked games from the last year are on record. ${n} games so far.`,
-      noneTitle: 'No highlight could be tied to a number.',
-      noneBody: 'The metrics the AI picked were not computed for this record, so they are hidden.',
+      noneTitle: 'Could not generate highlights.',
+      noneBody: 'The metrics the AI picked could not be tied to numbers in this record, so only the AI summary is shown.',
       failed: 'Could not load the highlights.',
     },
     heavy: {

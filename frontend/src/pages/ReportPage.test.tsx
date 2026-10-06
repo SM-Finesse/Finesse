@@ -322,6 +322,28 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     expect(urls().filter((u) => u.includes('/stats/'))).toHaveLength(1)
   })
 
+  it('헤비에 갔다 라이트로 돌아와도 이미 받은 라이트 코멘트는 다시 부르지 않는다 (FR-06)', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const { urls } = routeFetch({ stats: [() => json(STATS)], comment: [() => json(COMMENT)] })
+    const { user } = setup()
+    expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
+
+    await user.keyboard('h')
+    await user.keyboard('l')
+    expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(urls().filter((u) => u.includes('scope=light'))).toHaveLength(1)
+  })
+
+  it('이어지는 하이라이트가 하나도 없으면 생성 실패로 안내하고 AI 총평만 남긴다 (기능 명세 3.3절)', async () => {
+    const comment = { ...COMMENT, highlights: [{ stat: 'tr_trend_delta', sentence: '후보가 아님' }] }
+    routeFetch({ stats: [() => json(STATS)], comment: [() => json(comment)] })
+    setup()
+
+    expect(await screen.findByText('하이라이트를 생성하지 못했습니다.')).toBeInTheDocument()
+    expect(screen.getByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(screen.queryByText('후보가 아님')).not.toBeInTheDocument()
+  })
+
   it('ESC로 처음 화면으로 돌아간다', async () => {
     routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     const { user, onBack } = setup()

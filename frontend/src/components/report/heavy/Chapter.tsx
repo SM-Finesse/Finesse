@@ -43,7 +43,7 @@ export function Strip({ children }: { children: ReactNode }) {
 
 const HAIRLINE = 'before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.14)_12%,rgba(255,255,255,.14)_88%,transparent)]'
 
-function Footnote({ result, state, chips, warn }: { result?: HeavyChapterResult; state: FootState; chips: Chip[]; warn?: boolean }) {
+function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state: FootState; chips: Chip[] }) {
   const { t } = useI18n()
   const f = t.report.heavy.foot
   const aiTag = (
@@ -63,20 +63,9 @@ function Footnote({ result, state, chips, warn }: { result?: HeavyChapterResult;
             <span aria-hidden="true" className="skeleton block h-3.5 max-w-[300px] flex-1" />
           </span>
         ) : (
-          <>
-            {warn && state === 'ok' && (
-              <span
-                role="img"
-                aria-label={f.warn}
-                className="inline-grid h-6 min-w-6 flex-none place-items-center rounded-md border-2 border-signal/55 bg-signal/18 px-2 font-display text-[13px] leading-none font-extrabold text-[#DCCB74]"
-              >
-                !
-              </span>
-            )}
-            <p className={cx('m-0 text-[15.5px] leading-[1.72] font-medium tracking-[-.004em]', state === 'ok' ? 'text-head' : 'text-muted')}>
-              {state === 'ok' ? result?.footnote : state === 'timeout' ? f.timeout : f.failed}
-            </p>
-          </>
+          <p className={cx('m-0 text-[15.5px] leading-[1.72] font-medium tracking-[-.004em]', state === 'ok' ? 'text-head' : 'text-muted')}>
+            {state === 'ok' ? result?.footnote : state === 'timeout' ? f.timeout : f.failed}
+          </p>
         )}
       </div>
       {state !== 'loading' && chips.length > 0 && (
@@ -106,7 +95,6 @@ export function Chapter({
   chips,
   result,
   foot,
-  warn,
   tail,
   children,
 }: {
@@ -119,7 +107,6 @@ export function Chapter({
   chips: Chip[]
   result?: HeavyChapterResult
   foot: FootState
-  warn?: boolean
   tail?: ReactNode
   children: ReactNode
 }) {
@@ -147,7 +134,7 @@ export function Chapter({
         </div>
       </div>
       <div className="p-5">{children}</div>
-      <Footnote result={result} state={foot} chips={chips} warn={warn} />
+      <Footnote result={result} state={foot} chips={chips} />
       {tail && <div className="px-5 pt-[18px] pb-5">{tail}</div>}
     </section>
   )

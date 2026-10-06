@@ -19,8 +19,18 @@ export function rivalTag(r: RivalItem): RivalTag {
   return null
 }
 
-/** 조우 횟수 내림차순 — 같으면 받은 순서 그대로 */
-export const sortRivals = (items: RivalItem[]) => items.map((r, i) => ({ r, i })).sort((a, b) => b.r.matches - a.r.matches || a.i - b.i).map((x) => x.r)
+/** 최근 대전 시각(ms). 없거나 읽을 수 없으면 가장 오래된 것으로 본다 */
+const lastAt = (r: RivalItem) => {
+  const t = r.last_match_at ? Date.parse(r.last_match_at) : NaN
+  return Number.isNaN(t) ? -Infinity : t
+}
+
+/** 조우 횟수 내림차순, 같으면 최근에 대전한 상대가 위(FR-08). 그래도 같으면 받은 순서 그대로 */
+export const sortRivals = (items: RivalItem[]) =>
+  items
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => b.r.matches - a.r.matches || lastAt(b.r) - lastAt(a.r) || a.i - b.i)
+    .map((x) => x.r)
 
 /** 타일 값 — 표의 태그와 같은 기준. 기준 미달이면 null(이름을 만들어내지 않는다) */
 export function rivalSummary(items: RivalItem[]) {
@@ -32,8 +42,7 @@ export function rivalSummary(items: RivalItem[]) {
     if (wr <= 40 && (!worst || wr < winRateOf(worst))) worst = r
     if (wr >= 65 && (!best || wr > winRateOf(best))) best = r
   }
-  /* 반복 조우가 5명도 안 되면 상성을 말하기 이르다 — 코멘트 앞에 주의 배지 */
-  return { repeat, worst, best, thin: repeat.length < 5 }
+  return { repeat, worst, best }
 }
 
 /** 페이지 버튼 — 처음 · 끝 · 지금 ±1, 사이가 비면 … */

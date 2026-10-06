@@ -190,6 +190,24 @@ export function evidenceOf(stat: string, delta: DeltaMetrics | undefined): Evide
   return { stat: key, meta, value, text: `${signed(shown, meta.decimals)}${unit}`, trend: trendOf(shown, meta.decimals) }
 }
 
+/**
+ * 라이트 하이라이트 후보 11개 (기능 명세 3.4절). tr_trend_delta는 고정 지표 'TR 추이'와 겹치고,
+ * comeback_rate_against는 헤비 뷰 전용이라 후보가 아니다 — 이 둘이 오면 매핑 실패로 뺀다.
+ */
+export const HIGHLIGHT_CANDIDATES: ReadonlySet<StatKey> = new Set<StatKey>([
+  'delta_opener',
+  'delta_plonk',
+  'delta_stride',
+  'delta_inf_ds',
+  'delta_app',
+  'delta_weighted_app',
+  'delta_vs_apm',
+  'delta_cheese_index',
+  'strength_split',
+  'comeback_rate',
+  'session_vs_slope',
+])
+
 export interface HighlightItem {
   sentence: string
   ev: Evidence
@@ -197,11 +215,12 @@ export interface HighlightItem {
 
 /**
  * LLM이 고른 하이라이트에 근거 수치를 붙인다(FR-05).
- * 존재하지 않거나 계산되지 않은 지표를 가리키는 항목은 매핑 실패로 보고 그 항목만 뺀다. 같은 지표가 겹치면 처음 것만.
+ * 후보가 아니거나, 존재하지 않거나, 계산되지 않은 지표를 가리키는 항목은 매핑 실패로 보고 그 항목만 뺀다. 같은 지표가 겹치면 처음 것만.
  */
 export function mapHighlights(highlights: LightCommentResponse['highlights'], delta: DeltaMetrics | undefined): HighlightItem[] {
   const out: HighlightItem[] = []
   for (const h of highlights) {
+    if (!HIGHLIGHT_CANDIDATES.has(h.stat as StatKey)) continue
     const ev = evidenceOf(h.stat, delta)
     if (ev && !out.some((o) => o.ev.stat === ev.stat)) out.push({ sentence: h.sentence, ev })
   }

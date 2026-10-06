@@ -92,10 +92,23 @@ describe('하이라이트 근거 (FR-05)', () => {
       ],
       DELTA,
     )
+    /* tr_trend_delta는 후보가 아니라 매핑 실패로 빠지고, 그 자리를 strength_split이 채운다 */
     expect(items.map((i) => [i.ev.stat, i.sentence])).toEqual([
       ['delta_app', 'a'],
       ['comeback_rate', 'b'],
-      ['tr_trend_delta', 'c'],
+      ['strength_split', 'd'],
     ])
+  })
+
+  it('하이라이트 후보 11개가 아닌 지표는 값이 있어도 매핑 실패로 뺀다 (기능 명세 3.4·3.5절)', () => {
+    const items = mapHighlights(
+      [
+        { stat: 'tr_trend_delta', sentence: 'TR 추이와 겹친다' },
+        { stat: 'comeback_rate_against', sentence: '헤비 뷰 전용' },
+        { stat: 'delta_vs_apm', sentence: 'ok' },
+      ],
+      { ...DELTA, comeback_rate_against: 0.25 },
+    )
+    expect(items.map((i) => i.ev.stat)).toEqual(['delta_vs_apm'])
   })
 })

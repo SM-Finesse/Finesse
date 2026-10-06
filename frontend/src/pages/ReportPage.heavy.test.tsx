@@ -133,7 +133,7 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(cond).getByText('−0.05')).toBeInTheDocument()
   })
 
-  it('자주 만난 상대 — 조우 횟수순 순위표, 우세·천적 타일, 표본이 얇으면 코멘트에 주의 배지', async () => {
+  it('자주 만난 상대 — 조우 횟수순 순위표, 우세·천적 타일. 반복 조우가 적어도 표본 안내를 따로 띄우지 않는다 (기능 명세 3.6절)', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     setup()
     await ready()
@@ -147,8 +147,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(rows[1]).toHaveTextContent('우세')
     expect(within(rv).getByText('4승 2패 · 67%')).toBeInTheDocument()
     expect(within(rv).getByText('2명 · 20명/페이지')).toBeInTheDocument()
-    /* 5경기 이상 만난 상대가 5명이 안 된다 */
-    expect(within(rv).getByRole('img', { name: '주의' })).toBeInTheDocument()
+    /* 5경기 이상 만난 상대가 5명이 안 되지만, 10판 이상이면 표본 안내를 따로 붙이지 않는다 */
+    expect(within(rv).queryByRole('img', { name: '주의' })).not.toBeInTheDocument()
+    expect(within(rv).getByText('아직 상성을 말하기 이릅니다.')).toBeInTheDocument()
     expect(within(rv).getByText('상대 데이터 취급 방식')).toBeInTheDocument()
   })
 

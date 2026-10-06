@@ -3,7 +3,7 @@ import { HEAVY_CHAPTERS, type HeavyChapterId, type StatsResponse } from '../../a
 import { footStateOf, type HeavyState } from '../../hooks/useHeavyComment'
 import { useI18n } from '../../i18n/context'
 import { retryWait } from '../../lib/retry'
-import { rivalSummary, sortRivals } from '../../lib/rivals'
+import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, trendOf, type Evidence, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
 import { Chapter, DataTable, DetailModal, StatBox, Strip, type Chip } from './heavy/Chapter'
@@ -132,13 +132,12 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
 
   /* 08 — 자주 만난 상대 */
   const rivals = sortRivals(data.rivals.items)
-  const rs = rivalSummary(rivals)
   const r = h.rivals
 
   const present = (xs: (Evidence | null)[]) => xs.filter((e): e is Evidence => e !== null)
   const pill = (e: Evidence | null) => (e?.trend ? <DeltaPill text={e.text} trend={e.trend} /> : undefined)
 
-  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; warn?: boolean; tail?: ReactNode; body: ReactNode }> = {
+  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; tail?: ReactNode; body: ReactNode }> = {
     tr_trend: {
       right: pill(tr),
       detail: buckets.length > 0,
@@ -233,7 +232,6 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
         { k: r.edge, v: r.edgeRule },
         { k: r.repeat, v: r.repeatSub },
       ],
-      warn: rs.thin,
       tail: <RivalPolicy />,
       body: rivals.length ? <RivalBoard items={rivals} /> : <Notice title={r.empty} />,
     },
@@ -299,7 +297,6 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
               chips={c.chips}
               result={heavy.chapters[id]}
               foot={footStateOf(heavy.chapters[id], heavy.status)}
-              warn={c.warn}
               tail={c.tail}
             >
               {c.body}
