@@ -52,7 +52,8 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   const p = t.report.profile
   const pr = data.profile
   const rank = rankLabel(pr.rank)
-  const topRank = pr.best_rank && rankLabel(pr.best_rank) ? pr.best_rank : null
+  /* 최고 랭크가 'z'면 이번 시즌 티어를 받은 적이 없다 — 보여줄 게 없어 숨긴다 */
+  const topRank = pr.best_rank && pr.best_rank !== 'z' ? pr.best_rank : null
   const winRate = data.fixed_metrics.win_rate
   const wins = typeof winRate === 'number' ? Math.round(winRate * data.match_count) : null
   const trDelta = data.delta_metrics?.tr_trend_delta
@@ -70,9 +71,17 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
                 rank ? 'text-[44px] leading-none text-head [text-shadow:0_3px_0_rgba(0,0,0,.45),0_0_16px_color-mix(in_srgb,currentColor_45%,transparent)]' : 'text-lg text-muted',
               )}
               style={rank ? { color: rankColor(pr.rank) } : undefined}
+              title={pr.rank === 'z' ? t.report.unranked : undefined}
             >
-              {/* 값이 안 왔으면 모르는 것이라 '—', 'z'가 와야 이번 시즌 랭크가 없는 것 */}
-              {rank ?? (pr.rank ? t.report.unranked : '—')}
+              {/* 값이 안 왔으면 모르는 것이라 '—'. 'z'(언랭크)는 '?' — 분석은 정상 진행 */}
+              {pr.rank === 'z' ? (
+                <>
+                  <span aria-hidden="true">?</span>
+                  <span className="sr-only">{t.report.unranked}</span>
+                </>
+              ) : (
+                (rank ?? '—')
+              )}
             </div>
             <div className="text-[11.5px] text-muted">{p.season}</div>
           </div>

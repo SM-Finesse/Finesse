@@ -232,13 +232,13 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(meter).getByText('3')).toBeInTheDocument()
     expect(within(meter).getByText(/헤비 8개 챕터와 챕터별 AI 코멘트가 열립니다/)).toBeInTheDocument()
 
-    const locked = screen.getByRole('region', { name: '10경기가 쌓이면 열리는 챕터' })
+    const locked = screen.getByRole('region', { name: '최근 1년 랭크 경기 10판이 쌓이면 열리는 챕터' })
     expect(within(locked).getAllByRole('listitem')).toHaveLength(8)
     expect(within(locked).getAllByText('상대 비교 필요')).toHaveLength(6)
     expect(within(locked).getAllByText('표본 부족')).toHaveLength(2)
     expect(FakeEventSource.all).toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: '라이트 뷰로 보기' }))
-    expect(screen.queryByRole('region', { name: '10경기가 쌓이면 열리는 챕터' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '최근 1년 랭크 경기 10판이 쌓이면 열리는 챕터' })).not.toBeInTheDocument()
   })
 })

@@ -27,8 +27,8 @@ describe('표시 규칙', () => {
     expect(numOrDash(undefined)).toBe('—')
   })
 
-  it("랭크 'z'는 랭크 없음", () => {
-    expect(rankLabel('z')).toBeNull()
+  it("랭크 'z'(언랭크)는 '?', 값이 없으면 null", () => {
+    expect(rankLabel('z')).toBe('?')
     expect(rankLabel(undefined)).toBeNull()
     expect(rankLabel('x+')).toBe('X+')
   })

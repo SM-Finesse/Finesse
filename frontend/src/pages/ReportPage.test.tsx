@@ -118,11 +118,26 @@ describe('ReportPage — 라이트 뷰', () => {
     setup()
 
     const panel = await screen.findByRole('region', { name: 'PROFILE' })
-    expect(within(panel).getByText('랭크 없음')).toBeInTheDocument()
+    expect(within(panel).getByText('RANK').nextElementSibling).toHaveTextContent(/^\?/)
     expect(within(panel).getAllByText('—')).toHaveLength(2)
     expect(within(panel).queryByText(/편차/)).not.toBeInTheDocument()
     expect(screen.queryByText(/-1/)).not.toBeInTheDocument()
     expect(screen.queryByText(/플레이 -?\d/)).not.toBeInTheDocument()
+  })
+
+  it("랭크 'z'(언랭크)는 '?'로 쓰고, 표본 부족으로 보지 않아 TR·분석을 그대로 보여준다 (수집 명세 6.1)", async () => {
+    /* 실측 사례 sung1ow — 28판, rd 115.2, tr 19702.18 */
+    const profile = { ...STATS.profile, rank: 'z', tr: 19702.18, rd: 115.2 }
+    const { urls } = routeFetch({ stats: [() => json({ ...STATS, match_count: 28, profile })], comment: [pending] })
+    setup()
+
+    const panel = await screen.findByRole('region', { name: 'PROFILE' })
+    const rank = within(panel).getByText('RANK').nextElementSibling!
+    expect(rank).toHaveTextContent(/^\?/)
+    expect(rank).toHaveAttribute('title', expect.stringMatching(/^언랭크/))
+    expect(within(panel).getByText('19,702')).toBeInTheDocument()
+    /* 분석은 그대로 — 라이트 코멘트를 부른다 */
+    await waitFor(() => expect(urls().some((u) => u.includes('/comment/'))).toBe(true))
   })
 
   it('랭크 값이 안 오면 랭크가 없다고 단정하지 않고 —로 둔다', async () => {
@@ -131,7 +146,7 @@ describe('ReportPage — 라이트 뷰', () => {
     setup()
 
     const panel = await screen.findByRole('region', { name: 'PROFILE' })
-    expect(within(panel).queryByText('랭크 없음')).not.toBeInTheDocument()
+    expect(within(panel).queryByTitle(/언랭크/)).not.toBeInTheDocument()
     expect(within(panel).getByText('RANK').nextElementSibling).toHaveTextContent('—')
   })
 

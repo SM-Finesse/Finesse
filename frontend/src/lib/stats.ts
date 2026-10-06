@@ -36,10 +36,13 @@ export const COLD_START_GAMES = 10
 
 export const pct = (ratio: number, decimals = 1) => `${(ratio * 100).toFixed(decimals)}%`
 
-/** TETR.IO 랭크 문자 — 'z'는 이번 시즌 랭크가 없는 상태 */
+/**
+ * TETR.IO 랭크 문자. 'z'는 언랭크(RD 100 이상)라 '?'로 쓴다 — 표본 부족이 아니고 데이터도 정상이다(수집 명세 6.1).
+ * 값이 안 왔으면 null — 부르는 쪽이 '—'로 둔다.
+ */
 export function rankLabel(rank: string | undefined): string | null {
-  if (!rank || rank === 'z') return null
-  return rank.toUpperCase()
+  if (!rank) return null
+  return rank === 'z' ? '?' : rank.toUpperCase()
 }
 
 /**
