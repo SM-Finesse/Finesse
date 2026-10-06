@@ -21,49 +21,29 @@ class TetrioClientUserInfoTest {
     }
 
     @Test
-    void 배지_ts가_false거나_없으면_null이고_날짜면_읽는다() {
+    void 가입일_플레이_시간_친구_수를_읽고_숨긴_플레이_시간은_그대로() {
         TetrioClient.UserInfo u = TetrioClient.parseUserInfo(json("""
-                {"_id":"abc","ts":"2020-04-01T08:04:24.983Z","xp":1200.5,"gametime":-1,
-                 "supporter":false,"supporter_tier":0,"friend_count":2438,
-                 "badges":[
-                   {"id":"kod_founder","label":"KO'd the founder","ts":"2020-06-27T00:53:37.657Z"},
-                   {"id":"twc23_honorary","label":"TWC 2023","group":"twc23","ts":false},
-                   {"id":"wpl_1","label":"WPL","desc":"winner"}
-                 ]}"""));
+                {"_id":"abc","ts":"2020-04-01T08:04:24.983Z","xp":1200.5,"gametime":-1,"friend_count":2438}"""));
 
         assertThat(u.joinedAt()).isEqualTo(Instant.parse("2020-04-01T08:04:24.983Z"));
         assertThat(u.gametime()).isEqualTo(-1.0); // 숨김(-1)은 그대로 — 프론트가 음수를 숨긴다
         assertThat(u.friendCount()).isEqualTo(2438);
-        assertThat(u.badges()).hasSize(3);
-        assertThat(u.badges().get(0).ts()).isEqualTo(Instant.parse("2020-06-27T00:53:37.657Z"));
-        assertThat(u.badges().get(1).ts()).isNull();
-        assertThat(u.badges().get(1).group()).isEqualTo("twc23");
-        assertThat(u.badges().get(2).ts()).isNull();
-        assertThat(u.badges().get(2).desc()).isEqualTo("winner");
+        assertThat(u.xp()).isEqualTo(1200.5);
     }
 
     @Test
-    void 서포터와_가입일_없음() {
-        TetrioClient.UserInfo u = TetrioClient.parseUserInfo(json("""
-                {"_id":"osk","xp":5000,"gametime":504013.13,"supporter":true,"supporter_tier":1,"friend_count":3760,
-                 "badges":[{"id":"founder","label":"Founded TETR.IO"}]}"""));
-
-        assertThat(u.joinedAt()).isNull();
-        assertThat(u.supporter()).isTrue();
-        assertThat(u.supporterTier()).isEqualTo(1);
-        assertThat(u.gametime()).isEqualTo(504013.13);
-        assertThat(u.badges()).extracting(TetrioClient.Badge::id).containsExactly("founder");
+    void 가입일이_false로_오거나_없으면_null() {
+        assertThat(TetrioClient.parseUserInfo(json("{\"_id\":\"a\",\"ts\":false}")).joinedAt()).isNull();
+        assertThat(TetrioClient.parseUserInfo(json("{\"_id\":\"osk\",\"gametime\":504013.13}")).joinedAt()).isNull();
     }
 
     @Test
     void 날짜로_안_읽히는_가입일과_음수_xp는_null() {
         TetrioClient.UserInfo u = TetrioClient.parseUserInfo(json("""
-                {"_id":"kagari","ts":"not-a-date","xp":-1,"gametime":-1,"badges":[{"label":"id 없음"}]}"""));
+                {"_id":"kagari","ts":"not-a-date","xp":-1,"gametime":-1}"""));
 
         assertThat(u.joinedAt()).isNull();
         assertThat(u.xp()).isNull();
-        assertThat(u.badges()).isEmpty(); // id 없는 배지는 버린다
-        assertThat(u.supporter()).isNull();
         assertThat(u.friendCount()).isNull();
     }
 }

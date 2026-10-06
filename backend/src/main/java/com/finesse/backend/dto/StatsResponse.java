@@ -27,12 +27,7 @@ public record StatsResponse(
     public record Profile(String rank, double tr, double glicko, double rd,
                           Double apm, Double pps, Double vs,
                           String avatarUrl, Double xp, String country, Instant joinedAt,
-                          Double playTimeSeconds, List<Badge> badges, Boolean supporter, Integer supporterTier,
-                          Integer friendCount) {
-    }
-
-    // TETR.IO 배지 — desc·group·ts는 없는 배지도 있어 null이면 생략. ts가 날짜가 아니게 오면(false 등) null.
-    public record Badge(String id, String label, String desc, String group, Instant ts) {
+                          Double playTimeSeconds, Integer friendCount) {
     }
 
     // recentForm: 최근 최대 40경기 승패("W"/"L"), matches[0]이 최신이므로 index 0이 가장 최근 경기
