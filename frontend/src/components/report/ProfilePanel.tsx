@@ -63,12 +63,12 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
       <div className="grid grid-cols-2 gap-0.5 bg-deep md:grid-cols-3 lg:grid-cols-[200px_repeat(5,minmax(0,1fr))]">
         <div className="col-span-2 flex min-w-0 items-center bg-cell px-4 py-[15px] md:col-span-3 lg:col-span-1">
           <div className="min-w-0">
-            <div className="font-display text-[9.5px] font-bold tracking-[.2em] text-faint">RANK</div>
+            <div className="font-display text-xs font-bold tracking-[.2em] text-faint">RANK</div>
             {/* 랭크마다 TETR.IO 랭크 색 (lib/rankColors) */}
             <div
               className={cx(
-                'mt-[3px] font-display font-extrabold tracking-[.02em]',
-                rank ? 'text-[44px] leading-none text-head [text-shadow:0_3px_0_rgba(0,0,0,.45),0_0_16px_color-mix(in_srgb,currentColor_45%,transparent)]' : 'text-lg text-muted',
+                'mt-1 font-display font-extrabold tracking-[.02em]',
+                rank ? 'text-[50px] leading-none text-head [text-shadow:0_3px_0_rgba(0,0,0,.45),0_0_16px_color-mix(in_srgb,currentColor_45%,transparent)]' : 'text-[26px] leading-tight text-muted',
               )}
               style={rank ? { color: rankColor(pr.rank) } : undefined}
               title={pr.rank === 'z' ? t.report.unranked : undefined}
@@ -83,7 +83,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
                 (rank ?? '—')
               )}
             </div>
-            <div className="text-[11.5px] text-muted">{p.season}</div>
+            <div className="mt-1 text-sm text-muted">{p.season}</div>
           </div>
         </div>
         <Cell

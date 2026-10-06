@@ -167,6 +167,55 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(rv).getByRole('button', { name: '2' })).toHaveAttribute('aria-current', 'page')
   })
 
+  it('20명이 넘는 상대(139명) — 7페이지, 페이지 사이는 …, 순번은 이어지고, 타일은 전체에서 고른다', async () => {
+    /* 프로토타입 스크린샷과 같은 139명. 받은 순서를 뒤집어 정렬을 프론트가 하는지도 본다 */
+    const items = Array.from({ length: 139 }, (_, i) => {
+      const matches = 40 - Math.floor(i / 4)
+      /* 101번째(6페이지)는 한 판도 못 이긴 상대 — 천적 타일은 지금 페이지가 아니라 전체에서 고른다 */
+      const wins = i === 100 ? 0 : Math.round(matches * 0.6)
+      return { nickname_masked: `r${String(i).padStart(3, '0')}**`, matches, wins, losses: matches - wins, last_match_at: `2026-09-${String(28 - (i % 4)).padStart(2, '0')}T00:00:00Z` }
+    }).reverse()
+    routeFetch({ stats: [() => json({ ...FULL, rivals: { items, page: 1, page_size: 20, total: 139 } })], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    const rv = chapter('자주 만난 상대')
+    const rows = () => within(within(rv).getByRole('table')).getAllByRole('row').slice(1)
+    const firstCell = (row: HTMLElement) => within(row).getAllByRole('cell')[0].textContent
+    const pages = () => within(within(rv).getByRole('navigation', { name: 'pages' })).getAllByRole('button').map((b) => b.textContent)
+
+    /* 1페이지 — 조우 40번이 넷(r000~r003), 같으면 최근에 대전한 상대가 위 */
+    expect(within(rv).getByText('139명 · 20명/페이지')).toBeInTheDocument()
+    expect(rows()).toHaveLength(20)
+    expect(rows().slice(0, 4).map((r) => r.textContent)).toEqual([expect.stringContaining('r000**'), expect.stringContaining('r001**'), expect.stringContaining('r002**'), expect.stringContaining('r003**')])
+    expect(firstCell(rows()[0])).toBe('1')
+    expect(firstCell(rows()[19])).toBe('20')
+    expect(pages()).toEqual(['‹', '1', '2', '7', '›'])
+    expect(within(rv).getByText('…')).toBeInTheDocument()
+    expect(within(rv).getByRole('button', { name: '이전 페이지' })).toBeDisabled()
+    expect(within(rv).getByText('139명 중 1–20명 표시 · 조우 횟수 내림차순')).toBeInTheDocument()
+    /* 천적 타일 — 6페이지에 있는 r100**(0승) */
+    expect(within(rv).getByText('0승 15패 · 0%')).toBeInTheDocument()
+    expect(within(rv).getAllByText('r100**').length).toBeGreaterThan(0)
+
+    /* 마지막 페이지 — 121~139번, 19명 */
+    await user.click(within(rv).getByRole('button', { name: '7' }))
+    expect(rows()).toHaveLength(19)
+    expect(firstCell(rows()[0])).toBe('121')
+    expect(firstCell(rows()[18])).toBe('139')
+    expect(within(rv).getByRole('button', { name: '다음 페이지' })).toBeDisabled()
+    expect(within(rv).getByText('139명 중 121–139명 표시 · 조우 횟수 내림차순')).toBeInTheDocument()
+
+    /* 가운데 페이지 — 양쪽에 … (1 … 3 4 5 … 7) */
+    await user.click(within(rv).getByRole('button', { name: '이전 페이지' }))
+    await user.click(within(rv).getByRole('button', { name: '5' }))
+    await user.click(within(rv).getByRole('button', { name: '4' }))
+    expect(pages()).toEqual(['‹', '1', '3', '4', '5', '7', '›'])
+    expect(within(rv).getAllByText('…')).toHaveLength(2)
+    expect(within(rv).getByRole('button', { name: '4' })).toHaveAttribute('aria-current', 'page')
+    expect(firstCell(rows()[0])).toBe('61')
+  })
+
   it('자세히 보기는 큰 차트와 표를 띄우고, ESC는 리포트를 떠나지 않고 창만 닫는다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     const { user, onBack } = setup()
