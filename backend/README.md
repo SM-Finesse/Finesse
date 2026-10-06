@@ -28,7 +28,7 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
   - 서버당 동시 1건(순차) + light 우선 대기열, 호출 1회/엔드포인트 타임아웃 분리, 연결 실패 서버 30초 제외
   - heavy는 SSE(챕터별 `chapter` 이벤트 + `done` 요약, 10초 하트비트), 성공 챕터만 챕터 단위 캐시
 - 캐싱 — stats/comment-light/comment-heavy 분리, stats 갱신 시 comment 캐시 연쇄 무효화
-- `docs/diagrams/` — 활동 다이어그램, `tools/MockLlmServer.java` — 로컬 mock LLM 서버
+- `docs/diagrams/` — 라이트·헤비 뷰 활동 다이어그램 (SSE·calc 모듈·503 BUSY 반영), `tools/MockLlmServer.java` — 로컬 mock LLM 서버
 
 ### calc 모듈에 요청할 보완 (1차 병합 후)
 - 콜드스타트 결과에 최근 승패 포함 (지금은 win_rate 생략·승패 칸 빈 값)
