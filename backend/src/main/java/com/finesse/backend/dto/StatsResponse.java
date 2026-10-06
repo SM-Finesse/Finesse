@@ -24,7 +24,7 @@ public record StatsResponse(
     // avatarUrl·xp·country·joinedAt은 /users/{username} 호출이 실패했거나 값이 없는 계정이면 null(응답에서 생략).
     // avatarUrl은 검색한 본인 것만 — 상대(라이벌) 사진은 닉네임 마스킹 원칙(FR-09)에 어긋나 내려주지 않는다.
     // playTimeSeconds는 유저가 숨기면 -1 그대로 (프론트가 tr·glicko·rd처럼 음수를 숨김).
-    public record Profile(double tr, double glicko, double rd,
+    public record Profile(String rank, double tr, double glicko, double rd,
                           Double apm, Double pps, Double vs,
                           String avatarUrl, Double xp, String country, Instant joinedAt,
                           Double playTimeSeconds, List<Badge> badges, Boolean supporter, Integer supporterTier,
