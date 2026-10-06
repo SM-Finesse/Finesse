@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { FakeEventSource } from '../test/fixtures'
 import { ApiError, getComment, getHeavyStream, getStats, parseRetryAfter } from './client'
 
 function mockFetch(impl: () => Promise<Response>) {
@@ -68,28 +69,6 @@ describe('api client', () => {
     expect(err).toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
   })
 })
-
-/* jsdom에는 EventSource가 없다 — 서버 이벤트를 테스트에서 직접 쏘는 가짜 */
-class FakeEventSource {
-  static last: FakeEventSource
-  readonly url: string
-  closed = false
-  private listeners = new Map<string, ((e: MessageEvent) => void)[]>()
-
-  constructor(url: string) {
-    this.url = url
-    FakeEventSource.last = this
-  }
-  addEventListener(type: string, fn: (e: MessageEvent) => void) {
-    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn])
-  }
-  close() {
-    this.closed = true
-  }
-  emit(type: string, data = '') {
-    for (const fn of this.listeners.get(type) ?? []) fn(new MessageEvent(type, { data }))
-  }
-}
 
 function openStream() {
   vi.stubGlobal('EventSource', FakeEventSource)

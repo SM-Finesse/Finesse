@@ -30,8 +30,9 @@ function Legend({ color, label }: { color: string; label: string }) {
  * 표본 부족(콜드스타트)일 때 — 분석이 열리기까지 몇 판 남았는지.
  * 칸 하나가 한 경기: 이긴 판은 파랑, 진 판은 빨강(왼쪽이 가장 오래된 경기), 남은 칸은 번호만 둔다.
  * 테두리 노란색은 '표본이 모자라다'는 뜻으로만 쓴다(Notice와 같은 규칙).
+ * body — 아래 안내 문구. 라이트·헤비가 열리는 내용이 달라 뷰마다 바꿔 넣는다
  */
-export function ColdStartMeter({ data }: { data: StatsResponse }) {
+export function ColdStartMeter({ data, body }: { data: StatsResponse; body?: string }) {
   const { t } = useI18n()
   const c = t.report.cold
   const need = COLD_START_GAMES
@@ -87,7 +88,7 @@ export function ColdStartMeter({ data }: { data: StatsResponse }) {
         </div>
       </div>
 
-      <p className="mt-4 mb-0 border-t border-line-soft pt-3.5 text-[13px] leading-[1.65] text-muted">{c.body(need)}</p>
+      <p className="mt-4 mb-0 border-t border-line-soft pt-3.5 text-[13px] leading-[1.65] text-muted">{body ?? c.body(need)}</p>
     </section>
   )
 }

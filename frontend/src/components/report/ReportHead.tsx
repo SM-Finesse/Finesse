@@ -1,14 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import type { StatsResponse } from '../../api/types'
 import { useI18n } from '../../i18n/context'
-import { countryName, levelFromXp, num, rankLabel, timeAgo } from '../../lib/stats'
+import { countryName, levelFromXp, num, timeAgo } from '../../lib/stats'
 import type { View } from '../../types'
 import { Avatar } from './Avatar'
 import { Flag } from './Flag'
 import { LevelTag } from './LevelTag'
-import { FeaturedAchievements, FriendCount, SupporterTag } from './ProfileExtras'
+import { FriendCount } from './ProfileExtras'
 import { Caption } from './parts'
-import { RankIcon } from './RankIcon'
 
 const SIZE = 88
 
@@ -29,12 +28,11 @@ function PlayerPhoto({ name, url }: { name: string; url?: string }) {
   )
 }
 
-/** 리포트 머리 — 사진 · 레벨 · 유저명 · 랭크 · 국가 · 서포터 · 친구 수 · 대표 업적 / 지금 보는 뷰 · 단축키 */
+/** 리포트 머리 — 사진 · 레벨 · 유저명 · 국가 · 친구 수 / 지금 보는 뷰 · 단축키 */
 export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsResponse; view: View; keys: ReactNode; viewSwitch: ReactNode }) {
   const { t, lang } = useI18n()
   const r = t.report
   const p = data.profile
-  const rank = rankLabel(p.rank)
   const lv = typeof p.xp === 'number' ? levelFromXp(p.xp) : null
   const joined = p.joined_at ? timeAgo(p.joined_at, lang) : null
   const playTime = typeof p.play_time_seconds === 'number' && p.play_time_seconds >= 0 ? r.playTime(num(Math.floor(p.play_time_seconds / 3600))) : null
@@ -57,9 +55,7 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-[11px]">
             <h2 className="m-0 truncate font-display text-[30px] font-extrabold tracking-[.01em] text-head">{data.username}</h2>
-            {rank && <RankIcon rank={p.rank} size={30} label={`RANK ${rank}`} />}
             {p.country && <Flag code={p.country} label={countryName(p.country, lang)} />}
-            {p.supporter && <SupporterTag tier={p.supporter_tier ?? 1} />}
             {typeof p.friend_count === 'number' && p.friend_count > 0 && <FriendCount count={p.friend_count} />}
           </div>
           {lv && p.xp !== undefined && (
@@ -76,11 +72,6 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
             </div>
           )}
           <Caption className="mt-1.5 block">{meta}</Caption>
-          {p.featured_achievements && p.featured_achievements.length > 0 && (
-            <div className="mt-2.5">
-              <FeaturedAchievements achievements={p.featured_achievements} />
-            </div>
-          )}
         </div>
       </div>
       <div className="ml-auto flex flex-col items-end gap-2">

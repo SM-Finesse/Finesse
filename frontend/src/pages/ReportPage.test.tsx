@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LangProvider } from '../i18n/LangProvider'
-import { COLD, COMMENT, json, pending, routeFetch, STATS } from '../test/fixtures'
+import { COLD, COMMENT, FakeEventSource, json, pending, routeFetch, STATS } from '../test/fixtures'
 import type { View } from '../types'
 import { ReportPage } from './ReportPage'
 
@@ -32,7 +32,8 @@ describe('ReportPage — 라이트 뷰', () => {
     setup()
 
     const profile = await screen.findByRole('region', { name: 'PROFILE' })
-    expect(within(profile).getByText('X')).toBeInTheDocument()
+    /* 랭크 글자는 TETR.IO 랭크 색 */
+    expect(within(profile).getByText('X')).toHaveStyle({ color: '#FF45FF' })
     expect(within(profile).getByText('75승 45패')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'exampleplayer' })).toBeInTheDocument()
 
@@ -67,22 +68,21 @@ describe('ReportPage — 라이트 뷰', () => {
     const photo = () => container.querySelector('img[src*="user-content"]')
     const img = photo()!
     expect(img).toHaveAttribute('src', STATS.profile.avatar_url)
-    expect(screen.getByRole('img', { name: 'RANK X' }).getAttribute('src')).toMatch(/x\.png$/)
-    expect(profile.querySelector('img')!.getAttribute('src')).toMatch(/x\.png$/)
+    /* 랭크는 글자로만 — 랭크 그림은 그리지 않는다 */
+    expect(container.querySelector('[data-rank]')).toBeNull()
     expect(screen.getByText(/^37\d\d$/)).toHaveAttribute('title', expect.stringMatching(/^다음 레벨까지 \d+%$/))
     await waitFor(() => expect(screen.getByRole('img', { name: '말레이시아' }).getAttribute('src')).toMatch(/svg/))
     expect(screen.getByText(/가입 \d+년 전 · 플레이 1,804시간 · 최근 120경기/)).toBeInTheDocument()
     expect(within(profile).getByText('237')).toBeInTheDocument()
     /* 이번 시즌 최고 랭크 */
     expect(within(profile).getByText('TOP RANK').parentElement).toHaveTextContent('TOP RANKX+')
-    expect(within(profile).getByText('TOP RANK').nextElementSibling!.getAttribute('src')).toMatch(/x-plus\.png$/)
 
     fireEvent.error(img)
     expect(photo()).toBeNull()
   })
 
   it('유저 정보 값이 빠지면 지어내지 않는다 — 레벨·국가 없음, APM 등은 —', async () => {
-    const { best_rank: _r, avatar_url: _a, xp: _x, country: _c, joined_at: _j, play_time_seconds: _t, featured_achievements: _fa, supporter: _u, supporter_tier: _ut, friend_count: _f, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
+    const { best_rank: _r, avatar_url: _a, xp: _x, country: _c, joined_at: _j, play_time_seconds: _t, friend_count: _f, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
     routeFetch({ stats: [() => json({ ...STATS, profile: rest })], comment: [pending] })
     const { container } = render(
       <LangProvider initial="ko">
@@ -94,36 +94,22 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.queryByText(/^LV/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^가입/)).not.toBeInTheDocument()
     expect(screen.queryByText(/플레이 \d/)).not.toBeInTheDocument()
-    expect(screen.queryByRole('list', { name: '대표 업적' })).not.toBeInTheDocument()
     expect(screen.queryByText('TOP RANK')).not.toBeInTheDocument()
-    expect(screen.queryByText(/^SUPPORTER/)).not.toBeInTheDocument()
     expect(screen.queryByTitle('이 유저를 친구로 추가한 플레이어 수')).not.toBeInTheDocument()
     expect(within(profile).getAllByText('—')).toHaveLength(3)
   })
 
-  it('대표 업적 메달 · 서포터 · 친구 수를 보여준다 — 등급 없는 업적과 그림을 못 불러온 메달은 뺀다', async () => {
-    routeFetch({ stats: [() => json(STATS)], comment: [pending] })
+  it('친구 수를 보여주고, TETR.IO 그림(업적 메달·서포터 띠)은 백엔드가 값을 보내도 그리지 않는다', async () => {
+    /* 백엔드는 아직 이 값들을 보낸다 */
+    const profile = { ...STATS.profile, supporter: true, supporter_tier: 3, featured_achievements: [{ k: 8, name: '20TSD', rank: 5, pos: 3, art: 2 }] }
+    routeFetch({ stats: [() => json({ ...STATS, profile })], comment: [pending] })
     setup()
 
-    const list = await screen.findByRole('list', { name: '대표 업적' })
-    const medals = within(list).getAllByRole('listitem')
-    /* 유저가 고른 순서 그대로, 등급 0(k=30)은 뺀다 */
-    expect(medals.map((m) => m.getAttribute('title')!.split('\n')[0])).toEqual(['20TSD', 'THE EMPEROR', '10PC'])
-    expect(medals[0].getAttribute('title')).toBe('20TSD\nClear 40 LINES using only T-Spin Doubles\n다이아몬드 · #4 / 15,121')
-    /* 테두리는 등급, 화환은 경쟁 업적 Top 100 안일 때만 (#4 → t5, #13 → t25, #141 → 없음) */
-    const srcs = (m: HTMLElement) => [...m.querySelectorAll('img')].map((i) => i.getAttribute('src')!.replace('https://tetr.io/res/achievements/', ''))
-    expect(srcs(medals[0])).toEqual(['frames/diamond.png', 'wreaths/t5.png'])
-    expect(srcs(medals[1])).toEqual(['frames/diamond.png', 'wreaths/t25.png'])
-    expect(srcs(medals[2])).toEqual(['frames/diamond.png'])
-    /* 배지 줄은 더 이상 그리지 않는다 */
+    expect(await screen.findByTitle('이 유저를 친구로 추가한 플레이어 수')).toHaveTextContent('2,438')
+    expect(screen.queryByRole('list', { name: '대표 업적' })).not.toBeInTheDocument()
     expect(screen.queryByRole('list', { name: '배지' })).not.toBeInTheDocument()
-
-    /* 서포터 3단계 → ★ 2개 */
-    expect(screen.getByText(/^SUPPORTER/)).toHaveTextContent(/^SUPPORTER★★$/)
-    expect(screen.getByTitle('이 유저를 친구로 추가한 플레이어 수')).toHaveTextContent('2,438')
-
-    fireEvent.error(medals[0].querySelector('img')!)
-    expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.queryByText(/SUPPORTER/)).not.toBeInTheDocument()
+    expect(document.querySelector('img[src*="tetr.io/res"], [style*="tetr.io/res"]')).toBeNull()
   })
 
   it('랭크 기록이 없는 유저(tr·glicko·rd = -1)와 플레이 시간을 숨긴 유저(-1)도 화면이 깨지지 않고 —로 보여준다', async () => {
@@ -137,6 +123,16 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(within(panel).queryByText(/편차/)).not.toBeInTheDocument()
     expect(screen.queryByText(/-1/)).not.toBeInTheDocument()
     expect(screen.queryByText(/플레이 -?\d/)).not.toBeInTheDocument()
+  })
+
+  it('랭크 값이 안 오면 랭크가 없다고 단정하지 않고 —로 둔다', async () => {
+    const { rank: _rank, ...profile } = STATS.profile
+    routeFetch({ stats: [() => json({ ...STATS, profile })], comment: [pending] })
+    setup()
+
+    const panel = await screen.findByRole('region', { name: 'PROFILE' })
+    expect(within(panel).queryByText('랭크 없음')).not.toBeInTheDocument()
+    expect(within(panel).getByText('RANK').nextElementSibling).toHaveTextContent('—')
   })
 
   it('최근 경기 승패 보드와 TR 추이를 보여준다', async () => {
@@ -298,14 +294,15 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     expect(screen.getByRole('region', { name: 'PROFILE' })).toBeInTheDocument()
   })
 
-  it('H로 헤비, 버튼으로 다시 라이트 — 재조회 없이 같은 stats로 바꾼다 (FR-06)', async () => {
+  it('H로 헤비, L로 다시 라이트 — 재조회 없이 같은 stats로 바꾼다 (FR-06)', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
     const { urls } = routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     const { user } = setup()
     await screen.findByRole('region', { name: 'PROFILE' })
 
     await user.keyboard('h')
-    expect(screen.getByText('헤비 뷰는 다음 단계에서 연결됩니다.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '라이트 뷰로 보기' }))
+    expect(screen.getByRole('heading', { name: 'TR · 능력치 추이' })).toBeInTheDocument()
+    await user.keyboard('l')
     expect(screen.getByRole('region', { name: '승패 분포' })).toBeInTheDocument()
     expect(urls().filter((u) => u.includes('/stats/'))).toHaveLength(1)
   })

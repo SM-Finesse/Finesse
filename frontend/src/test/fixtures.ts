@@ -25,14 +25,6 @@ export const STATS: StatsResponse = {
       { id: 'snowman_2', label: 'Bottled Snowman', group: 'snowman' },
       { id: 'snowman_3', label: 'Snowman', group: 'snowman' },
     ],
-    featured_achievements: [
-      { k: 8, name: '20TSD', object: 'Clear 40 LINES using only T-Spin Doubles', rank: 5, pos: 3, total: 15121, art: 2 },
-      { k: 19, name: 'The Emperor', rank: 5, pos: 12, total: 13801, art: 2 },
-      { k: 9, name: '10PC', rank: 5, pos: 140, total: 2325, art: 2 },
-      { k: 30, name: 'Not ranked yet', rank: 0, pos: -1, art: 1 },
-    ],
-    supporter: true,
-    supporter_tier: 3,
     friend_count: 2438,
   },
   fixed_metrics: {
@@ -90,3 +82,27 @@ export function routeFetch(routes: { stats?: Handler[]; comment?: Handler[] }) {
 }
 
 export const pending = () => new Promise<Response>(() => {})
+
+/* jsdom에는 EventSource가 없다 — 서버 이벤트를 테스트에서 직접 쏘는 가짜 */
+export class FakeEventSource {
+  static last: FakeEventSource
+  static all: FakeEventSource[] = []
+  readonly url: string
+  closed = false
+  private listeners = new Map<string, ((e: MessageEvent) => void)[]>()
+
+  constructor(url: string) {
+    this.url = url
+    FakeEventSource.last = this
+    FakeEventSource.all.push(this)
+  }
+  addEventListener(type: string, fn: (e: MessageEvent) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn])
+  }
+  close() {
+    this.closed = true
+  }
+  emit(type: string, data = '') {
+    for (const fn of this.listeners.get(type) ?? []) fn(new MessageEvent(type, { data }))
+  }
+}

@@ -1,3 +1,4 @@
+import type { HeavyChapterId } from '../api/types'
 import type { Lang, View } from '../types'
 import type { UsernameError } from '../lib/username'
 import { USERNAME_MAX, USERNAME_MIN } from '../lib/username'
@@ -62,8 +63,6 @@ export interface ReportStrings {
   refreshing: string
   refreshFailed: string
   unranked: string
-  featuredAchievements: string
-  achievementRanks: Record<'none' | 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'issued', string>
   friendCount: string
   profile: {
     season: string
@@ -121,7 +120,84 @@ export interface ReportStrings {
     noneBody: string
     failed: string
   }
-  heavy: { title: string; body: string; toLight: string }
+  heavy: {
+    streamFailed: string
+    foot: { loading: string; failed: string; timeout: string; warn: string }
+    evidence: string
+    noData: string
+    detail: { open: string; close: string; title: (chapter: string) => string }
+    chapters: Record<HeavyChapterId, string>
+    trend: {
+      legendTr: string
+      recent: (n: number) => string
+      avgOf: (n: number) => string
+      gap: string
+      missing: string
+      game: string
+      tableNote: (n: number) => string
+      aria: string
+    }
+    playstyle: { right: string; metric: string; desc: string; aria: string }
+    sub: Record<'app' | 'wapp' | 'vsapm' | 'cheese', string>
+    split: { right: string; sub: string }
+    comeback: {
+      rateSub: string
+      allowedSub: string
+      mine: string
+      allowed: string
+      mineMark: string
+      allowedMark: string
+      note: (max: number) => string
+      aria: string
+    }
+    condition: {
+      avgVs: string
+      ppsNorm: string
+      first: string
+      last: (round: number) => string
+      ppsChange: string
+      round: string
+      pps: string
+      perRound: string
+      rising: string
+      falling: string
+      flat: string
+      aria: string
+    }
+    rivals: {
+      right: (n: number) => string
+      nemesis: string
+      edge: string
+      even: string
+      repeat: string
+      repeatSub: string
+      people: (n: number) => string
+      record: (w: number, l: number, pct: number) => string
+      nemesisRule: string
+      edgeRule: string
+      evenRule: string
+      noLink: string
+      noLinkB: string
+      prev: string
+      next: string
+      showing: (total: number, from: number, to: number) => string
+      empty: string
+      policyTitle: string
+      policy: readonly (readonly [string, string])[]
+      policyExamples: readonly string[]
+    }
+    cold: {
+      /** UNLOCK 미터 아래 안내 */
+      meterBody: (need: number) => string
+      lockedTag: string
+      lockedKr: string
+      toLight: string
+      needOpp: string
+      needSample: string
+      locked: string
+      policy: string
+    }
+  }
 }
 
 const ko: Strings = {
@@ -205,8 +281,6 @@ const ko: Strings = {
     refreshing: '전적을 불러오는 중입니다…',
     refreshFailed: '전적을 갱신하지 못했습니다. 이전 결과를 그대로 보여줍니다.',
     unranked: '랭크 없음',
-    featuredAchievements: '대표 업적',
-    achievementRanks: { none: '등급 없음', bronze: '브론즈', silver: '실버', gold: '골드', platinum: '플래티넘', diamond: '다이아몬드', issued: '발급' },
     friendCount: '이 유저를 친구로 추가한 플레이어 수',
     profile: {
       season: '현재 시즌 랭크',
@@ -267,9 +341,94 @@ const ko: Strings = {
       failed: '하이라이트를 불러오지 못했습니다.',
     },
     heavy: {
-      title: '헤비 뷰는 다음 단계에서 연결됩니다.',
-      body: '8개 챕터 화면은 준비 중입니다. 지금은 라이트 뷰에서 결과를 볼 수 있습니다.',
-      toLight: '라이트 뷰로 보기',
+      streamFailed: '챕터 코멘트 연결이 끊겼습니다. 받은 챕터는 그대로 둡니다.',
+      foot: { loading: '코멘트를 생성하는 중입니다 · 챕터별 개별 호출', failed: '이 챕터의 코멘트를 만들지 못했습니다.', timeout: '시간 안에 이 챕터의 코멘트를 받지 못했습니다.', warn: '주의' },
+      evidence: '근거',
+      noData: '이 챕터를 계산할 데이터가 아직 없습니다.',
+      detail: { open: '자세히 보기', close: '닫기', title: (c) => `${c} 상세` },
+      chapters: {
+        tr_trend: 'TR · 능력치 추이',
+        playstyle: '플레이스타일 상대비교',
+        attack: '공격 효율',
+        defense: '수비 · 가비지 처리',
+        strength_split: '상대 강도별 승률',
+        comeback_rate: '역전승 퍼포먼스',
+        session_vs_slope: '경기 내 컨디션 변화',
+        rivals: '자주 만난 상대',
+      },
+      trend: {
+        legendTr: 'TR (실제 값)',
+        recent: (n) => `Recent ${n}g`,
+        avgOf: (n) => `Avg of ${n}g`,
+        gap: 'Gap',
+        missing: 'TR 추이 데이터를 받지 못해 ΔTR만 보여줍니다.',
+        game: '경기',
+        tableNote: (n) => `${n}경기 전부 · 표 안에서 스크롤`,
+        aria: 'TR 추이',
+      },
+      playstyle: { right: '절대값 비노출 · Δ만 표시', metric: 'Metric', desc: '설명', aria: '상대 대비 편차' },
+      sub: { app: '블록당 공격량', wapp: '가중 공격 효율', vsapm: '수비 여력', cheese: '가비지 처리' },
+      split: { right: '상대 TR 5등분 · 양 끝 구간', sub: '가장 강한 상대 20% 승률 − 가장 약한 상대 20% 승률' },
+      comeback: {
+        rateSub: '2판 이상 뒤진 경기를 뒤집은 비율',
+        allowedSub: '2판 이상 앞선 경기를 뒤집힌 비율',
+        mine: '내 역전승률',
+        allowed: '역전 허용률',
+        mineMark: '역전 성공 ▲',
+        allowedMark: '역전 허용 ▼',
+        note: (max) => `왼쪽은 뒤진 경기를 뒤집은 비율, 오른쪽은 앞선 경기를 뒤집힌 비율 (축 최대 ${max}%)`,
+        aria: '역전승률과 역전 허용률 비교',
+      },
+      condition: {
+        avgVs: '평균 VS',
+        ppsNorm: 'PPS (정규화)',
+        first: 'R1 평균 VS',
+        last: (r) => `R${r} 평균 VS`,
+        ppsChange: 'PPS 변화',
+        round: 'Round',
+        pps: 'PPS',
+        perRound: '라운드당 VS 변화',
+        rising: '라운드가 지날수록 VS가 오릅니다',
+        falling: '라운드가 지날수록 VS가 내려갑니다',
+        flat: '라운드가 지나도 VS가 거의 그대로입니다',
+        aria: '라운드별 평균 VS',
+      },
+      rivals: {
+        right: (n) => `${n}명 · 20명/페이지`,
+        nemesis: '천적',
+        edge: '우세',
+        even: '접전',
+        repeat: '반복 조우',
+        repeatSub: '5경기 이상 만난 상대',
+        people: (n) => `${n}명`,
+        record: (w, l, p) => `${w}승 ${l}패 · ${p}%`,
+        nemesisRule: '승률 40% 이하',
+        edgeRule: '65% 이상',
+        evenRule: '45–55%',
+        noLink: '링크 없음',
+        noLinkB: '프로필·리플레이 비노출',
+        prev: '이전 페이지',
+        next: '다음 페이지',
+        showing: (total, from, to) => `${total}명 중 ${from}–${to}명 표시 · 조우 횟수 내림차순`,
+        empty: '같은 상대를 만난 기록이 없습니다.',
+        policyTitle: '상대 데이터 취급 방식',
+        policy: [
+          ['길이 보존 마스킹', '닉네임은 3~16자, 영문·숫자·_만 쓸 수 있습니다. 가릴 글자 수는 ⌊길이 ÷ 3⌋(최소 1자), 시작 위치는 ⌊(길이 − 가릴 글자 수) ÷ 2⌋ — 가운데를 덮되 전체 길이는 원본 그대로 둡니다.'],
+          ['링크 비노출', '마스킹의 부속이 아닌 별도 요건입니다. 이 화면 어디에서도 상대의 프로필이나 리플레이로 바로 갈 수 없습니다. 표의 행은 클릭 대상이 아닙니다.'],
+          ['프롬프트에도 적용', 'AI 코멘트를 만들 때 넘기는 값도 마스킹된 닉네임입니다. 원본 닉네임은 프롬프트에 넣지 않습니다.'],
+        ],
+        policyExamples: ['oak → o*k', 'abcde → ab*de', 'player_12 → pla***_12'],
+      },
+      cold: {
+        meterBody: (need) => `테트라 리그 랭크 경기를 ${need}판 채우면 헤비 8개 챕터와 챕터별 AI 코멘트가 열립니다. 8개 중 6개는 상대와의 비교로 이루어집니다. 경기를 더 치른 뒤 전적 갱신(R)을 눌러 주세요.`,
+        lockedTag: 'LOCKED · 8',
+        lockedKr: '10경기가 쌓이면 열리는 챕터',
+        toLight: '라이트 뷰로 보기',
+        needOpp: '상대 비교 필요',
+        needSample: '표본 부족',
+        locked: 'LOCKED',
+        policy: '표본이 모자란 상태에서 뽑은 수치는 다음 몇 경기에 그대로 뒤집힙니다. 값을 보여주고 주의 문구를 붙이는 대신, 아예 열지 않습니다.',
+      },
     },
   },
 }
@@ -355,8 +514,6 @@ const en: Strings = {
     refreshing: 'Loading match history…',
     refreshFailed: 'Could not refresh. Showing the previous result.',
     unranked: 'Unranked',
-    featuredAchievements: 'Featured achievements',
-    achievementRanks: { none: 'Unranked', bronze: 'Bronze', silver: 'Silver', gold: 'Gold', platinum: 'Platinum', diamond: 'Diamond', issued: 'Issued' },
     friendCount: 'Players who have friended this user',
     profile: {
       season: 'Current season rank',
@@ -417,9 +574,94 @@ const en: Strings = {
       failed: 'Could not load the highlights.',
     },
     heavy: {
-      title: 'The Heavy view is wired up in the next step.',
-      body: 'The 8-chapter screen is still in progress. For now the results are in the Light view.',
-      toLight: 'Open Light view',
+      streamFailed: 'The chapter comment stream dropped. Chapters already received stay as they are.',
+      foot: { loading: 'Generating comment · one call per chapter', failed: 'Could not write the comment for this chapter.', timeout: 'The comment for this chapter did not arrive in time.', warn: 'Caution' },
+      evidence: 'Evidence',
+      noData: 'There is no data to compute this chapter yet.',
+      detail: { open: 'Details', close: 'Close', title: (c) => `${c} detail` },
+      chapters: {
+        tr_trend: 'TR / ability trend',
+        playstyle: 'Playstyle vs opponents',
+        attack: 'Attack efficiency',
+        defense: 'Defense · garbage',
+        strength_split: 'Win rate by opponent strength',
+        comeback_rate: 'Comeback performance',
+        session_vs_slope: 'In-game condition',
+        rivals: 'Frequent opponents',
+      },
+      trend: {
+        legendTr: 'TR (actual value)',
+        recent: (n) => `Recent ${n}g`,
+        avgOf: (n) => `Avg of ${n}g`,
+        gap: 'Gap',
+        missing: 'No TR series was received, so only ΔTR is shown.',
+        game: 'Game',
+        tableNote: (n) => `All ${n} games · scroll inside the table`,
+        aria: 'TR trend',
+      },
+      playstyle: { right: 'No absolute values · Δ only', metric: 'Metric', desc: 'Description', aria: 'Deviation vs opponents' },
+      sub: { app: 'Attack per piece', wapp: 'Weighted attack', vsapm: 'Defensive headroom', cheese: 'Garbage clearing' },
+      split: { right: 'Opponent TR in fifths · the two ends', sub: 'Win rate vs strongest 20% − win rate vs weakest 20%' },
+      comeback: {
+        rateSub: 'Games won after trailing by 2+ rounds',
+        allowedSub: 'Games lost after leading by 2+ rounds',
+        mine: 'Comeback rate',
+        allowed: 'Comebacks allowed',
+        mineMark: 'Comeback ▲',
+        allowedMark: 'Allowed ▼',
+        note: (max) => `Left: games turned around after trailing. Right: leads that were turned around (axis max ${max}%)`,
+        aria: 'Comeback rate vs comebacks allowed',
+      },
+      condition: {
+        avgVs: 'Avg VS',
+        ppsNorm: 'PPS (normalized)',
+        first: 'R1 avg VS',
+        last: (r) => `R${r} avg VS`,
+        ppsChange: 'PPS change',
+        round: 'Round',
+        pps: 'PPS',
+        perRound: 'VS change per round',
+        rising: 'VS rises as rounds go on',
+        falling: 'VS drops as rounds go on',
+        flat: 'VS barely changes across rounds',
+        aria: 'Average VS by round',
+      },
+      rivals: {
+        right: (n) => `${n} rivals · 20 per page`,
+        nemesis: 'Nemesis',
+        edge: 'Edge',
+        even: 'Close',
+        repeat: 'Repeat rivals',
+        repeatSub: 'Opponents met 5+ times',
+        people: (n) => `${n}`,
+        record: (w, l, p) => `${w}W ${l}L · ${p}%`,
+        nemesisRule: 'Win rate ≤ 40%',
+        edgeRule: '≥ 65%',
+        evenRule: '45–55%',
+        noLink: 'No links',
+        noLinkB: 'Profiles · replays hidden',
+        prev: 'Previous page',
+        next: 'Next page',
+        showing: (total, from, to) => `Showing ${from}–${to} of ${total} · most met first`,
+        empty: 'No opponent on record yet.',
+        policyTitle: 'How opponent data is handled',
+        policy: [
+          ['Length-preserving masking', 'Names are 3–16 characters of letters, digits and _. ⌊length ÷ 3⌋ characters (at least 1) are hidden, starting at ⌊(length − hidden) ÷ 2⌋ — the middle is covered and the length is kept.'],
+          ['No links', 'A separate requirement, not part of masking. Nothing on this screen leads to an opponent profile or replay. Table rows are not clickable.'],
+          ['Applied to prompts too', 'The values sent to build AI comments use masked names as well. Original names never go into a prompt.'],
+        ],
+        policyExamples: ['oak → o*k', 'abcde → ab*de', 'player_12 → pla***_12'],
+      },
+      cold: {
+        meterBody: (need) => `Play ${need} Tetra League ranked games to unlock the 8 heavy chapters and their AI comments. Six of the eight compare you against opponents. Then press Refresh (R).`,
+        lockedTag: 'LOCKED · 8',
+        lockedKr: 'Chapters that unlock at 10 games',
+        toLight: 'Open Light view',
+        needOpp: 'Needs opponents',
+        needSample: 'Too few games',
+        locked: 'LOCKED',
+        policy: 'Numbers pulled from too small a sample flip over within the next few games. Rather than showing them with a warning, the chapters stay closed.',
+      },
     },
   },
 }

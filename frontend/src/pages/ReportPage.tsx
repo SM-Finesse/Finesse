@@ -2,14 +2,15 @@ import { useEffect, useEffectEvent } from 'react'
 import type { ApiError } from '../api/client'
 import { FloorArt, SkyArt } from '../components/BackgroundArt'
 import { Kbd, KeyHint } from '../components/Kbd'
+import { HeavyView } from '../components/report/HeavyView'
 import { LightView } from '../components/report/LightView'
 import { Notice } from '../components/report/parts'
 import { RetryButton } from '../components/RetryButton'
-import { ProfilePanel } from '../components/report/ProfilePanel'
 import { ReportHead } from '../components/report/ReportHead'
 import { SiteFooter } from '../components/SiteFooter'
 import { SiteHeader } from '../components/SiteHeader'
 import { ViewSwitch } from '../components/Switches'
+import { useHeavyComment } from '../hooks/useHeavyComment'
 import { isTyping, useHotkeys, useKeyFlash } from '../hooks/useHotkeys'
 import { useLightComment } from '../hooks/useLightComment'
 import { useStats } from '../hooks/useStats'
@@ -42,7 +43,7 @@ interface Props {
   onFound?: (username: string) => void
 }
 
-/** 결과 화면 — GET /stats를 먼저 그리고, 라이트 코멘트는 도착하는 대로 채운다 */
+/** 결과 화면 — GET /stats를 먼저 그리고, 라이트 코멘트·헤비 챕터 각주는 도착하는 대로 채운다 */
 export function ReportPage({ username, view, onViewChange, onBack, onFound }: Props) {
   const { t } = useI18n()
   const r = t.report
@@ -54,7 +55,9 @@ export function ReportPage({ username, view, onViewChange, onBack, onFound }: Pr
     if (foundName) found(foundName)
   }, [foundName])
   /* 콜드스타트는 LLM을 부르지 않는다. 갱신 중에는 새 stats가 올 때까지 기다린다 */
-  const comment = useLightComment(username, data && !data.cold_start && view === 'light' ? stats.dataKey : null)
+  const analyzable = data !== null && !data.cold_start
+  const comment = useLightComment(username, analyzable && view === 'light' ? stats.dataKey : null)
+  const heavy = useHeavyComment(username, analyzable && view === 'heavy' ? stats.dataKey : null)
   const [hit, flash] = useKeyFlash()
   const canRefresh = data !== null && !stats.refreshing
 
@@ -151,15 +154,7 @@ export function ReportPage({ username, view, onViewChange, onBack, onFound }: Pr
         {view === 'light' ? (
           <LightView data={d} comment={comment} onRetryComment={comment.retry} />
         ) : (
-          <div className="flex flex-col gap-4">
-            <ProfilePanel data={d} />
-            <div className="panel flex flex-wrap items-center gap-4 bg-surface p-[22px]">
-              <div className="min-w-0 flex-1">
-                <Notice title={r.heavy.title}>{r.heavy.body}</Notice>
-              </div>
-              <button type="button" className={btnCls} onClick={() => onViewChange('light')}>{r.heavy.toLight}</button>
-            </div>
-          </div>
+          <HeavyView data={d} heavy={heavy} onLight={() => onViewChange('light')} />
         )}
       </>
     )

@@ -1,8 +1,8 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { json, pending, routeFetch, STATS } from './test/fixtures'
+import { FakeEventSource, json, pending, routeFetch, STATS } from './test/fixtures'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -21,7 +21,8 @@ describe('App — 랜딩 → 결과 화면', () => {
     const { urls } = routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     const user = await submit('ExamplePlayer')
 
-    expect(await screen.findByRole('heading', { name: 'exampleplayer' })).toBeInTheDocument()
+    /* 결과 화면은 lazy 청크 — 파일 첫 테스트는 그 모듈을 처음 불러오느라 기본 1초를 넘길 수 있다 */
+    expect(await screen.findByRole('heading', { name: 'exampleplayer' }, { timeout: 5000 })).toBeInTheDocument()
     expect(urls()[0]).toBe('/api/v1/stats/ExamplePlayer')
 
     await user.keyboard('{Escape}')
@@ -29,9 +30,12 @@ describe('App — 랜딩 → 결과 화면', () => {
   })
 
   it('랜딩에서 고른 뷰로 결과 화면이 열린다', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
     routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     await submit('ExamplePlayer', { heavy: true })
-    expect(await screen.findByText('헤비 뷰는 다음 단계에서 연결됩니다.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'TR · 능력치 추이' })).toBeInTheDocument()
+    /* 챕터 스트림은 effect에서 한 박자 늦게 열린다 — 테스트가 끝나 가짜 EventSource를 걷기 전에 열리게 기다린다 */
+    await waitFor(() => expect(FakeEventSource.last?.url).toContain('scope=heavy'))
   })
 
   it('응답이 오기 전에는 로딩 상태를 보여준다', async () => {

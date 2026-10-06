@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 import type { StatsResponse } from '../../api/types'
 import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
+import { rankColor } from '../../lib/rankColors'
 import { num, numOrDash, rankLabel, signed, trendOf } from '../../lib/stats'
 import { BigNum, Caption, DeltaInline } from './parts'
-import { RankIcon } from './RankIcon'
 
 function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNode; sub?: ReactNode; accent?: boolean; tag?: string }) {
   return (
@@ -21,13 +21,14 @@ function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNod
   )
 }
 
-/** 이번 시즌 최고 랭크 — 아이콘과 랭크 글자 */
+/** 이번 시즌 최고 랭크 */
 function TopRank({ rank }: { rank: string }) {
   return (
     <span className="flex items-center gap-2">
       <span className="font-display text-[9.5px] font-bold tracking-[.18em] text-faint">TOP RANK</span>
-      <RankIcon rank={rank} size={22} />
-      <span className="font-display text-[15px] font-extrabold text-head">{rankLabel(rank)}</span>
+      <span className="font-display text-[19px] leading-none font-extrabold text-head [text-shadow:0_2px_0_rgba(0,0,0,.45)]" style={{ color: rankColor(rank) }}>
+        {rankLabel(rank)}
+      </span>
     </span>
   )
 }
@@ -59,12 +60,19 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   return (
     <section className="panel overflow-hidden bg-surface" aria-label="PROFILE">
       <div className="grid grid-cols-2 gap-0.5 bg-deep md:grid-cols-3 lg:grid-cols-[200px_repeat(5,minmax(0,1fr))]">
-        <div className="col-span-2 flex min-w-0 items-center gap-3 bg-cell px-4 py-[15px] md:col-span-3 lg:col-span-1">
-          <RankIcon rank={pr.rank} size={68} />
+        <div className="col-span-2 flex min-w-0 items-center bg-cell px-4 py-[15px] md:col-span-3 lg:col-span-1">
           <div className="min-w-0">
             <div className="font-display text-[9.5px] font-bold tracking-[.2em] text-faint">RANK</div>
-            <div className={cx('mt-[3px] font-display font-extrabold tracking-[.02em]', rank ? 'text-[26px] leading-tight text-head' : 'text-lg text-muted')}>
-              {rank ?? t.report.unranked}
+            {/* 랭크마다 TETR.IO 랭크 색 (lib/rankColors) */}
+            <div
+              className={cx(
+                'mt-[3px] font-display font-extrabold tracking-[.02em]',
+                rank ? 'text-[44px] leading-none text-head [text-shadow:0_3px_0_rgba(0,0,0,.45),0_0_16px_color-mix(in_srgb,currentColor_45%,transparent)]' : 'text-lg text-muted',
+              )}
+              style={rank ? { color: rankColor(pr.rank) } : undefined}
+            >
+              {/* 값이 안 왔으면 모르는 것이라 '—', 'z'가 와야 이번 시즌 랭크가 없는 것 */}
+              {rank ?? (pr.rank ? t.report.unranked : '—')}
             </div>
             <div className="text-[11.5px] text-muted">{p.season}</div>
           </div>

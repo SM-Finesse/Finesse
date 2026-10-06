@@ -46,34 +46,11 @@ export interface Profile {
   play_time_seconds?: number
   /** 프로필 배지 — 유저 정보 호출이 실패하면 빠진다 */
   badges?: Badge[]
-  /** TETR.IO 서포터 여부와 단계 — 단계가 2 이상이면 ★가 (단계 - 1)개 붙는다 */
-  supporter?: boolean
-  supporter_tier?: number
-  /** 이 유저를 친구로 추가한 플레이어 수 (ch.tetr.io의 하트 숫자) */
+  /** 이 유저를 친구로 추가한 플레이어 수 */
   friend_count?: number
-  /** 유저가 프로필에 걸어 둔 대표 업적(최대 3개, 유저가 고른 순서). 유저 정보 호출이 실패하면 빠진다 */
-  featured_achievements?: FeaturedAchievement[]
 }
 
-/** TETR.IO /users/{user}/summaries/achievements 한 줄 중 메달·툴팁에 쓰는 값 */
-export interface FeaturedAchievement {
-  /** 업적 번호 — 아이콘 위치를 정한다 */
-  k: number
-  name: string
-  /** 달성 조건 (예: Clear 40 LINES using only T-Spin Doubles) */
-  object?: string
-  desc?: string
-  /** 0 없음 · 1 브론즈 · 2 실버 · 3 골드 · 4 플래티넘 · 5 다이아몬드 · 100 발급 */
-  rank: number
-  /** 업적 리더보드 순위(0부터). 없으면 -1 */
-  pos: number
-  /** 업적 리더보드 전체 인원 */
-  total?: number
-  /** 0 AR 없음 · 1 일반 · 2 경쟁(리더보드 Top 100이면 화환) */
-  art: number
-}
-
-/** 프로필 배지 — 백엔드는 보내 주지만 지금 화면에서는 대표 업적 메달만 보여준다 */
+/** 프로필 배지 — 백엔드는 보내 주지만 화면에는 그리지 않는다 */
 export interface Badge {
   id: string
   label?: string
@@ -97,7 +74,10 @@ export interface DeltaMetrics {
   attack?: { delta_app: number; delta_weighted_app: number }
   defense?: { delta_vs_apm: number; delta_cheese_index: number }
   strength_split?: number
+  /** 2판 이상 뒤지다 이긴 비율 */
   comeback_rate?: number
+  /** 2판 이상 앞서다 진 비율 */
+  comeback_rate_against?: number
   session_vs_slope?: number
 }
 
@@ -126,8 +106,8 @@ export interface RivalItem {
   matches: number
   wins: number
   losses: number
-  /** ISO-8601 */
-  last_match_at: string
+  /** ISO-8601 — 아직 계산하지 않아 빠질 수 있다 */
+  last_match_at?: string
 }
 
 export interface LightCommentResponse {
@@ -140,6 +120,9 @@ export interface LightCommentResponse {
  * heavy 코멘트는 SSE로 온다 — `chapter` 이벤트 1건 = 챕터 1개, 8개를 다 보내면 `done` 이벤트.
  * 마감까지 못 끝난 챕터도 status='timeout'으로 채워 보내므로 done 전에 항상 8건이 온다.
  */
+export const HEAVY_CHAPTERS = ['tr_trend', 'playstyle', 'attack', 'defense', 'strength_split', 'comeback_rate', 'session_vs_slope', 'rivals'] as const
+export type HeavyChapterId = (typeof HEAVY_CHAPTERS)[number]
+
 export interface HeavyChapterResult {
   chapter_id: string
   status: 'ok' | 'failed' | 'timeout'

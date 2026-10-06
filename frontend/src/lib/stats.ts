@@ -96,6 +96,7 @@ export type StatKey =
   | 'delta_cheese_index'
   | 'strength_split'
   | 'comeback_rate'
+  | 'comeback_rate_against'
   | 'session_vs_slope'
 
 interface StatMeta {
@@ -151,6 +152,10 @@ export const STAT_META: Record<StatKey, StatMeta> = {
   comeback_rate: {
     code: 'Comeback Rate', label: { ko: '역전승률', en: 'Comeback rate' }, kind: 'rate', decimals: 1, unit: '%',
     pick: (d) => d.comeback_rate,
+  },
+  comeback_rate_against: {
+    code: 'Blown Lead', label: { ko: '역전패율', en: 'Blown-lead rate' }, kind: 'rate', decimals: 1, unit: '%',
+    pick: (d) => d.comeback_rate_against,
   },
   session_vs_slope: {
     code: 'VS Slope', label: { ko: '경기 내 컨디션', en: 'In-game condition' }, kind: 'delta', decimals: 2, unit: '/R',
