@@ -10,6 +10,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 
 from app.generator import MockGenerator
+from app.prompt import build_light_messages
 from app.schemas import LightRequest
 from app.validation import (
     LightResponse,
@@ -32,9 +33,10 @@ def health():
 @app.post("/v1/comment/light", response_model=LightResponse)
 def comment_light(req: LightRequest):
     # ① 요청 검증: FastAPI가 LightRequest로 바꾸면서 자동으로 한다 (실패 시 422)
-    # ② 프롬프트 조립: 다음 단계에서 추가 (Mock은 프롬프트를 쓰지 않음)
-    # ③ 생성
-    result = generator.generate_light(req)
+    # ② 프롬프트 조립
+    messages = build_light_messages(req)
+    # ③ 생성 (Mock 은 messages 를 쓰지 않지만, Qwen 으로 바꾸면 그대로 쓰인다)
+    result = generator.generate_light(req, messages)
     # ④ 응답 검증 - 형식
     try:
         resp = parse_light_output(result.text)

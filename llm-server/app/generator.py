@@ -20,7 +20,8 @@ class GenerationResult:
 class MockGenerator:
     name = "mock"
 
-    def generate_light(self, req: LightRequest) -> GenerationResult:
+    def generate_light(self, req: LightRequest, messages: list[dict[str, str]]) -> GenerationResult:
+        # Mock 은 messages(프롬프트)를 읽지 않는다. Qwen 생성기와 같은 모양을 맞추려고 받기만 한다.
         picked = list(req.available_stats().items())[:3]
         output = {
             "light_summary": "[Mock] 실제 모델이 만든 요약이 아닙니다.",
