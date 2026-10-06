@@ -89,12 +89,25 @@ public class RawMatchParser {
                 number(stats, "apm"),
                 number(stats, "pps"),
                 number(stats, "vsscore"),
-                trBefore(league, id)
+                trBefore(league, id),
+                rankBefore(league, id)
         );
     }
 
     /** extras.league[userId] = [매치 전, 매치 후]. 매치 전 값의 tr만 쓴다 (1.1절 ⑧). [null, null]이면 null. */
     private Double trBefore(JsonNode league, String userId) {
+        JsonNode before = before(league, userId);
+        return before == null ? null : number(before, "tr");
+    }
+
+    /** 매치 전 등급 (경기 형식 판정 1차 조건, 5.11절). 소문자로 맞추고 없으면 null. */
+    private String rankBefore(JsonNode league, String userId) {
+        JsonNode before = before(league, userId);
+        String rank = before == null ? null : text(before, "rank");
+        return rank == null ? null : rank.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static JsonNode before(JsonNode league, String userId) {
         if (userId == null || !league.has(userId)) {
             return null;
         }
@@ -103,7 +116,7 @@ public class RawMatchParser {
             return null;
         }
         JsonNode before = pair.get(0);
-        return (before == null || before.isNull()) ? null : number(before, "tr");
+        return (before == null || before.isNull()) ? null : before;
     }
 
     /** results.rounds[] — 라운드마다 두 선수의 {id, alive, stats} 배열 */
@@ -126,7 +139,8 @@ public class RawMatchParser {
                     mine != null && mine.path("alive").asBoolean(false),
                     theirs != null && theirs.path("alive").asBoolean(false),
                     mine == null ? null : number(mine.path("stats"), "vsscore"),
-                    theirs == null ? null : number(theirs.path("stats"), "vsscore")
+                    theirs == null ? null : number(theirs.path("stats"), "vsscore"),
+                    mine == null ? null : number(mine.path("stats"), "pps")
             ));
         }
         return rounds;

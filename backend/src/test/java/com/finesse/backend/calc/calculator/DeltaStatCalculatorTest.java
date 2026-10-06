@@ -3,7 +3,6 @@ package com.finesse.backend.calc.calculator;
 import com.finesse.backend.calc.domain.AnalyticsContext;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.MatchHistory;
-import com.finesse.backend.calc.exception.InsufficientMatchException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -15,6 +14,7 @@ class DeltaStatCalculatorTest {
 
     private static final double TOL = 1e-9;
     private static final double TOL4 = 1e-4; // tan이 들어가는 Weighted APP은 소수점 4자리 비교
+    private static final double TOL6 = 1e-5; // 플레이스타일 손계산값(소수점 6자리) 비교
     private final DeltaStatCalculator calculator = new DeltaStatCalculator();
 
     private DeltaStats calc(MatchHistory... matches) {
@@ -75,18 +75,39 @@ class DeltaStatCalculatorTest {
     }
 
     @Test
-    void 계산_가능한_매치가_없으면_예외를_던진다() {
-        assertThatThrownBy(() -> calc(delta(60, 1.0, 120, 0, 1.0, 1)))
-                .isInstanceOf(InsufficientMatchException.class);
+    void 계산_가능한_매치가_없으면_null을_반환한다() {
+        // APM = 0·PPS ≥ 0.2 매치는 정제를 통과하지만 평균에서는 빠진다 (6.5절·7장, v3.5)
+        assertThat(calc(delta(60, 1.0, 120, 0, 1.0, 1))).isNull();
     }
 
     @Test
-    void 플레이스타일_Delta는_StatrankCurve_연동_전까지_null이다() {
-        DeltaStats s = calc(delta(60, 1.0, 120, 30, 1.0, 60));
+    void 플레이스타일_Delta를_공식으로_계산한다() {
+        // 본인 (150, 3.0, 330): srArea 833.3333, statrank 16.6461
+        //   → Opener 0.457591, Plonk 0.929077, Stride 0.060532, Inf DS 0.729619
+        // 상대 (120, 2.5, 260): srArea 737.5, statrank 16.3637
+        //   → Opener 0.473086, Plonk 0.907894, Stride 0.006294, Inf DS 0.596805
+        DeltaStats s = calc(delta(150, 3.0, 330, 120, 2.5, 260));
 
-        assertThat(s.deltaOpener()).isNull();
-        assertThat(s.deltaPlonk()).isNull();
-        assertThat(s.deltaStride()).isNull();
-        assertThat(s.deltaInfDs()).isNull();
+        assertThat(s.deltaOpener()).isCloseTo(0.457591 - 0.473086, within(TOL6));
+        assertThat(s.deltaPlonk()).isCloseTo(0.929077 - 0.907894, within(TOL6));
+        assertThat(s.deltaStride()).isCloseTo(0.060532 - 0.006294, within(TOL6));
+        assertThat(s.deltaInfDs()).isCloseTo(0.729619 - 0.596805, within(TOL6));
+    }
+
+    @Test
+    void 플레이스타일을_계산할_수_있는_매치가_절반_미만이면_null이다() {
+        // 상대 (120, 1.0, 10): DS/P = 0.1 − 2.0 = −1.9 → srArea = 135 + 580 − 1330 < 0 → 계산 불가
+        DeltaStats mostlyBroken = calc(
+                delta(150, 3.0, 330, 120, 2.5, 260),
+                delta(150, 3.0, 330, 120, 1.0, 10),
+                delta(150, 3.0, 330, 120, 1.0, 10));
+        DeltaStats mostlyFine = calc(
+                delta(150, 3.0, 330, 120, 2.5, 260),
+                delta(150, 3.0, 330, 120, 2.5, 260),
+                delta(150, 3.0, 330, 120, 1.0, 10));
+
+        assertThat(mostlyBroken.deltaOpener()).isNull();
+        assertThat(mostlyBroken.deltaInfDs()).isNull();
+        assertThat(mostlyFine.deltaOpener()).isCloseTo(0.457591 - 0.473086, within(TOL6)); // 계산 가능한 2판만 평균
     }
 }

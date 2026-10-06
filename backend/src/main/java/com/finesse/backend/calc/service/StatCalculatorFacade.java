@@ -10,6 +10,7 @@ import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.config.AnalyticsProperties;
 import com.finesse.backend.calc.domain.AnalyticsContext;
 import com.finesse.backend.calc.domain.MatchHistory;
+import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryAggregate;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
@@ -94,7 +95,8 @@ public class StatCalculatorFacade {
             return new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED);
         }
         if (summary.gamesPlayed() < threshold) {
-            return new AnalysisOutcome.ColdStartBypass(summary, summary.gamesPlayed(), ColdStartReason.FEW_GAMES_TOTAL);
+            return new AnalysisOutcome.ColdStartBypass(summary, summary.gamesPlayed(), ColdStartReason.FEW_GAMES_TOTAL,
+                    firstPageWinLoss(user, session, summary.gamesPlayed()));
         }
 
         // 2. 매치 수집 → 최종 Cold Start (3.4·3.7절)
@@ -104,7 +106,7 @@ public class StatCalculatorFacade {
         }
         if (collection.matches().size() < threshold) {
             return new AnalysisOutcome.ColdStartBypass(summary, collection.matches().size(),
-                    ColdStartReason.FEW_GAMES_IN_YEAR);
+                    ColdStartReason.FEW_GAMES_IN_YEAR, coldStartWinLoss(collection.matches()));
         }
 
         // 3. 정제·가명처리 (5장) — 정제 후 10판 미만이면 Cold Start와 같은 경로 (5.8절)
@@ -112,12 +114,12 @@ public class StatCalculatorFacade {
         try {
             current = preprocessor.preprocess(collection.matches());
         } catch (AllMatchesExcludedException e) {
-            return new AnalysisOutcome.ColdStartBypass(summary, 0, ColdStartReason.TOO_MANY_INVALID);
+            return new AnalysisOutcome.ColdStartBypass(summary, 0, ColdStartReason.TOO_MANY_INVALID, null);
         }
         metrics.recordExcluded(current.excludedByReason());
         if (current.matches().size() < threshold) {
             return new AnalysisOutcome.ColdStartBypass(summary, current.matches().size(),
-                    ColdStartReason.TOO_MANY_INVALID);
+                    ColdStartReason.TOO_MANY_INVALID, winLoss(current.matches()));
         }
         List<MatchHistory> previous = preprocessPreviousWindow(collection.previousWindowMatches());
 
@@ -129,13 +131,46 @@ public class StatCalculatorFacade {
                 calculate(CalculatorKey.HIGHLIGHT, context),
                 calculate(CalculatorKey.WIN_LOSS, context),
                 calculate(CalculatorKey.PROFILE_DELTA, context),
-                toRivalryStats(calculate(CalculatorKey.RIVALRY, context), current.scope())
+                toRivalryStats(calculate(CalculatorKey.RIVALRY, context), current.scope()),
+                calculate(CalculatorKey.SERIES, context)
         );
 
         AnalysisMeta meta = new AnalysisMeta(
                 current.matches().size(), previous.size(), collection.partial(),
-                current.excludedCount(), collection.droppedRecords());
+                current.excludedCount(), collection.droppedRecords(),
+                (int) current.matches().stream().filter(MatchHistory::endedEarly).count(),
+                (int) current.matches().stream().filter(m -> m.firstTo() == null).count());
         return new AnalysisOutcome.Analyzed(summary, result, meta);
+    }
+
+    // ── Cold Start 최근 승패 (12.2절, v3.6) ───────────────────────────
+
+    /** 누적 10판 미만: records 첫 페이지만 받아 계산한다. 0판이면 호출하지 않고, 실패하면 null. */
+    private RecentWinLossStats firstPageWinLoss(String user, String session, int gamesPlayed) {
+        if (gamesPlayed <= 0) {
+            return null;
+        }
+        try {
+            return coldStartWinLoss(collector.collectFirstPage(user, session, clock.instant()));
+        } catch (TetrIoApiException e) {
+            return null;
+        }
+    }
+
+    /** 수집한 매치를 정제한 뒤 승패를 계산한다. 전부 제외되면 null. */
+    private RecentWinLossStats coldStartWinLoss(List<RawMatch> rawMatches) {
+        if (rawMatches.isEmpty()) {
+            return null;
+        }
+        try {
+            return winLoss(preprocessor.preprocess(rawMatches).matches());
+        } catch (AllMatchesExcludedException e) {
+            return null;
+        }
+    }
+
+    private RecentWinLossStats winLoss(List<MatchHistory> matches) {
+        return matches.isEmpty() ? null : calculate(CalculatorKey.WIN_LOSS, new AnalyticsContext(matches, List.of()));
     }
 
     /** Calculator 실행 시간을 계산기별로 기록한다 (설계서 27.3절). */

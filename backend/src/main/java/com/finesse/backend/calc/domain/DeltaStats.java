@@ -5,7 +5,7 @@ package com.finesse.backend.calc.domain;
  * sampleCount는 Δ 평균에 쓰인 매치 수다.
  * LLM 하이라이트 후보: deltaApp·deltaWeightedApp(attack), deltaVsApm·deltaCheeseIndex(defense), 플레이스타일 4종.
  * deltaPps·deltaApm·deltaVs는 후보가 아닌 차트용 원시값이다.
- * 플레이스타일 Δ(Opener·Plonk·Stride·Inf DS)는 StatrankCurve 연동 전까지 null이다(8장).
+ * 플레이스타일 Δ(Opener·Plonk·Stride·Inf DS)는 계산 가능한 매치가 50% 미만이면 null이다(8장).
  */
 public record DeltaStats(
         int sampleCount,

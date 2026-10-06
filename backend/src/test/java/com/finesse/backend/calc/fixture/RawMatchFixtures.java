@@ -18,7 +18,13 @@ public final class RawMatchFixtures {
     private RawMatchFixtures() {}
 
     public static RawPlayer player(String userId, String nickname, Double apm, Double pps, Double vs, Double tr) {
-        return new RawPlayer(userId, nickname, apm, pps, vs, tr);
+        return player(userId, nickname, apm, pps, vs, tr, null);
+    }
+
+    /** 매치 당시 등급(rank)까지 지정 — 경기 형식 판정 테스트용 */
+    public static RawPlayer player(String userId, String nickname, Double apm, Double pps, Double vs,
+                                   Double tr, String rank) {
+        return new RawPlayer(userId, nickname, apm, pps, vs, tr, rank);
     }
 
     public static RawPlayer me() {
@@ -32,7 +38,7 @@ public final class RawMatchFixtures {
     /** 라운드 결과를 순서대로 지정 (true = 본인 승) */
     public static List<RawRound> rounds(boolean... myWins) {
         return IntStream.range(0, myWins.length)
-                .mapToObj(i -> new RawRound(myWins[i], !myWins[i], 100.0 + i, 90.0 + i))
+                .mapToObj(i -> new RawRound(myWins[i], !myWins[i], 100.0 + i, 90.0 + i, 1.0))
                 .toList();
     }
 
@@ -41,9 +47,9 @@ public final class RawMatchFixtures {
         return new RawMatch(matchId, BASE.plusSeconds(secondsFromBase), result, me, opponent, rounds);
     }
 
-    /** 정상 매치: 본인 승(라운드 W W) */
+    /** 정상 매치: 본인 3:0 승(라운드 W W W) — TR 1000·1100이라 3선승 정상 종료 */
     public static RawMatch valid(String matchId, int secondsFromBase, String opponentUserId, String opponentNickname) {
         return raw(matchId, secondsFromBase, "victory", me(), opponent(opponentUserId, opponentNickname),
-                rounds(true, true));
+                rounds(true, true, true));
     }
 }

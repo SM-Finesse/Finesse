@@ -37,7 +37,7 @@ class StatCalculatorFacadeTest {
             @Override
             public UserSummary fetchLeagueSummary(String username, String sessionId) {
                 if (notFound) throw new TetrIoUserNotFoundException(username);
-                return new UserSummary(username, "s", 15000, 2000, 60, null, gamesPlayed);
+                return new UserSummary(username, "s", 15000, 2000, 60, null, gamesPlayed, 80.0, 1.5, 160.0);
             }
 
             @Override
@@ -58,7 +58,8 @@ class StatCalculatorFacadeTest {
         AnalyticsProperties ap = new AnalyticsProperties(10, 300, 40);
         CalculatorRegistry registry = new CalculatorRegistry(List.of(
                 new FancyMathCalculator(), new DeltaStatCalculator(), new HighlightStatCalculator(),
-                new RecentWinLossCalculator(ap), new ProfileWindowDeltaCalculator(), new RivalryCalculator()));
+                new RecentWinLossCalculator(ap), new ProfileWindowDeltaCalculator(), new RivalryCalculator(),
+                new MatchSeriesCalculator()));
         return new StatCalculatorFacade(
                 new TetrIoCollector(api, cp),
                 new MatchPreprocessor(new MatchValidator(), new MatchScopedPseudonymizer()),
@@ -86,11 +87,34 @@ class StatCalculatorFacadeTest {
     }
 
     @Test
-    void 누적_판수가_10판_미만이면_매치를_받지_않고_Cold_Start다() {
-        AnalysisOutcome outcome = facade(api(5, List.of(), false, false)).analyze("user");
+    void 누적_판수가_10판_미만이면_첫_페이지만_받아_최근_승패를_담은_Cold_Start다() {
+        AnalysisOutcome outcome = facade(api(5, matches(5, 0), false, false)).analyze("user");
+
+        assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class, c -> {
+            assertThat(c.reason()).isEqualTo(ColdStartReason.FEW_GAMES_TOTAL);
+            assertThat(c.recentWinLoss().overallCount()).isEqualTo(5);
+            assertThat(c.recentWinLoss().wins()).isEqualTo(5);
+            assertThat(c.summary().apm()).isEqualTo(80.0);
+        });
+    }
+
+    @Test
+    void 누적_0판이면_매치를_받지_않고_최근_승패는_null이다() {
+        // 매치를 받았다면 3판이 계산됐을 것 — null이면 records를 호출하지 않은 것이다
+        AnalysisOutcome outcome = facade(api(0, matches(3, 0), false, false)).analyze("user");
 
         assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class,
-                c -> assertThat(c.reason()).isEqualTo(ColdStartReason.FEW_GAMES_TOTAL));
+                c -> assertThat(c.recentWinLoss()).isNull());
+    }
+
+    @Test
+    void 누적_10판_미만에서_첫_페이지_호출이_실패해도_Cold_Start이고_최근_승패만_null이다() {
+        AnalysisOutcome outcome = facade(api(5, matches(5, 0), false, true)).analyze("user");
+
+        assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class, c -> {
+            assertThat(c.reason()).isEqualTo(ColdStartReason.FEW_GAMES_TOTAL);
+            assertThat(c.recentWinLoss()).isNull();
+        });
     }
 
     @Test
@@ -100,6 +124,7 @@ class StatCalculatorFacadeTest {
         assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class, c -> {
             assertThat(c.reason()).isEqualTo(ColdStartReason.FEW_GAMES_IN_YEAR);
             assertThat(c.availableMatches()).isEqualTo(8);
+            assertThat(c.recentWinLoss().overallCount()).isEqualTo(8);
         });
     }
 
@@ -111,9 +136,12 @@ class StatCalculatorFacadeTest {
         assertThat(partlyInvalid).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class, c -> {
             assertThat(c.reason()).isEqualTo(ColdStartReason.TOO_MANY_INVALID);
             assertThat(c.availableMatches()).isEqualTo(7);
+            assertThat(c.recentWinLoss().overallCount()).isEqualTo(7);   // 정제 후 남은 7판
         });
-        assertThat(allInvalid).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class,
-                c -> assertThat(c.reason()).isEqualTo(ColdStartReason.TOO_MANY_INVALID));
+        assertThat(allInvalid).isInstanceOfSatisfying(AnalysisOutcome.ColdStartBypass.class, c -> {
+            assertThat(c.reason()).isEqualTo(ColdStartReason.TOO_MANY_INVALID);
+            assertThat(c.recentWinLoss()).isNull();
+        });
     }
 
     @Test
@@ -124,7 +152,7 @@ class StatCalculatorFacadeTest {
     }
 
     @Test
-    void 정상_분석은_6개_지표와_수집_정보를_돌려주고_상대는_마스킹_닉네임만_담는다() {
+    void 정상_분석은_7개_지표와_수집_정보를_돌려주고_상대는_마스킹_닉네임만_담는다() {
         AnalysisOutcome outcome = facade(api(50, matches(12, 0), false, false)).analyze("user");
 
         assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.Analyzed.class, a -> {
@@ -134,6 +162,8 @@ class StatCalculatorFacadeTest {
             assertThat(a.result().recentWinLoss().recentCount()).isEqualTo(12);
             assertThat(a.result().profileWindowDelta().isAvailable()).isFalse(); // 이전 구간 없음
             assertThat(a.result().rivalryStats().rivalCount()).isEqualTo(2);
+            assertThat(a.result().series().trSeries()).hasSize(12);
+            assertThat(a.result().series().roundCurve()).hasSize(3);       // 3:0 매치뿐이라 라운드 3개
             assertThat(a.result().rivalryStats().rivals())
                     .extracting(RivalOpponentStatsNickname::of)
                     .containsExactly("alp**one", "bra**two");
