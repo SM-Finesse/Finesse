@@ -243,7 +243,7 @@ public class StatsService {
         List<StatsResponse.Badge> badges = user.badges() == null ? null : user.badges().stream()
                 .map(b -> new StatsResponse.Badge(b.id(), b.label(), b.desc(), b.group(), b.ts()))
                 .toList();
-        return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
+        return new StatsResponse.Profile(summary.tr(), summary.glicko(), summary.rd(),
                 null, null, null,
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
                 user.gametime(), badges, user.supporter(), user.supporterTier(), user.friendCount());
