@@ -30,12 +30,16 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 - 캐싱 — stats/comment-light/comment-heavy 분리, stats 갱신 시 comment 캐시 연쇄 무효화
 - `docs/diagrams/` — 라이트·헤비 뷰 활동 다이어그램 (SSE·calc 모듈·503 BUSY 반영), `tools/MockLlmServer.java` — 로컬 mock LLM 서버
 
-### calc 모듈에 요청할 보완 (1차 병합 후)
-- 콜드스타트 결과에 최근 승패 포함 (지금은 win_rate 생략·승패 칸 빈 값)
-- 매치 당시 TR 시계열(`tr_trend`)·라운드별 곡선(`round_curves`)
-- `UserSummary`에 apm·pps·vs
+### calc 2차 결과 연결 (10/7, data-eng 6a012cd 병합)
+- 콜드스타트 1~9판: `fixed_metrics.win_rate`·`recent_form`을 있는 경기만큼 채움 (0판은 승률 생략)
+- `profile.apm`·`pps`·`vs` — calc `UserSummary`
+- `fixed_metrics.tr_trend`(오래된 경기 → 최근)·`round_curves`(라운드별 평균 PPS·VS) — calc `MatchSeriesStats`.
+  PPS 없는 라운드가 섞이면 `pps`는 빈 배열
+- calc delta가 null(계산 가능한 매치 없음)이면 `playstyle_relative`·`attack`·`defense` 생략
+
+### calc 모듈과 남은 협의
 - `/users/{username}` 호출을 calc로 이전 (레이트리미터 일원화)
-- (반영됨, 10/6) 폴더 `calc/matrics` → `calc/metrics` — package 선언과 일치하도록 backend 브랜치에서 이름만 변경
+- 라이벌 반환 범위(반복 조우 상대만 vs 전체 상대), 헤비 8챕터 차트 데이터 스키마
 
 ### 검증
-빌드·테스트 126개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/6 실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
+빌드·테스트 161개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/6 실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
