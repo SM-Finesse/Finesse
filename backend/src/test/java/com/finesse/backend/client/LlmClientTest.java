@@ -91,9 +91,19 @@ class LlmClientTest {
         return sb.append("]}").toString();
     }
 
+    // 후보 11개가 모두 값이 있는 요청
     private static final LlmLightRequest REQUEST = new LlmLightRequest(
             new LlmLightRequest.FixedMetrics(0.5, List.of()),
-            new LlmLightRequest.DeltaMetrics(null, null, null, null, null, 0.0));
+            new LlmLightRequest.DeltaMetrics(
+                    new com.finesse.backend.dto.StatsResponse.PlaystyleRelative(0.1, 0.2, -0.1, 0.0),
+                    new com.finesse.backend.dto.StatsResponse.Attack(0.02, 1.4),
+                    new com.finesse.backend.dto.StatsResponse.Defense(0.31, -2.1),
+                    -0.2, 0.08, 0.0));
+
+    // 값이 있는 후보가 strength_split·session_vs_slope 2개뿐인 요청
+    private static final LlmLightRequest TWO_CANDIDATES = new LlmLightRequest(
+            new LlmLightRequest.FixedMetrics(0.5, List.of()),
+            new LlmLightRequest.DeltaMetrics(null, null, null, -0.2, null, 0.0));
 
     @Test
     void 후보_11개_밖_stat은_빼고_남은_것에서_3개를_쓴다() throws IOException {
@@ -156,6 +166,32 @@ class LlmClientTest {
 
         assertThatThrownBy(() -> client(1, url).callLight(REQUEST, deadline()))
                 .isInstanceOf(com.finesse.backend.exception.LlmFormatException.class);
+        assertThat(hits.get()).isEqualTo(2);
+    }
+
+    @Test
+    void 후보가_3개_미만이면_받을_수_있는_최대치를_받는_즉시_끝낸다() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = llmServer(hits, LIGHT_PATH, light("strength_split", "session_vs_slope"));
+
+        LightCommentResponse r = client(3, url).callLight(TWO_CANDIDATES, deadline());
+
+        assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
+                .containsExactly("strength_split", "session_vs_slope");
+        assertThat(hits.get()).isEqualTo(1); // 재요청해도 3개가 될 수 없으니 다시 묻지 않는다
+    }
+
+    @Test
+    void 값이_없는_후보와_중복_stat은_유효_하이라이트로_세지_않는다() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = llmServer(hits, LIGHT_PATH,
+                light("delta_plonk", "strength_split", "delta_comeback"),   // plonk·comeback은 이 요청에 값이 없음
+                light("strength_split", "strength_split", "session_vs_slope"));
+
+        LightCommentResponse r = client(3, url).callLight(TWO_CANDIDATES, deadline());
+
+        assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
+                .containsExactly("strength_split", "session_vs_slope");
         assertThat(hits.get()).isEqualTo(2);
     }
 

@@ -13,9 +13,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -141,7 +143,10 @@ public class LlmClient {
     /**
      * scope=light — 유효 하이라이트 3개 미만·형식 오류 시 최대 3회 재요청, 최초 시도 포함 총 4회까지
      * (기능 명세서 3.3절, 타임아웃 기준 문서 23번 6.2절).
-     * 유효 하이라이트 = stat이 후보 11개 평탄 키 중 하나인 것(LLM/AI 파트 설계 v1.2 5.2절 — 밖이면 그 하이라이트만 제외).
+     * 유효 하이라이트 = stat이 이번 요청에 값이 있는 후보(후보 11개 평탄 키 중 생략되지 않은 것)인 것 — 밖이면 그 하이라이트만
+     * 제외(v1.2 5.2절 FR-05, 값이 없는 지표는 근거가 될 수 없음). 같은 stat이 반복되면 처음 것만 센다.
+     * 목표 개수는 min(3, 값이 있는 후보 수) — 후보가 3개 미만이면 몇 번을 다시 요청해도 3개가 될 수 없으므로,
+     * 목표만큼 받으면(총평 포함) 재요청하지 않고 바로 끝낸다.
      * 연결 실패는 그 서버를 제외하고 다음 서버로 바로 넘어가며 시도 횟수에 넣지 않는다(23번 6.2절).
      * 재요청을 다 쓰고도(또는 마감·서버 전부 제외로 더 못 하고) 3개를 못 채우면, 받은 응답 중 총평(light_summary)이 있는
      * 것 가운데 유효 하이라이트가 가장 많은 응답을 200으로 돌려준다 — 1~2개면 그만큼, 0개면 총평만 (10/7 결정, 9/29의
@@ -156,6 +161,8 @@ public class LlmClient {
         Exception lastFailure = null;
         LightCommentResponse best = null; // 3개를 못 채웠을 때 돌려줄, 총평 있는 응답 중 유효 하이라이트가 가장 많은 것
         boolean allExcluded = false;
+        Set<String> available = request.availableStats();
+        int target = Math.min(3, available.size());
         int totalAttempts = props.maxRetries() + 1; // 최초 시도 1회 + 재요청 maxRetries회
         int attempt = 0;
         while (attempt < totalAttempts && canStartNewAttempt(endpointDeadlineNanos, props.lightMinRemainingSeconds())) {
@@ -178,10 +185,14 @@ public class LlmClient {
                 continue; // 호출 1회 타임아웃 등 — 재요청
             }
             attempt++;
-            List<LightCommentResponse.Highlight> valid = validHighlights(resp);
+            List<LightCommentResponse.Highlight> valid = validHighlights(resp, available);
             if (valid.size() >= 3) {
                 // 3개 초과 — 응답 순서 그대로 앞 3개만 사용 (재시도 아님, LLM 전담 원칙 유지)
                 return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)));
+            }
+            if (target < 3 && valid.size() >= target && hasSummary(resp)) {
+                // 후보가 3개 미만 — 받을 수 있는 최대치를 받았으니 재요청해도 나아질 게 없다
+                return new LightCommentResponse(resp.lightSummary(), valid);
             }
             if (hasSummary(resp) && (best == null || valid.size() > best.highlights().size())) {
                 best = new LightCommentResponse(resp.lightSummary(), valid);
@@ -205,13 +216,18 @@ public class LlmClient {
         return resp != null && resp.lightSummary() != null && !resp.lightSummary().isBlank();
     }
 
-    /** stat이 후보 11개 키 밖인 하이라이트는 FR-05 매핑 실패라 그것만 뺀다. 응답 자체가 비정상이면 빈 목록. */
-    private static List<LightCommentResponse.Highlight> validHighlights(LightCommentResponse resp) {
+    /**
+     * stat이 이번 요청에 값이 있는 후보가 아니면 FR-05 매핑 실패라 그것만 뺀다(후보 11개 키 밖이거나 생략된 지표).
+     * 같은 stat이 반복되면 처음 것만 남긴다. 응답 자체가 비정상이면 빈 목록.
+     */
+    private static List<LightCommentResponse.Highlight> validHighlights(LightCommentResponse resp, Set<String> available) {
         if (resp == null || resp.highlights() == null) {
             return List.of();
         }
+        Set<String> seen = new HashSet<>();
         return resp.highlights().stream()
-                .filter(h -> h != null && LlmLightRequest.HIGHLIGHT_STATS.contains(h.stat()))
+                .filter(h -> h != null && h.stat() != null && LlmLightRequest.HIGHLIGHT_STATS.contains(h.stat())
+                        && available.contains(h.stat()) && seen.add(h.stat()))
                 .toList();
     }
 
