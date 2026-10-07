@@ -121,10 +121,9 @@ public class StatCalculatorFacade {
             return new AnalysisOutcome.ColdStartBypass(summary, current.matches().size(),
                     ColdStartReason.TOO_MANY_INVALID, winLoss(current.matches()));
         }
-        List<MatchHistory> previous = preprocessPreviousWindow(collection.previousWindowMatches());
 
         // 4. 계산 (19.4절)
-        AnalyticsContext context = new AnalyticsContext(current.matches(), previous);
+        AnalyticsContext context = new AnalyticsContext(current.matches());
         StatResult result = new StatResult(
                 calculate(CalculatorKey.FANCY, context),
                 calculate(CalculatorKey.DELTA, context),
@@ -136,7 +135,7 @@ public class StatCalculatorFacade {
         );
 
         AnalysisMeta meta = new AnalysisMeta(
-                current.matches().size(), previous.size(), collection.partial(),
+                current.matches().size(), 0, collection.partial(),   // previousMatches는 v3.10부터 항상 0 (@Deprecated)
                 current.excludedCount(), collection.droppedRecords(),
                 (int) current.matches().stream().filter(MatchHistory::endedEarly).count(),
                 (int) current.matches().stream().filter(m -> m.firstTo() == null).count());
@@ -170,7 +169,7 @@ public class StatCalculatorFacade {
     }
 
     private RecentWinLossStats winLoss(List<MatchHistory> matches) {
-        return matches.isEmpty() ? null : calculate(CalculatorKey.WIN_LOSS, new AnalyticsContext(matches, List.of()));
+        return matches.isEmpty() ? null : calculate(CalculatorKey.WIN_LOSS, new AnalyticsContext(matches));
     }
 
     /** Calculator 실행 시간을 계산기별로 기록한다 (설계서 27.3절). */

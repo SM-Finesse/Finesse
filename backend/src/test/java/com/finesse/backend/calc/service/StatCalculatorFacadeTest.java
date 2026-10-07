@@ -160,7 +160,8 @@ class StatCalculatorFacadeTest {
             assertThat(a.meta().partial()).isFalse();
             assertThat(a.result().fancy().sampleCount()).isEqualTo(12);
             assertThat(a.result().recentWinLoss().recentCount()).isEqualTo(12);
-            assertThat(a.result().profileWindowDelta().isAvailable()).isFalse(); // 이전 구간 없음
+            assertThat(a.result().profileWindowDelta().isAvailable()).isTrue();  // 12판 → 최근 4판 vs 나머지 8판 (v3.10)
+            assertThat(a.meta().previousMatches()).isZero();                   // @Deprecated, 항상 0
             assertThat(a.result().rivalryStats().rivalCount()).isEqualTo(2);
             assertThat(a.result().series().trSeries()).hasSize(12);
             assertThat(a.result().series().roundCurve()).hasSize(3);       // 3:0 매치뿐이라 라운드 3개

@@ -20,7 +20,7 @@ class RecentWinLossCalculatorTest {
 
     private RecentWinLossStats calc(int window, List<MatchHistory> matches) {
         var calculator = new RecentWinLossCalculator(new AnalyticsProperties(10, 300, window));
-        return calculator.calculate(new AnalyticsContext(matches, null));
+        return calculator.calculate(new AnalyticsContext(matches));
     }
 
     @Test

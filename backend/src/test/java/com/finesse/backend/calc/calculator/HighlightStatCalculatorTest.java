@@ -23,7 +23,7 @@ class HighlightStatCalculatorTest {
     private final HighlightStatCalculator calculator = new HighlightStatCalculator();
 
     private HighlightStats calc(List<MatchHistory> matches) {
-        return calculator.calculate(new AnalyticsContext(matches, null));
+        return calculator.calculate(new AnalyticsContext(matches));
     }
 
     // ── TR Trend Delta (11.1) ─────────────────────────────
@@ -68,7 +68,7 @@ class HighlightStatCalculatorTest {
         for (int s = 0; s < 40; s++) matches.add(tr(s, 1000 + 10 * s, 1000, WIN));
         var halfRatio = new HighlightStatCalculator(new AnalyticsProperties(10, 300, 40, 0.5));
 
-        assertThat(halfRatio.calculate(new AnalyticsContext(matches, null)).trTrendDelta())
+        assertThat(halfRatio.calculate(new AnalyticsContext(matches)).trTrendDelta())
                 .isCloseTo(100.0, within(TOL));
     }
 

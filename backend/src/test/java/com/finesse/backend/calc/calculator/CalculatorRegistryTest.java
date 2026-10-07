@@ -18,7 +18,7 @@ class CalculatorRegistryTest {
         CalculatorRegistry registry = new CalculatorRegistry(List.of(new FancyMathCalculator()));
 
         FancyStats stats = registry.calculate(CalculatorKey.FANCY,
-                new AnalyticsContext(List.of(match(60, 1.0, 120)), null));
+                new AnalyticsContext(List.of(match(60, 1.0, 120))));
 
         assertThat(stats.sampleCount()).isEqualTo(1);
     }
@@ -35,7 +35,7 @@ class CalculatorRegistryTest {
         CalculatorRegistry registry = new CalculatorRegistry(List.of(new FancyMathCalculator()));
 
         assertThatThrownBy(() -> registry.calculate(CalculatorKey.DELTA,
-                new AnalyticsContext(List.of(), null)))
+                new AnalyticsContext(List.of())))
                 .isInstanceOf(CalculatorNotRegisteredException.class);
     }
 }
