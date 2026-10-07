@@ -53,6 +53,13 @@ describe('api client', () => {
     await expect(getStats('player')).rejects.toMatchObject({ status: 503, code: 'SERVER_BUSY', retryAfter: 5 })
   })
 
+  it('Retry-After 헤더가 막혔으면 본문의 retry_after_seconds를 쓴다', async () => {
+    mockFetch(() =>
+      Promise.resolve(new Response(JSON.stringify({ error_code: 'SERVER_BUSY', message: '혼잡', retry_after_seconds: 5 }), { status: 503 })),
+    )
+    await expect(getStats('player')).rejects.toMatchObject({ code: 'SERVER_BUSY', retryAfter: 5 })
+  })
+
   it('Retry-After는 초 또는 HTTP 날짜 — 읽을 수 없으면 undefined', () => {
     const now = Date.parse('2026-10-02T06:00:00Z')
     expect(parseRetryAfter('5', now)).toBe(5)
@@ -108,9 +115,9 @@ describe('getHeavyStream (SSE)', () => {
 
   it('시작 전에 서버가 event: error로 실패를 알리면 그 코드를 넘기고 닫는다', () => {
     const { es, handlers } = openStream()
-    es.emit('error', JSON.stringify({ error_code: 'SERVER_BUSY', message: '사용자가 많습니다' }))
+    es.emit('error', JSON.stringify({ error_code: 'SERVER_BUSY', message: '사용자가 많습니다', retry_after_seconds: 5 }))
     expect(handlers.onError).toHaveBeenCalledOnce()
-    expect(handlers.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'SERVER_BUSY', message: '사용자가 많습니다' }))
+    expect(handlers.onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'SERVER_BUSY', message: '사용자가 많습니다', retryAfter: 5 }))
     expect(es.closed).toBe(true)
 
     /* 서버가 스트림을 닫으면서 오는 연결 끊김 error는 무시된다 */

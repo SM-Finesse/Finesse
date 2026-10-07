@@ -16,6 +16,8 @@ const FULL: StatsResponse = {
     strength_split: -0.2,
     comeback_rate: 0.556,
     comeback_rate_against: 0.25,
+    delta_comeback: 0.306,
+    comeback_samples: { comeback_opportunities: 9, comeback_won: 5, comeback_against_opportunities: 8, comeback_against_allowed: 2 },
     session_vs_slope: -0.12,
   },
   round_curves: { pps: [2.4, 2.38, 2.35], vs: [2.1, 2.0, 1.9] },
@@ -126,11 +128,40 @@ describe('ReportPage — 헤비 뷰', () => {
     const cb = chapter('역전승 퍼포먼스')
     expect(within(cb).getByRole('img', { name: '역전승률과 역전 허용률 비교' })).toBeInTheDocument()
     expect(within(cb).getByText('+30.6%p')).toBeInTheDocument()
+    expect(within(cb).getByText('패배 중 역전승한 비율 · 9번 중 5번')).toBeInTheDocument()
+    expect(within(cb).getByText('승리 중 역전패한 비율 · 8번 중 2번')).toBeInTheDocument()
 
     const cond = chapter('경기 내 컨디션 변화')
     expect(within(cond).getByRole('img', { name: '라운드별 평균 VS' })).toBeInTheDocument()
     expect(within(cond).getByText('R3 평균 VS')).toBeInTheDocument()
     expect(within(cond).getByText('−0.05')).toBeInTheDocument()
+  })
+
+  it('역전승 칸의 ? 버튼은 값이 뭔지 펼쳐 보이고, 다시 누르거나 Esc로 닫힌다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    const cb = chapter('역전승 퍼포먼스')
+    const btn = within(cb).getByRole('button', { name: 'Comeback Rate 설명' })
+    expect(btn).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(btn)
+    expect(btn).toHaveAttribute('aria-expanded', 'true')
+    const note = within(cb).getByRole('note')
+    expect(note).toHaveTextContent('크게 뒤진 경기를 끝내 이긴 비율')
+    /* 경기 형식마다 달라지는 역전 기회 기준은 표로, 대상 경기 범위까지 */
+    const gaps = within(note).getByRole('table', { name: '역전 기회 기준' })
+    expect(within(gaps).getByRole('row', { name: '5선승 3판+' })).toBeInTheDocument()
+    expect(within(gaps).getByRole('row', { name: '7선승 4판+' })).toBeInTheDocument()
+    expect(note).toHaveTextContent('최근 1년 · 최대 300판')
+    await user.click(btn)
+    expect(within(cb).queryByRole('note')).not.toBeInTheDocument()
+
+    await user.click(within(cb).getByRole('button', { name: 'Comeback Allowed 설명' }))
+    expect(within(within(cb).getByRole('note')).getByRole('table', { name: '역전 허용 기회 기준' })).toHaveTextContent('형식과 무관')
+    await user.keyboard('{Escape}')
+    expect(within(cb).queryByRole('note')).not.toBeInTheDocument()
   })
 
   it('자주 만난 상대 — 조우 횟수순 순위표, 우세·천적 타일. 반복 조우가 적어도 표본 안내를 따로 띄우지 않는다 (기능 명세 3.6절)', async () => {

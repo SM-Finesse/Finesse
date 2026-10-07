@@ -3,6 +3,13 @@ import type { Lang, View } from '../types'
 import type { UsernameError } from '../lib/username'
 import { USERNAME_MAX, USERNAME_MIN } from '../lib/username'
 
+/** 스코어 칸 ? 버튼 설명 — 한 줄 정의 · 경기 형식별 기준 표 · 측정 기준 항목들 */
+export interface StatInfo {
+  lead: string
+  table?: { caption: string; head: [string, string]; rows: [string, string][]; foot?: string }
+  rows: [string, string][]
+}
+
 type Row = readonly [string, string]
 
 export interface Strings {
@@ -126,6 +133,8 @@ export interface ReportStrings {
     evidence: string
     noData: string
     detail: { open: string; close: string; title: (chapter: string) => string }
+    /** 스코어 칸 ? 버튼 이름 */
+    about: (name: string) => string
     chapters: Record<HeavyChapterId, string>
     trend: {
       legendTr: string
@@ -143,6 +152,12 @@ export interface ReportStrings {
     comeback: {
       rateSub: string
       allowedSub: string
+      /** 표본 — "9번 중 5번" */
+      /** 표본 — "9번 중 5번" */
+      of: (total: number, hit: number) => string
+      /** ? 버튼 설명 — 측정 기준까지 */
+      rateInfo: StatInfo
+      allowedInfo: StatInfo
       mine: string
       allowed: string
       mineMark: string
@@ -346,6 +361,7 @@ const ko: Strings = {
       evidence: '근거',
       noData: '이 챕터를 계산할 데이터가 아직 없습니다.',
       detail: { open: '자세히 보기', close: '닫기', title: (c) => `${c} 상세` },
+      about: (name) => `${name} 설명`,
       chapters: {
         tr_trend: 'TR · 능력치 추이',
         playstyle: '플레이스타일 상대비교',
@@ -370,8 +386,47 @@ const ko: Strings = {
       sub: { app: '블록당 공격량', wapp: '가중 공격 효율', vsapm: '수비 여력', cheese: '가비지 처리' },
       split: { right: '상대 TR 5등분 · 양 끝 구간', sub: '가장 강한 상대 20% 승률 − 가장 약한 상대 20% 승률' },
       comeback: {
-        rateSub: '2판 이상 뒤진 경기를 뒤집은 비율',
-        allowedSub: '2판 이상 앞선 경기를 뒤집힌 비율',
+        rateSub: '패배 중 역전승한 비율',
+        allowedSub: '승리 중 역전패한 비율',
+        of: (n, k) => `${n}번 중 ${k}번`,
+        rateInfo: {
+          lead: '크게 뒤진 경기를 끝내 이긴 비율 · 높을수록 좋음',
+          table: {
+            caption: '역전 기회 기준',
+            head: ['형식', '뒤진 점수'],
+            rows: [
+              ['3선승', '2판+'],
+              ['5선승', '3판+'],
+              ['7선승', '4판+'],
+            ],
+            foot: '라운드 시작 직전 · 선승 수의 절반(올림)',
+          },
+          rows: [
+            ['범위', '최근 1년 · 최대 300판'],
+            ['제외', '형식 불명 · 조기 종료'],
+            ['계산', '역전승 ÷ 역전 기회'],
+            ['주의', '기회가 적으면 크게 흔들림'],
+          ],
+        },
+        allowedInfo: {
+          lead: '크게 앞선 경기를 끝내 진 비율 · 낮을수록 좋음',
+          table: {
+            caption: '역전 허용 기회 기준',
+            head: ['형식', '앞선 점수'],
+            rows: [
+              ['3선승', '2판+'],
+              ['5선승', '2판+'],
+              ['7선승', '2판+'],
+            ],
+            foot: '라운드 시작 직전 · 형식과 무관',
+          },
+          rows: [
+            ['범위', '최근 1년 · 최대 300판'],
+            ['제외', '형식 불명 · 조기 종료'],
+            ['계산', '역전패 ÷ 역전 허용 기회'],
+            ['주의', '기회가 적으면 크게 흔들림'],
+          ],
+        },
         mine: '내 역전승률',
         allowed: '역전 허용률',
         mineMark: '역전 성공 ▲',
@@ -427,7 +482,7 @@ const ko: Strings = {
         needOpp: '상대 비교 필요',
         needSample: '표본 부족',
         locked: 'LOCKED',
-        policy: '표본이 모자란 상태에서 뽑은 수치는 다음 몇 경기에 그대로 뒤집힙니다. 값을 보여주고 주의 문구를 붙이는 대신, 아예 열지 않습니다.',
+        policy: '경기 수가 적을 때 나온 수치는 몇 경기만 더 해도 크게 바뀔 수 있습니다.',
       },
     },
   },
@@ -579,6 +634,7 @@ const en: Strings = {
       evidence: 'Evidence',
       noData: 'There is no data to compute this chapter yet.',
       detail: { open: 'Details', close: 'Close', title: (c) => `${c} detail` },
+      about: (name) => `About ${name}`,
       chapters: {
         tr_trend: 'TR / ability trend',
         playstyle: 'Playstyle vs opponents',
@@ -603,8 +659,47 @@ const en: Strings = {
       sub: { app: 'Attack per piece', wapp: 'Weighted attack', vsapm: 'Defensive headroom', cheese: 'Garbage clearing' },
       split: { right: 'Opponent TR in fifths · the two ends', sub: 'Win rate vs strongest 20% − win rate vs weakest 20%' },
       comeback: {
-        rateSub: 'Games won after trailing by 2+ rounds',
-        allowedSub: 'Games lost after leading by 2+ rounds',
+        rateSub: 'Won after trailing',
+        allowedSub: 'Lost after leading',
+        of: (n, k) => `${k} of ${n}`,
+        rateInfo: {
+          lead: 'Matches won after falling well behind · higher is better',
+          table: {
+            caption: 'Comeback chance',
+            head: ['Format', 'Behind by'],
+            rows: [
+              ['FT3', '2+'],
+              ['FT5', '3+'],
+              ['FT7', '4+'],
+            ],
+            foot: 'Before a round · half the wins needed, rounded up',
+          },
+          rows: [
+            ['Range', 'Past year · up to 300'],
+            ['Excluded', 'Unknown format · ended early'],
+            ['Formula', 'Comeback wins ÷ chances'],
+            ['Note', 'Few chances swing it a lot'],
+          ],
+        },
+        allowedInfo: {
+          lead: 'Matches lost after leading well · lower is better',
+          table: {
+            caption: 'Blown-lead chance',
+            head: ['Format', 'Ahead by'],
+            rows: [
+              ['FT3', '2+'],
+              ['FT5', '2+'],
+              ['FT7', '2+'],
+            ],
+            foot: 'Before a round · same for every format',
+          },
+          rows: [
+            ['Range', 'Past year · up to 300'],
+            ['Excluded', 'Unknown format · ended early'],
+            ['Formula', 'Blown leads ÷ chances'],
+            ['Note', 'Few chances swing it a lot'],
+          ],
+        },
         mine: 'Comeback rate',
         allowed: 'Comebacks allowed',
         mineMark: 'Comeback ▲',
@@ -660,7 +755,7 @@ const en: Strings = {
         needOpp: 'Needs opponents',
         needSample: 'Too few games',
         locked: 'LOCKED',
-        policy: 'Numbers pulled from too small a sample flip over within the next few games. Rather than showing them with a warning, the chapters stay closed.',
+        policy: 'With only a few games, the numbers can change a lot after just a few more.',
       },
     },
   },

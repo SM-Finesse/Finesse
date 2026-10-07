@@ -10,7 +10,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
-  /** 503 SERVER_BUSY 등에서 서버가 Retry-After로 알려 준 대기 시간(초) */
+  /** 503 SERVER_BUSY 등에서 서버가 알려 준 대기 시간(초) — Retry-After 헤더, 없으면 본문의 retry_after_seconds */
   readonly retryAfter?: number
 
   constructor(status: number, code: string, message: string, retryAfter?: number) {
@@ -47,7 +47,7 @@ async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
       res.status,
       body?.error_code ?? `HTTP_${res.status}`,
       body?.message ?? res.statusText,
-      parseRetryAfter(res.headers.get('Retry-After')),
+      parseRetryAfter(res.headers.get('Retry-After')) ?? body?.retry_after_seconds,
     )
   }
   return (await res.json()) as T
@@ -125,7 +125,7 @@ function streamError(e: Event): ApiError {
   if (data) {
     try {
       const body = JSON.parse(data) as Partial<ApiErrorBody>
-      if (body.error_code) return new ApiError(0, body.error_code, body.message ?? '')
+      if (body.error_code) return new ApiError(0, body.error_code, body.message ?? '', body.retry_after_seconds)
     } catch {
       /* 형식이 다르면 연결 끊김과 같이 다룬다 */
     }

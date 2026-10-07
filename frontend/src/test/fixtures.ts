@@ -38,6 +38,7 @@ export const STATS: StatsResponse = {
     attack: { delta_app: 0.092, delta_weighted_app: 0.045 },
     defense: { delta_vs_apm: -0.055, delta_cheese_index: -16.2 },
     comeback_rate: 0.556,
+    delta_comeback: 0.306,
   },
   round_curves: { pps: [], vs: [] },
   rivals: { items: [], page: 1, page_size: 20, total: 0 },

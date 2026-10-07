@@ -100,6 +100,7 @@ export type StatKey =
   | 'strength_split'
   | 'comeback_rate'
   | 'comeback_rate_against'
+  | 'delta_comeback'
   | 'session_vs_slope'
 
 interface StatMeta {
@@ -160,6 +161,10 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     code: 'Blown Lead', label: { ko: '역전패율', en: 'Blown-lead rate' }, kind: 'rate', decimals: 1, unit: '%',
     pick: (d) => d.comeback_rate_against,
   },
+  delta_comeback: {
+    code: 'ΔComeback', label: { ko: '역전승률 − 역전 허용률', en: 'Comeback − blown lead' }, kind: 'gap', decimals: 1, unit: '%p',
+    pick: (d) => d.delta_comeback,
+  },
   session_vs_slope: {
     code: 'VS Slope', label: { ko: '경기 내 컨디션', en: 'In-game condition' }, kind: 'delta', decimals: 2, unit: '/R',
     pick: (d) => d.session_vs_slope,
@@ -191,8 +196,8 @@ export function evidenceOf(stat: string, delta: DeltaMetrics | undefined): Evide
 }
 
 /**
- * 라이트 하이라이트 후보 11개 (기능 명세 3.4절). tr_trend_delta는 고정 지표 'TR 추이'와 겹치고,
- * comeback_rate_against는 헤비 뷰 전용이라 후보가 아니다 — 이 둘이 오면 매핑 실패로 뺀다.
+ * 라이트 하이라이트 후보 11개 (기능 명세 3.4절 · v1.2). tr_trend_delta는 고정 지표 'TR 추이'와 겹치고,
+ * 역전은 두 비율의 차이(delta_comeback)만 후보다 — comeback_rate·comeback_rate_against는 헤비 뷰 전용이라 오면 매핑 실패로 뺀다.
  */
 export const HIGHLIGHT_CANDIDATES: ReadonlySet<StatKey> = new Set<StatKey>([
   'delta_opener',
@@ -204,7 +209,7 @@ export const HIGHLIGHT_CANDIDATES: ReadonlySet<StatKey> = new Set<StatKey>([
   'delta_vs_apm',
   'delta_cheese_index',
   'strength_split',
-  'comeback_rate',
+  'delta_comeback',
   'session_vs_slope',
 ])
 

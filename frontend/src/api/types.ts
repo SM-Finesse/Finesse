@@ -74,11 +74,26 @@ export interface DeltaMetrics {
   attack?: { delta_app: number; delta_weighted_app: number }
   defense?: { delta_vs_apm: number; delta_cheese_index: number }
   strength_split?: number
-  /** 2판 이상 뒤지다 이긴 비율 */
+  /** 크게 뒤지다 이긴 비율 — 기준은 선승 수의 절반(올림): 3선승 2판 · 5선승 3판 · 7선승 4판 */
   comeback_rate?: number
   /** 2판 이상 앞서다 진 비율 */
   comeback_rate_against?: number
+  /** comeback_rate − comeback_rate_against. 둘 중 하나라도 없으면 빠진다 — 라이트 하이라이트 후보 */
+  delta_comeback?: number
+  /** 위 두 비율의 분자·분모 */
+  comeback_samples?: ComebackSamples
   session_vs_slope?: number
+}
+
+export interface ComebackSamples {
+  /** 2판 이상 뒤진 경기 수 — comeback_rate의 분모 */
+  comeback_opportunities: number
+  /** 그중 이긴 경기 수 */
+  comeback_won: number
+  /** 2판 이상 앞선 경기 수 — comeback_rate_against의 분모 */
+  comeback_against_opportunities: number
+  /** 그중 진 경기 수 */
+  comeback_against_allowed: number
 }
 
 export interface PlaystyleRelative {
@@ -134,4 +149,6 @@ export interface HeavyChapterResult {
 export interface ApiErrorBody {
   error_code: string
   message: string
+  /** 503 SERVER_BUSY와 heavy event: error에 같이 온다 — 다시 시도하기 전 기다릴 초 */
+  retry_after_seconds?: number
 }

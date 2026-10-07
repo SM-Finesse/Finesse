@@ -300,9 +300,11 @@ export function ColumnChart({
       {items.map((it, i) => {
         const cx = m.l + slot * i + slot / 2
         const hh = (Math.min(it.v, max) / max) * ih
-        const y = m.t + ih - hh
         const c = it.c ?? (it.v >= 60 ? '#8FC93A' : it.v >= 50 ? '#4FC3D9' : '#D9524C')
-        const cells = Math.max(1, Math.floor((hh + gap) / (cellH + gap)))
+        /* 0%면 막대를 그리지 않는다. 0보다 크면 아무리 작아도 한 칸은 보이게 */
+        const cells = it.v > 0 ? Math.max(1, Math.floor((hh + gap) / (cellH + gap))) : 0
+        /* 값 글자는 실제로 쌓인 칸 위에 — 한 칸이 값보다 높게 그려져도 겹치지 않게 */
+        const top = m.t + ih - cells * (cellH + gap) + (cells ? gap : 0)
         return (
           <g key={it.k}>
             {Array.from({ length: cells }, (_, k) => {
@@ -315,7 +317,7 @@ export function ColumnChart({
                 </g>
               )
             })}
-            <text x={cx} y={y - 9} textAnchor="middle" {...AXIS} fontSize={14} fill={it.vc ?? '#C7D5E0'}>
+            <text x={cx} y={top - 9} textAnchor="middle" {...AXIS} fontSize={14} fill={it.vc ?? '#C7D5E0'}>
               {`${it.v.toFixed(1)}%`}
             </text>
             <text x={cx} y={m.t + ih + 20} textAnchor="middle" fontSize={12} fill="#8F98A0">

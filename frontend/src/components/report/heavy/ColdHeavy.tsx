@@ -57,7 +57,7 @@ export function ColdHeavy({ data, onLight }: { data: StatsResponse; onLight: () 
                   <span className="font-mono text-[10.5px] tracking-[.14em] text-faint uppercase">{EYEBROWS[id]}</span>
                   <span className="text-[15px] font-semibold text-[#93A8B8]">{h.chapters[id]}</span>
                 </span>
-                <span className="inline-grid h-5 place-items-center rounded border-2 border-[#2C5D80] bg-[rgba(58,169,238,.14)] px-[9px] font-display text-[10px] font-extrabold tracking-[.08em] text-[#9FD3F0]">
+                <span className="inline-grid h-5 place-items-center rounded border-2 border-signal/55 bg-signal/15 px-[9px] font-display text-[10px] font-extrabold tracking-[.08em] text-[#E6D27A]">
                   {NEEDS[id] === 'opp' ? c.needOpp : c.needSample}
                 </span>
                 <span className="font-display text-[10px] font-extrabold tracking-[.18em] text-faint">{c.locked}</span>

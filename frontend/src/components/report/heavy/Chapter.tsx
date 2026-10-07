@@ -1,7 +1,8 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { HeavyChapterResult } from '../../../api/types'
 import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
+import type { StatInfo } from '../../../i18n/strings'
 import { cx } from '../../../lib/cx'
 import { BigNum } from '../parts'
 
@@ -24,15 +25,105 @@ export function ChapIdx({ no, color, className }: { no: string; color: string; c
   )
 }
 
-/** 챕터 안 스코어 칸 — 이름 · 큰 값 · 설명 */
-export function StatBox({ k, v, s, color }: { k: string; v: string; s?: string; color: string }) {
+/** 챕터 안 스코어 칸 — 이름 · 큰 값 · 설명. info가 있으면 오른쪽 위 ? 버튼으로 이 값이 뭔지 펼쳐 보인다 */
+export function StatBox({ k, v, s, color, info }: { k: string; v: string; s?: string; color: string; info?: StatInfo }) {
   return (
-    <div className="min-w-0 flex-[1_1_180px] rounded border border-line bg-surface-2 px-4 py-3.5">
-      <div className="font-mono text-xs text-faint">{k}</div>
+    <div className="relative min-w-0 flex-[1_1_180px] rounded border border-line bg-surface-2 px-4 py-3.5">
+      {info && <InfoTip name={k} info={info} />}
+      <div className={cx('font-mono text-xs text-faint', info && 'pr-7')}>{k}</div>
       <div className="num-hud mt-1 truncate text-2xl tracking-[-.02em]" style={{ color }}>
         <BigNum value={v} />
       </div>
       {s && <div className="mt-[3px] text-[13px] text-muted">{s}</div>}
+    </div>
+  )
+}
+
+/** ? 버튼 + 설명 카드. 칸 안쪽 폭에 맞춰 띄워서 챕터 테두리에 잘리지 않는다 — Esc · 바깥 클릭 · 다시 누르면 닫힌다 */
+function InfoTip({ name, info }: { name: string; info: StatInfo }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const id = useId()
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={ref} className="contents">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        aria-label={t.report.heavy.about(name)}
+        onClick={() => setOpen((o) => !o)}
+        className="absolute top-2.5 right-2.5 grid size-[22px] place-items-center rounded-full border-2 border-[#2C5573] bg-[#0E1E2B] font-display text-xs leading-none font-extrabold text-muted transition-colors hover:border-frame hover:text-head aria-expanded:border-frame aria-expanded:bg-[#153046] aria-expanded:text-head"
+      >
+        ?
+      </button>
+      {open && (
+        <div
+          id={id}
+          role="note"
+          className="absolute inset-x-2 top-[40px] z-10 rounded-md border-2 border-frame bg-[#0E1E2B] px-3.5 py-3 text-[13px] leading-[1.6] text-ink shadow-[0_10px_24px_rgba(0,0,0,.55)]"
+        >
+          <p className="m-0">{info.lead}</p>
+          {info.table && (
+            <table className="mt-2.5 w-full border-collapse border border-[#27485F] text-[12.5px]">
+              <caption className="pb-1.5 text-left font-display text-xs font-bold tracking-[.04em] text-primary-bright">{info.table.caption}</caption>
+              <thead>
+                <tr className="bg-[#153046] text-faint">
+                  {info.table.head.map((th) => (
+                    <th key={th} scope="col" className="px-2.5 py-1 text-left font-medium">
+                      {th}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {info.table.rows.map(([fmt, gap]) => (
+                  <tr key={fmt} className="border-t border-[#27485F]">
+                    <th scope="row" className="px-2.5 py-1 text-left font-normal text-muted">
+                      {fmt}
+                    </th>
+                    <td className="px-2.5 py-1 font-num font-bold text-head">{gap}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {info.table.foot && (
+                <tfoot>
+                  <tr className="border-t border-[#27485F]">
+                    <td colSpan={2} className="px-2.5 py-1 text-xs text-faint">
+                      {info.table.foot}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          )}
+          <dl className="m-0 mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-dashed border-[#27485F] pt-2.5">
+            {info.rows.map(([label, text]) => (
+              <div key={label} className="contents">
+                <dt className="font-display text-xs leading-[1.6] font-bold tracking-[.04em] text-primary-bright">{label}</dt>
+                <dd className="m-0 text-muted">{text}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
     </div>
   )
 }

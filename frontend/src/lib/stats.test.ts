@@ -9,6 +9,7 @@ const DELTA: DeltaMetrics = {
   defense: { delta_vs_apm: -0.0553, delta_cheese_index: -16.17 },
   strength_split: -0.2778,
   comeback_rate: 0.5556,
+  delta_comeback: 0.3056,
 }
 
 describe('표시 규칙', () => {
@@ -71,6 +72,7 @@ describe('하이라이트 근거 (FR-05)', () => {
     expect(evidenceOf('tr_trend_delta', DELTA)).toMatchObject({ text: '+12.3 TR', trend: 'up' })
     expect(evidenceOf('comeback_rate', DELTA)).toMatchObject({ text: '55.6%', trend: null })
     expect(evidenceOf('strength_split', DELTA)).toMatchObject({ text: '−27.8%p', trend: 'down' })
+    expect(evidenceOf('delta_comeback', DELTA)).toMatchObject({ text: '+30.6%p', trend: 'up' })
   })
 
   it('없는 키 · null 값 · delta_metrics 없음은 매핑 실패', () => {
@@ -86,7 +88,7 @@ describe('하이라이트 근거 (FR-05)', () => {
         { stat: 'delta_plonk', sentence: 'x' },
         { stat: 'delta_app', sentence: 'a' },
         { stat: 'delta_app', sentence: 'dup' },
-        { stat: 'comeback_rate', sentence: 'b' },
+        { stat: 'delta_comeback', sentence: 'b' },
         { stat: 'tr_trend_delta', sentence: 'c' },
         { stat: 'strength_split', sentence: 'd' },
       ],
@@ -95,7 +97,7 @@ describe('하이라이트 근거 (FR-05)', () => {
     /* tr_trend_delta는 후보가 아니라 매핑 실패로 빠지고, 그 자리를 strength_split이 채운다 */
     expect(items.map((i) => [i.ev.stat, i.sentence])).toEqual([
       ['delta_app', 'a'],
-      ['comeback_rate', 'b'],
+      ['delta_comeback', 'b'],
       ['strength_split', 'd'],
     ])
   })
@@ -104,6 +106,7 @@ describe('하이라이트 근거 (FR-05)', () => {
     const items = mapHighlights(
       [
         { stat: 'tr_trend_delta', sentence: 'TR 추이와 겹친다' },
+        { stat: 'comeback_rate', sentence: '헤비 뷰 전용 — 역전은 delta_comeback만 후보' },
         { stat: 'comeback_rate_against', sentence: '헤비 뷰 전용' },
         { stat: 'delta_vs_apm', sentence: 'ok' },
       ],

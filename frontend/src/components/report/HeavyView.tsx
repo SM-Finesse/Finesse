@@ -4,7 +4,7 @@ import { footStateOf, type HeavyState } from '../../hooks/useHeavyComment'
 import { useI18n } from '../../i18n/context'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
-import { evidenceOf, num, signed, STAT_META, TREND_MARK, trendOf, type Evidence, type StatKey, type Trend } from '../../lib/stats'
+import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
 import { Chapter, DataTable, DetailModal, StatBox, Strip, type Chip } from './heavy/Chapter'
 import { ColdHeavy } from './heavy/ColdHeavy'
@@ -107,8 +107,11 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   /* 06 — 역전 */
   const cb = ev('comeback_rate')
   const ca = ev('comeback_rate_against')
+  const cbNet = ev('delta_comeback')
   const cbMax = Math.max(cb?.value ?? 0, ca?.value ?? 0) * 100 <= 50 ? 50 : 100
-  const cbNet = cb && ca ? (cb.value - ca.value) * 100 : null
+  /* 비율 아래에 "몇 번 중 몇 번" — 표본이 안 왔으면 설명만 */
+  const cs = d?.comeback_samples
+  const sampled = (sub: string, total?: number, hit?: number) => (total !== undefined && hit !== undefined ? `${sub} · ${h.comeback.of(total, hit)}` : sub)
 
   /* 07 — 경기 내 컨디션 */
   const vsCurve = data.round_curves.vs
@@ -175,14 +178,14 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       body: split ? <Strip>{tile('strength_split', h.split.sub)}</Strip> : noData,
     },
     comeback_rate: {
-      right: cbNet !== null ? <DeltaPill text={`${signed(cbNet, 1)}%p`} trend={trendOf(cbNet, 1)} /> : undefined,
+      right: pill(cbNet),
       chips: present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')),
       body:
         cb || ca ? (
           <>
             <Strip>
-              <StatBox k="Comeback Rate" v={cb ? `${cb.text} ▲` : '—'} s={h.comeback.rateSub} color={cb ? 'var(--color-delta-up)' : 'var(--color-muted)'} />
-              <StatBox k="Comeback Allowed" v={ca ? `${ca.text} ▼` : '—'} s={h.comeback.allowedSub} color={ca ? 'var(--color-delta-down)' : 'var(--color-muted)'} />
+              <StatBox k="Comeback Rate" v={cb ? `${cb.text} ▲` : '—'} s={sampled(h.comeback.rateSub, cs?.comeback_opportunities, cs?.comeback_won)} color={cb ? 'var(--color-delta-up)' : 'var(--color-muted)'} info={h.comeback.rateInfo} />
+              <StatBox k="Comeback Allowed" v={ca ? `${ca.text} ▼` : '—'} s={sampled(h.comeback.allowedSub, cs?.comeback_against_opportunities, cs?.comeback_against_allowed)} color={ca ? 'var(--color-delta-down)' : 'var(--color-muted)'} info={h.comeback.allowedInfo} />
             </Strip>
             {/* 뒤집은 쪽과 뒤집힌 쪽을 같은 축에 올려 어느 쪽이 더 큰지 바로 보이게 한다 */}
             <ColumnChart
