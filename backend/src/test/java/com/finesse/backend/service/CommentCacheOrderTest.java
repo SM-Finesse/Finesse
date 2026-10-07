@@ -58,4 +58,27 @@ class CommentCacheOrderTest {
         assertThat(first.highlights()).isEmpty(); // 콜드스타트 안내 — LLM 미호출
         assertThat(cached).isSameAs(first);       // 두 번째는 comment-light 캐시
     }
+
+    @Test
+    void 하이라이트가_모자란_light_응답은_보여주되_캐시하지_않는다() {
+        StatsService stats = org.mockito.Mockito.mock(StatsService.class);
+        com.finesse.backend.dto.StatsResponse.DeltaMetrics delta = new com.finesse.backend.dto.StatsResponse.DeltaMetrics(
+                null, null, null, null, null, null, null, null, 0.0);
+        when(stats.getStats("abc", false)).thenReturn(new com.finesse.backend.dto.StatsResponse("abc", false, 30,
+                java.time.Instant.now(), null,
+                new com.finesse.backend.dto.StatsResponse.FixedMetrics(0.5, java.util.List.of(), java.util.List.of()),
+                delta, null, null, java.util.Map.of()));
+        LlmClient llm = mock(LlmClient.class);
+        when(llm.callLight(any(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(new LightCommentResponse("요약",
+                java.util.List.of(new LightCommentResponse.Highlight("delta_plonk", "s"))));
+        CaffeineCacheManager caches = new CaffeineCacheManager(
+                CacheConfig.STATS_CACHE, CacheConfig.COMMENT_LIGHT_CACHE, CacheConfig.COMMENT_HEAVY_CACHE);
+        CommentService comments = new CommentService(stats, llm, caches, executor,
+                mock(LlmProperties.class), new EndpointProperties(20, 40, 60, 120));
+
+        assertThat(comments.getLight("abc").highlights()).hasSize(1);
+        comments.getLight("abc");
+
+        org.mockito.Mockito.verify(llm, org.mockito.Mockito.times(2)).callLight(any(), org.mockito.ArgumentMatchers.anyLong());
+    }
 }

@@ -1,17 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 2244" width="1260" height="2244" font-family="Malgun Gothic, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 2342" width="1260" height="2342" font-family="Malgun Gothic, 'Segoe UI', sans-serif">
 <defs>
   <marker id="arrowFilled" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,3 L0,6 Z" fill="#333333"/>
   </marker>
 </defs>
-<rect x="0" y="0" width="1260" height="2244" fill="#ffffff"/>
+<rect x="0" y="0" width="1260" height="2342" fill="#ffffff"/>
 <text x="630.0" y="24" font-size="18" font-weight="bold" text-anchor="middle" fill="#1a1a1a">GET /api/v1/comment/{username}?scope=light — 활동 다이어그램 (라이트 뷰)</text>
-<rect x="270.0" y="50" width="240" height="2194" fill="#f5f7fa"/>
-<rect x="750.0" y="50" width="240" height="2194" fill="#f5f7fa"/>
-<line x1="270.0" y1="50" x2="270.0" y2="2244" stroke="#c9cfd6" stroke-width="1.2"/>
-<line x1="510.0" y1="50" x2="510.0" y2="2244" stroke="#c9cfd6" stroke-width="1.2"/>
-<line x1="750.0" y1="50" x2="750.0" y2="2244" stroke="#c9cfd6" stroke-width="1.2"/>
-<line x1="990.0" y1="50" x2="990.0" y2="2244" stroke="#c9cfd6" stroke-width="1.2"/>
+<rect x="270.0" y="50" width="240" height="2292" fill="#f5f7fa"/>
+<rect x="750.0" y="50" width="240" height="2292" fill="#f5f7fa"/>
+<line x1="270.0" y1="50" x2="270.0" y2="2342" stroke="#c9cfd6" stroke-width="1.2"/>
+<line x1="510.0" y1="50" x2="510.0" y2="2342" stroke="#c9cfd6" stroke-width="1.2"/>
+<line x1="750.0" y1="50" x2="750.0" y2="2342" stroke="#c9cfd6" stroke-width="1.2"/>
+<line x1="990.0" y1="50" x2="990.0" y2="2342" stroke="#c9cfd6" stroke-width="1.2"/>
 <rect x="40.0" y="50" width="220" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
 <rect x="280.0" y="50" width="220" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
 <rect x="520.0" y="50" width="220" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
@@ -157,7 +157,7 @@
 <text x="390" y="1565.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">LLM 서버 선택 (라운드로빈)</text>
 <text x="390" y="1595" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">light 마감 40s (stats 이후부터)</text>
 <text x="390" y="1608" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">연결 실패 → 30s 제외, 횟수 안 세고 다음 서버</text>
-<text x="390" y="1621" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">전부 제외면 즉시 503 LLM_UNAVAILABLE</text>
+<text x="390" y="1621" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">전부 제외면 더 시도하지 않음</text>
 <line x1="390" y1="1520" x2="390" y2="1542" stroke="#333333" stroke-width="1.5"/>
 <line x1="390" y1="1520" x2="390" y2="1542" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
 <text x="414.0" y="1525.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
@@ -191,36 +191,50 @@
 <path d="M347.0,1901.0 L55,1901.0 L55,1534 L390,1534 L390,1542" fill="none" stroke="#333333" stroke-width="1.5"/>
 <line x1="390" y1="1534" x2="390" y2="1542" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
 <text x="85" y="1721.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#b35900" text-anchor="middle" font-weight="bold" font-style="normal">재시도</text>
-<polygon points="390,1964 432.0,2006.0 390,2048 348.0,2006.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
-<text x="390" y="2004.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">시도 전부</text>
-<text x="390" y="2016.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">호출 타임아웃?</text>
+<polygon points="390,1964 429.0,2003.0 390,2042 351.0,2003.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
+<text x="390" y="2001.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">총평 있는</text>
+<text x="390" y="2013.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">응답 받음?</text>
 <line x1="390" y1="1944" x2="390" y2="1964" stroke="#333333" stroke-width="1.5"/>
 <line x1="390" y1="1944" x2="390" y2="1964" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="414.0" y="1948.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
-<rect x="527.0" y="1989.0" width="206" height="34" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
-<text x="630" y="2010.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">503 LLM_UNAVAILABLE</text>
-<line x1="432.0" y1="2006.0" x2="527.0" y2="2006.0" stroke="#333333" stroke-width="1.5"/>
-<line x1="432.0" y1="2006.0" x2="527.0" y2="2006.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="479.5" y="2000.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예</text>
-<rect x="67.0" y="1989.0" width="206" height="34" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
-<text x="170" y="2010.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">502 LLM_FORMAT_ERROR</text>
-<line x1="348.0" y1="2006.0" x2="273.0" y2="2006.0" stroke="#333333" stroke-width="1.5"/>
-<line x1="348.0" y1="2006.0" x2="273.0" y2="2006.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="310.5" y="2000.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
-<rect x="47.0" y="2116" width="206" height="46" rx="14" fill="#e8f5e9" stroke="#1e7d32" stroke-width="1.4"/>
-<text x="150" y="2135.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">200 OK 수신</text>
-<text x="150" y="2150.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">{light_summary, highlights}</text>
-<path d="M1228,1408.0 L1228,2098 L150,2098 L150,2116" fill="none" stroke="#333333" stroke-width="1.5"/>
-<line x1="150" y1="2098" x2="150" y2="2116" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<circle cx="150" cy="2190" r="12" fill="none" stroke="#1a1a1a" stroke-width="1.8"/>
-<circle cx="150" cy="2190" r="6" fill="#1a1a1a"/>
-<line x1="150" y1="2162" x2="150" y2="2190" stroke="#333333" stroke-width="1.5"/>
-<line x1="150" y1="2162" x2="150" y2="2190" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<rect x="810" y="2112" width="22" height="13" rx="3" fill="#e8f5e9" stroke="#1e7d32" stroke-width="1.2"/>
-<text x="840" y="2123" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="normal">정상 응답</text>
-<rect x="810" y="2132" width="22" height="13" rx="3" fill="#fdecea" stroke="#c0392b" stroke-width="1.2"/>
-<text x="840" y="2143" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="normal">오류 응답(분기 종료)</text>
-<text x="810" y="2163" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#b35900" text-anchor="start" font-weight="normal" font-style="italic">주황 기울임 = 타임아웃·재시도 값</text>
+<text x="442.0" y="1948.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오 / 전부 제외</text>
+<rect x="520.0" y="1983.0" width="220" height="40" rx="8" fill="#e8f5e9" stroke="#1e7d32" stroke-width="1.4"/>
+<text x="630" y="2000.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">받은 만큼 200 (1~2개, 0개면 총평만)</text>
+<text x="630" y="2014.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">빈자리 안 채움 · 캐시 안 함</text>
+<line x1="429.0" y1="2003.0" x2="520.0" y2="2003.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="429.0" y1="2003.0" x2="520.0" y2="2003.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="474.5" y="1997.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예</text>
+<path d="M740.0,2003.0 L1228,2003.0" fill="none" stroke="#333333" stroke-width="1.5"/>
+<line x1="740.0" y1="2003.0" x2="1228" y2="2003.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<polygon points="390,2062 432.0,2104.0 390,2146 348.0,2104.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
+<text x="390" y="2102.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">시도 전부</text>
+<text x="390" y="2114.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">호출 타임아웃?</text>
+<line x1="390" y1="2042" x2="390" y2="2062" stroke="#333333" stroke-width="1.5"/>
+<line x1="390" y1="2042" x2="390" y2="2062" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="414.0" y="2046.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
+<rect x="527.0" y="2087.0" width="206" height="34" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
+<text x="630" y="2108.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">503 LLM_UNAVAILABLE</text>
+<line x1="432.0" y1="2104.0" x2="527.0" y2="2104.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="432.0" y1="2104.0" x2="527.0" y2="2104.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="479.5" y="2098.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예</text>
+<rect x="67.0" y="2087.0" width="206" height="34" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
+<text x="170" y="2108.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">502 LLM_FORMAT_ERROR</text>
+<line x1="348.0" y1="2104.0" x2="273.0" y2="2104.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="348.0" y1="2104.0" x2="273.0" y2="2104.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="310.5" y="2098.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
+<rect x="47.0" y="2214" width="206" height="46" rx="14" fill="#e8f5e9" stroke="#1e7d32" stroke-width="1.4"/>
+<text x="150" y="2233.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">200 OK 수신</text>
+<text x="150" y="2248.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">{light_summary, highlights}</text>
+<path d="M1228,1408.0 L1228,2196 L150,2196 L150,2214" fill="none" stroke="#333333" stroke-width="1.5"/>
+<line x1="150" y1="2196" x2="150" y2="2214" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<circle cx="150" cy="2288" r="12" fill="none" stroke="#1a1a1a" stroke-width="1.8"/>
+<circle cx="150" cy="2288" r="6" fill="#1a1a1a"/>
+<line x1="150" y1="2260" x2="150" y2="2288" stroke="#333333" stroke-width="1.5"/>
+<line x1="150" y1="2260" x2="150" y2="2288" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<rect x="810" y="2210" width="22" height="13" rx="3" fill="#e8f5e9" stroke="#1e7d32" stroke-width="1.2"/>
+<text x="840" y="2221" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="normal">정상 응답</text>
+<rect x="810" y="2230" width="22" height="13" rx="3" fill="#fdecea" stroke="#c0392b" stroke-width="1.2"/>
+<text x="840" y="2241" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#1a1a1a" text-anchor="start" font-weight="normal" font-style="normal">오류 응답(분기 종료)</text>
+<text x="810" y="2261" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#b35900" text-anchor="start" font-weight="normal" font-style="italic">주황 기울임 = 타임아웃·재시도 값</text>
 <text x="150" y="72.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="bold" font-style="normal">프론트</text>
 <text x="390" y="65.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="bold" font-style="normal">백엔드</text>
 <text x="390" y="79.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="bold" font-style="normal">(CommentService·StatsService)</text>

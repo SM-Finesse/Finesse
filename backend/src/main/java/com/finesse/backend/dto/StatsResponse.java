@@ -40,15 +40,23 @@ public record StatsResponse(
             PlaystyleRelative playstyleRelative,
             Attack attack,
             Defense defense,
-            Double strengthSplit, // 구간당 10판 미만이면 null (필드 자체 제외에 해당)
+            Double strengthSplit, // 매치 당시 TR이 있는 매치가 5판 미만이면 null (필드 자체 제외에 해당)
             Double comebackRate,
             Double comebackRateAgainst, // 2판 이상 앞서다 역전당한 비율 (API 명세서 4.1 표)
+            ComebackSamples comebackSamples,
             Double sessionVsSlope
     ) {
     }
 
-    // TODO: statrank 정규화 공식이 팀 문서 어디에도 없음 (TetraStats 소스코드 참고 필요 — 데이터 명세서 v5 4절/8절).
-    // 데이터 엔지니어링 담당자가 공식을 확정하기 전까지는 전부 null로 둔다 (0.0으로 채우면 "차이 없음"으로 오독될 수 있어 위험).
+    /**
+     * 역전 지표의 표본 수 — heavy 06장 "몇 번 중 몇 번" 표시와 LLM 역전 챕터 입력용 (calc HighlightStats).
+     * comebackRate = comebackWon ÷ comebackOpportunities, comebackRateAgainst = comebackAgainstAllowed ÷ comebackAgainstOpportunities.
+     */
+    public record ComebackSamples(int comebackOpportunities, int comebackWon,
+                                  int comebackAgainstOpportunities, int comebackAgainstAllowed) {
+    }
+
+    // 계산 가능한 매치 비율이 낮으면 calc가 4개 모두 null로 준다 (LLM/AI 파트 설계 v1.2 5.1절)
     public record PlaystyleRelative(Double deltaOpener, Double deltaPlonk, Double deltaStride, Double deltaInfDs) {
     }
 

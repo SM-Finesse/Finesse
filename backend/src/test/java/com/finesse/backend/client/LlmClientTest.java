@@ -122,6 +122,44 @@ class LlmClientTest {
     }
 
     @Test
+    void 재요청을_다_써도_3개가_안_되면_총평과_가장_많이_받은_하이라이트로_200() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = llmServer(hits, LIGHT_PATH,
+                light("delta_plonk", "comeback_rate"),
+                light("delta_plonk", "delta_app"),
+                light("tr_trend_delta"),
+                light("delta_vs_apm"));
+
+        LightCommentResponse r = client(3, url).callLight(REQUEST, deadline());
+
+        assertThat(r.lightSummary()).isEqualTo("요약");
+        assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
+                .containsExactly("delta_plonk", "delta_app"); // 빈자리를 채우지 않는다
+        assertThat(hits.get()).isEqualTo(4);
+    }
+
+    @Test
+    void 유효_하이라이트가_하나도_없어도_총평이_있으면_총평만_200() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = llmServer(hits, LIGHT_PATH, light("comeback_rate", "tr_trend_delta"));
+
+        LightCommentResponse r = client(1, url).callLight(REQUEST, deadline());
+
+        assertThat(r.lightSummary()).isEqualTo("요약");
+        assertThat(r.highlights()).isEmpty();
+    }
+
+    @Test
+    void 총평이_있는_응답을_하나도_못_받으면_502() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = llmServer(hits, LIGHT_PATH, "{\"highlights\":[]}");
+
+        assertThatThrownBy(() -> client(1, url).callLight(REQUEST, deadline()))
+                .isInstanceOf(com.finesse.backend.exception.LlmFormatException.class);
+        assertThat(hits.get()).isEqualTo(2);
+    }
+
+    @Test
     void 연결_실패는_시도_횟수에_넣지_않고_다음_서버로() throws IOException {
         AtomicInteger hits = new AtomicInteger();
         String live = llmServer(hits, LIGHT_PATH, light("delta_opener", "delta_plonk", "delta_app"));

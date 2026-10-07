@@ -49,6 +49,12 @@ public class CommentService {
     // heavy SSE 하트비트 간격 — 이벤트가 한동안 없을 때 프록시·브라우저가 유휴 연결로 보고 끊지 않게
     private static final long HEARTBEAT_SECONDS = 10;
 
+    // 라이벌 챕터 LLM 입력 인원 (v1.2 7.4절 제안, 백엔드 결정 10/7)
+    static final int RIVALS_FOR_LLM = 5;
+
+    // 반복 조우 상대가 없을 때 라이벌 챕터 각주 — LLM을 부르지 않고 status=ok로 보낸다 (10/7 결정)
+    static final String NO_RIVALS_FOOTNOTE = "5경기 이상 만난 상대가 아직 없어 라이벌 분석은 표시하지 않습니다.";
+
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "sse-heartbeat");
         t.setDaemon(true);
@@ -84,7 +90,13 @@ public class CommentService {
             return computeLight(stats);
         }
         try {
-            return cache.get(normalized, () -> computeLight(stats));
+            LightCommentResponse result = cache.get(normalized, () -> computeLight(stats));
+            if (!stats.coldStart() && result.highlights().size() < 3) {
+                // 하이라이트가 모자란 응답은 보여주되 캐시하지 않는다 — 10분 동안 고정되지 않고 다음 요청 때 다시 시도
+                // (heavy의 "성공 챕터만 캐시"와 같은 원칙). 콜드스타트 안내는 LLM과 무관하니 그대로 둔다.
+                cache.evict(normalized);
+            }
+            return result;
         } catch (Cache.ValueRetrievalException e) {
             // 원인 예외(UserNotFound·ServerBusy·TETR.IO·LLM)를 그대로 올려 GlobalExceptionHandler가 404/502/503으로
             // 매핑하게 한다 — 감싼 채로 두면 공통 500 처리에 걸린다 (StatsService.getStats와 같은 처리)
@@ -249,6 +261,10 @@ public class CommentService {
         synchronized (streamLock) {
             for (String chapterId : HEAVY_CHAPTER_IDS) {
                 HeavyCommentResponse.ChapterResult hit = cachedOk.get(chapterId);
+                if (hit == null && "rivals".equals(chapterId) && hasNoRivals(stats)) {
+                    // 반복 조우 상대가 없으면 LLM을 부르지 않고 고정 문구를 ok로 (정상적인 빈 상태라 failed로 보내지 않는다)
+                    hit = new HeavyCommentResponse.ChapterResult(chapterId, HeavyCommentResponse.STATUS_OK, NO_RIVALS_FOOTNOTE, 0);
+                }
                 if (hit != null) {
                     collected.put(chapterId, hit);
                     if (!clientGone.get() && !sendChapter(emitter, hit)) {
@@ -342,17 +358,56 @@ public class CommentService {
         emitter.complete();
     }
 
-    private Map<String, Object> buildChapterData(StatsResponse stats) {
+    /**
+     * 챕터별 LLM 입력 data — LLM/AI 파트 설계 v1.2 5.3절(data는 object)·7.3절 표(챕터별 값)·7.4절(라이벌).
+     * 값이 없는 필드는 키째 뺀다(light와 같은 규칙). 콜드스타트는 여기까지 오지 않는다.
+     */
+    static Map<String, Object> buildChapterData(StatsResponse stats) {
         StatsResponse.DeltaMetrics d = stats.deltaMetrics();
         Map<String, Object> map = new LinkedHashMap<>();
-        map.put("tr_trend", d != null ? d.trTrendDelta() : null);
-        map.put("playstyle", d != null ? d.playstyleRelative() : null);
-        map.put("attack", d != null ? d.attack() : null);
-        map.put("defense", d != null ? d.defense() : null);
-        map.put("strength_split", d != null ? d.strengthSplit() : null);
-        map.put("comeback_rate", d != null ? d.comebackRate() : null);
-        map.put("session_vs_slope", d != null ? d.sessionVsSlope() : null);
-        map.put("rivals", stats.rivals()); // 라이벌 챕터는 라이벌 목록 요약 데이터 (4.2절)
+        map.put("tr_trend", fields("tr_trend_delta", d.trTrendDelta()));
+        map.put("playstyle", d.playstyleRelative() != null ? d.playstyleRelative() : Map.of());
+        map.put("attack", d.attack() != null ? d.attack() : Map.of());
+        map.put("defense", d.defense() != null ? d.defense() : Map.of());
+        map.put("strength_split", fields("strength_split", d.strengthSplit()));
+        Map<String, Object> comeback = fields("comeback_rate", d.comebackRate(),
+                "comeback_rate_against", d.comebackRateAgainst());
+        StatsResponse.ComebackSamples samples = d.comebackSamples();
+        if (samples != null) {
+            // 표본 수 — LLM이 "몇 번 중 몇 번"까지 쓸 수 있게 (v1.2 7.3절 "역전 표본 수", 백엔드 결정 10/7)
+            comeback.put("comeback_opportunities", samples.comebackOpportunities());
+            comeback.put("comeback_won", samples.comebackWon());
+            comeback.put("comeback_against_opportunities", samples.comebackAgainstOpportunities());
+            comeback.put("comeback_against_allowed", samples.comebackAgainstAllowed());
+        }
+        map.put("comeback_rate", comeback);
+        map.put("session_vs_slope", fields("session_vs_slope", d.sessionVsSlope()));
+        // 라이벌은 조우 횟수 순 상위 RIVALS_FOR_LLM명만, last_match_at 없이 (v1.2 7.4절 — 백엔드 결정 10/7)
+        List<RivalInput> rivals = stats.rivals() == null ? List.of() : stats.rivals().items().stream()
+                .limit(RIVALS_FOR_LLM)
+                .map(r -> new RivalInput(r.nicknameMasked(), r.matches(), r.wins(), r.losses()))
+                .toList();
+        map.put("rivals", Map.of("rivals", rivals));
         return map;
+    }
+
+    /** 라이벌 챕터 LLM 입력 1명 — 필드명은 stats 응답 rivals.items[]와 같게 (v1.2 7.4절) */
+    record RivalInput(String nicknameMasked, int matches, int wins, int losses) {
+    }
+
+    /** 이름·값 쌍에서 값이 있는 것만 담는다 (Map의 null 값은 Jackson이 생략해 주지 않으므로 직접 거른다) */
+    private static Map<String, Object> fields(Object... nameValuePairs) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i < nameValuePairs.length; i += 2) {
+            if (nameValuePairs[i + 1] != null) {
+                m.put((String) nameValuePairs[i], nameValuePairs[i + 1]);
+            }
+        }
+        return m;
+    }
+
+    /** 반복 조우(5경기 이상) 상대가 없으면 라이벌 챕터는 LLM 없이 이 문구를 ok로 보낸다 — failed면 화면에 오류처럼 보임 */
+    private static boolean hasNoRivals(StatsResponse stats) {
+        return stats.rivals() == null || stats.rivals().items().isEmpty();
     }
 }

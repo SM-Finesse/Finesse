@@ -32,7 +32,8 @@ class LlmLightRequestTest {
                 new StatsResponse.PlaystyleRelative(0.1, -0.22, -0.08, -0.17),
                 new StatsResponse.Attack(-0.05, -1.34),
                 new StatsResponse.Defense(-0.07, -2.56),
-                strengthSplit, comebackRate, comebackRateAgainst, 0.55);
+                strengthSplit, comebackRate, comebackRateAgainst,
+                new StatsResponse.ComebackSamples(10, 4, 12, 7), 0.55);
         return new StatsResponse("icly", false, 300, Instant.now(), null, fixed, delta, null, null, Map.of());
     }
 

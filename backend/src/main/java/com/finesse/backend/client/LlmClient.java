@@ -143,7 +143,10 @@ public class LlmClient {
      * (기능 명세서 3.3절, 타임아웃 기준 문서 23번 6.2절).
      * 유효 하이라이트 = stat이 후보 11개 평탄 키 중 하나인 것(LLM/AI 파트 설계 v1.2 5.2절 — 밖이면 그 하이라이트만 제외).
      * 연결 실패는 그 서버를 제외하고 다음 서버로 바로 넘어가며 시도 횟수에 넣지 않는다(23번 6.2절).
-     * 모든 서버가 제외 상태면 기다리지 않고 바로 LlmUnavailableException(503)(23번 5.5절).
+     * 재요청을 다 쓰고도(또는 마감·서버 전부 제외로 더 못 하고) 3개를 못 채우면, 받은 응답 중 총평(light_summary)이 있는
+     * 것 가운데 유효 하이라이트가 가장 많은 응답을 200으로 돌려준다 — 1~2개면 그만큼, 0개면 총평만 (10/7 결정, 9/29의
+     * "최종 실패 502"를 대체). 빈자리를 백엔드가 채우지 않는다(LLM이 고르지 않은 내용이 섞이므로).
+     * 총평이 있는 응답을 하나도 못 받았을 때만 실패: 모든 서버가 제외 상태면 LlmUnavailableException(503, 23번 5.5절),
      * 시도가 전부 호출 1회 타임아웃이었다면 503, 응답은 받았지만 형식이 계속 틀렸다면 LlmFormatException(502).
      *
      * @param endpointDeadlineNanos light 엔드포인트(EndpointProperties.lightSeconds) 마감 시각(System.nanoTime() 기준)
@@ -151,12 +154,15 @@ public class LlmClient {
     public LightCommentResponse callLight(LlmLightRequest request, long endpointDeadlineNanos) {
         int callFailures = 0;
         Exception lastFailure = null;
+        LightCommentResponse best = null; // 3개를 못 채웠을 때 돌려줄, 총평 있는 응답 중 유효 하이라이트가 가장 많은 것
+        boolean allExcluded = false;
         int totalAttempts = props.maxRetries() + 1; // 최초 시도 1회 + 재요청 maxRetries회
         int attempt = 0;
         while (attempt < totalAttempts && canStartNewAttempt(endpointDeadlineNanos, props.lightMinRemainingSeconds())) {
             String server = nextAvailableServer();
             if (server == null) {
-                throw new LlmUnavailableException("모든 LLM 서버가 일시 제외 상태 (" + attempt + "회 시도 후)", lastFailure);
+                allExcluded = true;
+                break;
             }
             LightCommentResponse resp;
             try {
@@ -173,17 +179,30 @@ public class LlmClient {
             }
             attempt++;
             List<LightCommentResponse.Highlight> valid = validHighlights(resp);
-            if (valid.size() < 3) {
-                continue; // 형식 오류·유효 하이라이트 3개 미만 — 재요청
+            if (valid.size() >= 3) {
+                // 3개 초과 — 응답 순서 그대로 앞 3개만 사용 (재시도 아님, LLM 전담 원칙 유지)
+                return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)));
             }
-            // 3개 초과 — 응답 순서 그대로 앞 3개만 사용 (재시도 아님, LLM 전담 원칙 유지)
-            return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)));
+            if (hasSummary(resp) && (best == null || valid.size() > best.highlights().size())) {
+                best = new LightCommentResponse(resp.lightSummary(), valid);
+            }
+            // 형식 오류·유효 하이라이트 3개 미만 — 재요청
+        }
+        if (best != null) {
+            return best; // 하이라이트가 모자라도 총평이 정상이면 응답 전체를 실패로 돌리지 않는다
+        }
+        if (allExcluded) {
+            throw new LlmUnavailableException("모든 LLM 서버가 일시 제외 상태 (" + attempt + "회 시도 후)", lastFailure);
         }
         if (attempt > 0 && callFailures == attempt) {
             throw new LlmUnavailableException(
                     "light 코멘트 서버가 응답하지 않음 (" + attempt + "회 시도)", lastFailure);
         }
         throw new LlmFormatException("light 코멘트 형식 오류가 " + attempt + "회 시도 후에도 지속됨 (또는 엔드포인트 잔여시간 부족)");
+    }
+
+    private static boolean hasSummary(LightCommentResponse resp) {
+        return resp != null && resp.lightSummary() != null && !resp.lightSummary().isBlank();
     }
 
     /** stat이 후보 11개 키 밖인 하이라이트는 FR-05 매핑 실패라 그것만 뺀다. 응답 자체가 비정상이면 빈 목록. */

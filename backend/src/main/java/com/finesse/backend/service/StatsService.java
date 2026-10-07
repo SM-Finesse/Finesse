@@ -204,6 +204,8 @@ public class StatsService {
                 highlight.strengthSplit(),
                 highlight.comebackRate(),
                 highlight.comebackRateAgainst(),
+                new StatsResponse.ComebackSamples(highlight.comebackOpportunities(), highlight.comebackWon(),
+                        highlight.comebackAgainstOpportunities(), highlight.comebackAgainstAllowed()),
                 highlight.sessionVsSlope());
 
         RivalryStats rivalry = r.rivalryStats();
