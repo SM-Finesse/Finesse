@@ -1,4 +1,4 @@
-"""light 응답 검증 (생성기 출력 -> 백엔드로 보내기 전).
+"""응답 검증 (생성기 출력 -> 백엔드로 보내기 전). light 와 heavy.
 
 근거: LLM/AI 파트 설계 v1.2 5.2절(응답 스키마), 6절·9.2절(처리 규칙),
       12.1절(형식 준수율: 유효 JSON + 키 구성 + 정확히 3개 + stat이 11개 키 안)
@@ -66,3 +66,29 @@ def check_light_output(resp: LightResponse, available: dict[str, float]) -> list
             issues.append(f"duplicate_stat:{h.stat}")
         seen.add(h.stat)
     return issues
+
+
+# ---------------- heavy ----------------
+class HeavyResponse(_StrictOut):
+    chapter_id: str
+    footnote: str = Field(min_length=1)
+
+
+def parse_heavy_output(text: str, chapter_id: str) -> HeavyResponse:
+    """heavy 형식 검사 (v1.2 5.3절 "형식 오류" 4가지).
+
+    유효한 JSON 아님 / 두 필드 중 하나라도 없음 / chapter_id 불일치 / footnote 빈 문자열·공백
+    → OutputFormatError (백엔드가 그 챕터만 재요청)
+    """
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise OutputFormatError(f"유효한 JSON이 아님: {e}") from e
+    try:
+        resp = HeavyResponse.model_validate(data)
+    except ValidationError as e:
+        first = e.errors()[0]
+        raise OutputFormatError(f"키 구성 오류: {first['loc']} {first['msg']}") from e
+    if resp.chapter_id != chapter_id:
+        raise OutputFormatError(f"chapter_id 불일치: 요청 {chapter_id}, 출력 {resp.chapter_id}")
+    return resp

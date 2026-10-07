@@ -1,4 +1,4 @@
-"""③ 생성기. Mock 과 Qwen(llama-cpp-python) 두 가지를 환경변수로 고른다.
+"""③ 생성기 (light, heavy). Mock 과 Qwen(llama-cpp-python) 두 가지를 환경변수로 고른다.
 
 환경변수 (서버를 켜기 전에 지정)
   LLM_GENERATOR       mock(기본) | llama
@@ -10,10 +10,12 @@
 LLM_JSON_MODE (설계 문서에 없는 실험 옵션 — 시험 후 팀과 채택 여부 결정)
   off    : 프롬프트만으로 JSON 을 요구 (v1.2 기준 그대로)
   json   : 출력을 "유효한 JSON" 으로만 제한
-  schema : 키 구성, 하이라이트 정확히 3개, stat 은 이번 요청에서 값이 있는 후보 중 하나로 제한
+  schema : light — 키 구성, 하이라이트 정확히 3개, stat 은 이번 요청에서 값이 있는 후보 중 하나로 제한
            (어느 지표를 고를지는 여전히 모델이 정한다 — 규칙으로 미리 고르는 것이 아님)
+           heavy — 키 구성, chapter_id 는 요청값으로 제한
 
-Mock 규칙(실제 서비스 로직이 아님): 값이 있는 후보를 순서대로 앞 3개, 문장에 [Mock] 표시.
+Mock 규칙(실제 서비스 로직이 아님): light 는 값이 있는 후보를 순서대로 앞 3개, heavy 는 고정 문장.
+문장에 [Mock] 표시.
 """
 import json
 import logging
@@ -22,10 +24,11 @@ import threading
 import time
 from dataclasses import dataclass
 
-from app.prompt import LIGHT_DECODING
-from app.schemas import LightRequest
+from app.prompt import HEAVY_DECODING, LIGHT_DECODING
+from app.schemas import HeavyRequest, LightRequest
 
-logger = logging.getLogger("llm-server")
+# uvicorn 이 설정해 둔 로거 → 생성 시간·토큰 수가 서버 창에 보인다 (v1.2 13절 모니터링)
+logger = logging.getLogger("uvicorn.error")
 
 JSON_MODES = ("off", "json", "schema")
 
@@ -57,6 +60,11 @@ class MockGenerator:
         text = json.dumps(output, ensure_ascii=False, separators=(",", ":"))
         return GenerationResult(text=text, finish_reason="stop")
 
+    def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
+        output = {"chapter_id": req.chapter_id, "footnote": f"[Mock] {req.chapter_id} 챕터 각주입니다."}
+        text = json.dumps(output, ensure_ascii=False, separators=(",", ":"))
+        return GenerationResult(text=text, finish_reason="stop")
+
 
 def light_response_schema(available: list[str]) -> dict:
     """LLM_JSON_MODE=schema 에서 쓰는 응답 JSON 스키마 (v1.2 5.2절 응답 형식)."""
@@ -84,6 +92,19 @@ def light_response_schema(available: list[str]) -> dict:
     }
 
 
+def heavy_response_schema(chapter_id: str) -> dict:
+    """LLM_JSON_MODE=schema 에서 쓰는 heavy 응답 JSON 스키마 (v1.2 5.3절 응답 형식)."""
+    return {
+        "type": "object",
+        "properties": {
+            "chapter_id": {"type": "string", "enum": [chapter_id]},
+            "footnote": {"type": "string"},
+        },
+        "required": ["chapter_id", "footnote"],
+        "additionalProperties": False,
+    }
+
+
 class LlamaGenerator:
     name = "llama"
 
@@ -106,14 +127,22 @@ class LlamaGenerator:
             self._llm.create_chat_completion(messages=[{"role": "user", "content": "ping"}], max_tokens=8)
 
     def generate_light(self, req: LightRequest, messages: list[dict[str, str]]) -> GenerationResult:
-        kwargs = dict(LIGHT_DECODING)
+        schema = light_response_schema(list(req.available_stats())) if self.json_mode == "schema" else None
+        return self._complete("light", messages, LIGHT_DECODING, schema)
+
+    def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
+        schema = heavy_response_schema(req.chapter_id) if self.json_mode == "schema" else None
+        return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, schema)
+
+    def _complete(self, label: str, messages: list[dict[str, str]], decoding: dict,
+                  schema: dict | None) -> GenerationResult:
+        kwargs = dict(decoding)
         if self.repeat_penalty is not None:
             kwargs["repeat_penalty"] = self.repeat_penalty
         if self.json_mode == "json":
             kwargs["response_format"] = {"type": "json_object"}
         elif self.json_mode == "schema":
-            available = list(req.available_stats())
-            kwargs["response_format"] = {"type": "json_object", "schema": light_response_schema(available)}
+            kwargs["response_format"] = {"type": "json_object", "schema": schema}
 
         with self._lock:
             t = time.perf_counter()
@@ -130,8 +159,8 @@ class LlamaGenerator:
         usage = out.get("usage", {})
         finish = choice.get("finish_reason") or ""
         logger.info(
-            "light 생성 %.1fs finish=%s prompt=%s gen=%s json_mode=%s",
-            elapsed, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), self.json_mode,
+            "%s 생성 %.1fs finish=%s prompt=%s gen=%s json_mode=%s",
+            label, elapsed, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), self.json_mode,
         )
         return GenerationResult(text=choice["message"]["content"] or "", finish_reason=finish)
 

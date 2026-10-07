@@ -1,7 +1,8 @@
-"""light 요청 스키마 (백엔드 -> 추론 서버).
+"""요청 스키마 (백엔드 -> 추론 서버).
 
-근거: LLM/AI 파트 설계 v1.2 5.1절(후보 11개), 5.2절(요청 스키마)
+근거: LLM/AI 파트 설계 v1.2 5.1절(후보 11개), 5.2절(light 요청), 5.3절(heavy 요청)
 """
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,3 +84,33 @@ class LightRequest(_Strict):
             "session_vs_slope": d.session_vs_slope,
         }
         return {k: flat[k] for k in CANDIDATE_KEYS if flat[k] is not None}
+
+
+# heavy 챕터 8개 (v1.2 5.3절, 백엔드 CommentService.HEAVY_CHAPTER_IDS 와 같은 순서)
+HEAVY_CHAPTER_IDS = (
+    "tr_trend",
+    "playstyle",
+    "attack",
+    "defense",
+    "strength_split",
+    "comeback_rate",
+    "session_vs_slope",
+    "rivals",
+)
+
+ChapterId = Literal[
+    "tr_trend", "playstyle", "attack", "defense",
+    "strength_split", "comeback_rate", "session_vs_slope", "rivals",
+]
+
+
+class HeavyRequest(_Strict):
+    """heavy 챕터 1건 요청 {chapter_id, data} (v1.2 5.3절).
+
+    data 의 챕터별 구성은 v1.2 에서 일부 미확정(7.3절 표)이라 형태를 고정하지 않고
+    객체(dict)이기만 하면 받는다. 지금 백엔드가 보내는 구성은 backend 브랜치
+    CommentService.buildChapterData 참고 (값이 없는 필드는 키째 생략).
+    """
+
+    chapter_id: ChapterId
+    data: dict[str, Any]
