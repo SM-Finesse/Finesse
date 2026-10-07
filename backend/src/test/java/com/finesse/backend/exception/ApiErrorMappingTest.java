@@ -44,6 +44,18 @@ class ApiErrorMappingTest {
     }
 
     @Test
+    void EventSource처럼_Accept가_이벤트_스트림이어도_잘못된_유저명은_JSON_400() throws Exception {
+        CommentService service = mock(CommentService.class);
+        when(service.getHeavyStream(anyString())).thenThrow(new IllegalArgumentException("유저명 형식 오류"));
+
+        mvc(service).perform(get("/api/v1/comment/a b").param("scope", "heavy")
+                        .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(org.springframework.http.MediaType.APPLICATION_JSON))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("BAD_REQUEST")));
+    }
+
+    @Test
     void 예상하지_못한_오류는_내부_정보_없이_500() throws Exception {
         CommentService service = mock(CommentService.class);
         when(service.getLight(anyString())).thenThrow(new IllegalStateException("내부 상태 노출되면 안 됨"));
