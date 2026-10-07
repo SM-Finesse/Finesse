@@ -209,7 +209,7 @@ public class CommentService {
         }
         // light 엔드포인트 상한 — 타임아웃 기준 문서(23번) 9절, stats 완료 이후부터 기산
         long deadline = System.nanoTime() + endpointProperties.lightSeconds() * 1_000_000_000L;
-        LlmLightRequest request = new LlmLightRequest(stats.fixedMetrics(), stats.deltaMetrics());
+        LlmLightRequest request = LlmLightRequest.from(stats);
         return llmClient.callLight(request, deadline);
     }
 

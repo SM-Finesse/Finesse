@@ -52,8 +52,8 @@ public class MockLlmServer {
                 simulateInferenceDelay(portLabel, "/light");
                 String body = "{\"light_summary\":\"mock summary\",\"highlights\":["
                         + "{\"stat\":\"delta_plonk\",\"sentence\":\"s1\"},"
-                        + "{\"stat\":\"comeback_rate\",\"sentence\":\"s2\"},"
-                        + "{\"stat\":\"tr_trend_delta\",\"sentence\":\"s3\"}]}";
+                        + "{\"stat\":\"delta_comeback\",\"sentence\":\"s2\"},"
+                        + "{\"stat\":\"session_vs_slope\",\"sentence\":\"s3\"}]}";
                 byte[] b = body.getBytes(StandardCharsets.UTF_8);
                 ex.getResponseHeaders().add("Content-Type", "application/json");
                 ex.sendResponseHeaders(200, b.length);
