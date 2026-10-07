@@ -37,6 +37,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * GET /api/v1/stats/{username} 오케스트레이션 — Finesse-API명세서 4.1절 처리 흐름 그대로.
@@ -55,6 +56,7 @@ public class StatsService {
     private final StatsLoadProperties statsLoadProperties;
     private final ExecutorService statsExecutor;
     private final Semaphore collectionSlots;
+    private final AtomicInteger waitingForSlot = new AtomicInteger();
 
     public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
                          EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
@@ -65,7 +67,8 @@ public class StatsService {
         this.endpointProperties = endpointProperties;
         this.statsLoadProperties = statsLoadProperties;
         this.statsExecutor = statsExecutor;
-        this.collectionSlots = new Semaphore(statsLoadProperties.maxConcurrentCollections());
+        // 공정(fair) — 기다리는 요청은 도착 순서대로 자리를 얻는다
+        this.collectionSlots = new Semaphore(statsLoadProperties.maxConcurrentCollections(), true);
     }
 
     public StatsResponse getStats(String username, boolean refresh) {
@@ -112,11 +115,11 @@ public class StatsService {
 
     // stats 엔드포인트 상한(타임아웃 기준 문서 23번 9절, EndpointProperties.statsSeconds) 강제 —
     // TETR.IO 호출은 블로킹이라 별도 스레드에서 실행하고 Future.get(timeout)으로 마감을 건다.
-    // 캐시 미스 수집은 동시에 maxConcurrentCollections건까지만 — 넘치면 줄 세우지 않고 바로 503 BUSY(23번 5.4절).
+    // 캐시 미스 수집은 동시에 maxConcurrentCollections건까지만 — 자리가 없으면 정해진 시간까지 차례를 기다리고,
+    // 그래도 안 되면 503 BUSY(23번 5.4절). 기다린 시간도 stats 마감 안에서 쓴다.
     private StatsResponse compute(String normalized) {
-        if (!collectionSlots.tryAcquire()) {
-            log.warn("stats 수집 동시 처리 상한({}건) 초과 — 503 BUSY: {}",
-                    statsLoadProperties.maxConcurrentCollections(), normalized);
+        long startedAt = System.nanoTime();
+        if (!acquireCollectionSlot(normalized)) {
             throw new ServerBusyException("stats 수집 동시 처리 상한 초과: " + normalized,
                     statsLoadProperties.busyRetryAfterSeconds());
         }
@@ -136,7 +139,9 @@ public class StatsService {
             throw new TetrioApiException("stats 실행 거부: " + normalized, e);
         }
         try {
-            return future.get(endpointProperties.statsSeconds(), TimeUnit.SECONDS);
+            long remainingNanos = TimeUnit.SECONDS.toNanos(endpointProperties.statsSeconds())
+                    - (System.nanoTime() - startedAt);
+            return future.get(Math.max(remainingNanos, 0), TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             future.cancel(true);
             throw new TetrioApiException(
@@ -149,6 +154,45 @@ public class StatsService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new TetrioApiException("stats 계산 중단됨: " + normalized, e);
+        }
+    }
+
+    /**
+     * 수집 자리 얻기 — 비어 있으면 바로, 없으면 maxQueueWaitSeconds까지 도착 순서대로 기다린다(공정 세마포어).
+     * 이미 maxWaiting명이 기다리고 있으면 기다려도 그 시간 안에 차례가 오기 어려우므로 기다리지 않고 거절한다
+     * (23번 5.4절 "대기가 6초를 넘을 요청은 대기열에 넣지 않고 503"). 기다리는 동안 요청 스레드를 붙잡으므로
+     * 대기 인원을 작게 둔다.
+     */
+    private boolean acquireCollectionSlot(String normalized) {
+        try {
+            // tryAcquire()는 공정성을 무시하고 끼어들기 때문에, 기다리는 요청이 있으면 그 뒤에 서도록 0초 대기로 시도
+            if (collectionSlots.tryAcquire(0, TimeUnit.SECONDS)) {
+                return true;
+            }
+            int maxWait = statsLoadProperties.maxQueueWaitSeconds();
+            if (maxWait <= 0 || waitingForSlot.incrementAndGet() > statsLoadProperties.maxWaiting()) {
+                if (maxWait > 0) {
+                    waitingForSlot.decrementAndGet();
+                }
+                log.warn("stats 수집 자리 없음, 대기열도 참({}명) — 503 BUSY: {}", waitingForSlot.get(), normalized);
+                return false;
+            }
+            try {
+                long waitStart = System.nanoTime();
+                boolean acquired = collectionSlots.tryAcquire(maxWait, TimeUnit.SECONDS);
+                long waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - waitStart);
+                if (acquired) {
+                    log.info("stats 수집 자리 대기 {}ms 후 시작: {}", waitedMs, normalized);
+                } else {
+                    log.warn("stats 수집 자리 {}초 대기 후에도 없음 — 503 BUSY: {}", maxWait, normalized);
+                }
+                return acquired;
+            } finally {
+                waitingForSlot.decrementAndGet();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

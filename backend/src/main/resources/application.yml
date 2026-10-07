@@ -13,7 +13,7 @@ spring:
     default-property-inclusion: non_null
 
 # TETR.IO 외부 API 설정 (Finesse-API명세서 4.1-1절, TETR.IO API 연동확인 문서 기준)
-# 타임아웃/재시도 값은 타임아웃 기준 문서(23번, v0.3) 9절을 정본으로 한다.
+# 타임아웃/재시도 값은 타임아웃 기준 문서(23번) 9절을 정본으로 한다.
 tetrio:
   base-url: https://ch.tetr.io/api
   request-timeout-seconds: 5
@@ -21,7 +21,8 @@ tetrio:
   retry: 2 # 최초 포함 총 3회 — calc 모듈 max-retry-attempts(3)와 맞춤 (팀 검토 2026-10-01)
 
 # LLM 추론 서버 목록 (Finesse-API명세서 6장/6.1절 — 라운드로빈 대상)
-# MVP: 학교 PC 8대 중 2대. 로컬 개발 중에는 실제 서버가 없으므로 placeholder로 둠.
+# MVP: 학교 PC 8대 중 2대. 여기 값은 로컬 개발용 mock LLM(tools/MockLlmServer.java, 9101/9102) —
+# 실제 추론 서버 주소는 저장소에 넣지 않고 실행할 때 --llm.servers=... 로 지정한다.
 # "호출 1회"와 "엔드포인트"는 다른 레이어 — 엔드포인트 상한은 app.endpoint 아래에 따로 둔다.
 llm:
   servers:
@@ -34,19 +35,22 @@ llm:
   light-min-remaining-seconds: 12  # light 새 시도 시작 조건
   max-retries: 3                    # 최초 시도 포함 총 4회 (표5)
   server-exclude-seconds: 30        # 연결 실패한 서버를 이 시간 동안 라운드로빈에서 제외 (5.5절)
-  # TODO(LLM/AI 역할과 협의 필요): 실제 경로 확정되면 교체
-  light-path: /v1/comment/light
-  heavy-chapter-path: /v1/comment/heavy-chapter
+  light-path: /v1/comment/light            # LLM 추론 서버(PR #9)와 맞춤, 10/7 연동 확인
+  heavy-chapter-path: /v1/comment/heavy-chapter   # LLM 쪽 heavy 엔드포인트가 나오면 확인
 
 # 캐시 설정 (Finesse-API명세서 5장 — 인메모리 Caffeine, 최대 10분 유지 후 소멸)
 app:
   cache:
     ttl-minutes: 10
-  # 트래픽 몰림 1단계(23번 5.4절) — 캐시 미스 수집을 동시에 2건까지만, 넘치면 바로 503 SERVER_BUSY.
-  # 유저 1명 TETR.IO 최대 8회 × 1초 간격 → 2명이면 약 16초로 stats 20초 마감 안. 대기열은 다음 단계.
+  # 트래픽 몰림(23번 5.4절) — 캐시 미스 수집은 동시에 2건까지만.
+  # 유저 1명 TETR.IO 최대 8회 × 1초 간격 → 2명이면 약 16초로 stats 20초 마감 안.
   stats:
     max-concurrent-collections: 2
     busy-retry-after-seconds: 5
+    # 자리가 없으면 최대 6초 차례를 기다리고(도착 순서대로), 이미 2명이 기다리고 있으면 바로 503 SERVER_BUSY.
+    # 기다린 시간은 stats 20초 마감 안에서 쓴다.
+    max-queue-wait-seconds: 6
+    max-waiting: 2
   # 엔드포인트(요청 하나를 끝내야 하는 마감) 레벨 타임아웃 — 타임아웃 기준 문서(23번) 9절.
   # heavy는 LLM 서버 대수에 따라 CommentService가 heavy-seconds/heavy-single-server-seconds 중 하나를 고른다.
   endpoint:
