@@ -17,7 +17,7 @@ spring:
 tetrio:
   base-url: https://ch.tetr.io/api
   request-timeout-seconds: 5
-  min-request-interval-ms: 1000
+  # 호출 간격은 calc와 같은 RateLimiter를 쓴다 — finesse.analytics.collector.min-request-interval (10/7)
   retry: 2 # 최초 포함 총 3회 — calc 모듈 max-retry-attempts(3)와 맞춤 (팀 검토 2026-10-01)
 
 # LLM 추론 서버 목록 (Finesse-API명세서 6장/6.1절 — 라운드로빈 대상)
