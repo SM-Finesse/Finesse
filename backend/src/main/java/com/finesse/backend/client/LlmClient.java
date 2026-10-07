@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * LLM 추론 서버 호출 — 타임아웃 기준 문서(23번, v0.3) 4.2절/6.3절, Finesse-API명세서 6장/6.1절, 4.2-1절.
+ * LLM 추론 서버 호출 — 타임아웃 기준 문서(23번) 4.2절/6.3절, Finesse-API명세서 6장/6.1절, 4.2-1절.
  *
  * 서버당 동시 처리 1건(순차)·LLM 대기열 light 우선은 9/22 확정 사항이라, 서버마다 전담 워커 스레드 1개짜리
  * 우선순위 큐를 두고 그 큐를 통해서만 실제 POST를 보낸다 — 같은 서버에 배정된 요청은 절대 동시에 나가지 않고,
