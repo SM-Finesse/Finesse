@@ -6,7 +6,7 @@ import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
-import { Chapter, DataTable, DetailModal, StatBox, Strip, type Chip } from './heavy/Chapter'
+import { Chapter, DataTable, DetailModal, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
 import { ColdHeavy } from './heavy/ColdHeavy'
 import { CHAPTER_COLORS, EYEBROWS } from './heavy/meta'
 import { RivalBoard, RivalPolicy } from './heavy/Rivals'
@@ -79,12 +79,8 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   const buckets = series.length >= 2 ? trBuckets(series) : []
   const trSeries = [{ key: 'tr', label: h.trend.legendTr, color: '#66C0F4', fill: '#66C0F4', fmt: (v: number) => num(v) }]
   const trChips: Chip[] = []
-  if (buckets.length) {
-    const per = Math.ceil(series.length / 15)
-    const last = buckets[buckets.length - 1].values.tr
-    const all = Math.round(avg(series))
-    trChips.push({ k: h.trend.recent(per), v: num(last) }, { k: h.trend.avgOf(series.length), v: num(all) }, { k: h.trend.gap, v: signed(last - all, 0) })
-  } else if (tr) trChips.push(chipOf(tr))
+  if (buckets.length) trChips.push({ k: h.trend.avgOf(series.length), v: num(Math.round(avg(series))) })
+  else if (tr) trChips.push(chipOf(tr))
 
   /* 02 — 플레이스타일 */
   const ps = PLAYSTYLE.map((k, i) => ({ k, e: ev(k), color: PLAYSTYLE_COLORS[i] }))
@@ -142,7 +138,12 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
 
   const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; tail?: ReactNode; body: ReactNode }> = {
     tr_trend: {
-      right: pill(tr),
+      /* 알약을 누르면 이 값이 무엇인지(최근·전체 기준, 계산식) 펼친다 */
+      right: tr?.trend ? (
+        <PillInfo name={tr.meta.code} info={h.trend.deltaInfo}>
+          <DeltaPill text={tr.text} trend={tr.trend} />
+        </PillInfo>
+      ) : undefined,
       detail: buckets.length > 0,
       chips: trChips,
       body: buckets.length ? (

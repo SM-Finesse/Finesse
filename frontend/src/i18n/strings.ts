@@ -138,9 +138,9 @@ export interface ReportStrings {
     chapters: Record<HeavyChapterId, string>
     trend: {
       legendTr: string
-      recent: (n: number) => string
+      /** 머리 ΔTR 알약을 눌렀을 때 */
+      deltaInfo: StatInfo
       avgOf: (n: number) => string
-      gap: string
       missing: string
       game: string
       tableNote: (n: number) => string
@@ -374,26 +374,32 @@ const ko: Strings = {
       },
       trend: {
         legendTr: 'TR (실제 값)',
-        recent: (n) => `Recent ${n}g`,
+        deltaInfo: {
+          lead: '최근 경기 평균 TR이 분석한 전체 경기 평균 TR보다 얼마나 높은지 · 오르면 ▲, 내리면 ▼',
+          rows: [
+            ['최근', 'TR이 있는 경기 중 최신 30% (최소 3경기 · 최대 30경기)'],
+            ['전체', '분석한 경기 전체 — 최근 1년 · 최대 300판, TR이 없는 경기 제외'],
+            ['계산', '최근 평균 TR − 전체 평균 TR'],
+          ],
+        },
         avgOf: (n) => `Avg of ${n}g`,
-        gap: 'Gap',
         missing: 'TR 추이 데이터를 받지 못해 ΔTR만 보여줍니다.',
         game: '경기',
         tableNote: (n) => `${n}경기 전부 · 표 안에서 스크롤`,
         aria: 'TR 추이',
       },
       playstyle: { right: '절대값 비노출 · Δ만 표시', metric: 'Metric', desc: '설명', aria: '상대 대비 편차' },
-      sub: { app: '블록당 공격량', wapp: '가중 공격 효율', vsapm: '수비 여력', cheese: '가비지 처리' },
-      split: { right: '상대 TR 5등분 · 양 끝 구간', sub: '가장 강한 상대 20% 승률 − 가장 약한 상대 20% 승률' },
+      sub: { app: '블록당 공격량', wapp: '공격 성향', vsapm: '공격 대비 방어 비율', cheese: '가비지 처리' },
+      split: { right: '상대와의 TR 차이 5등분 · 양 끝 구간', sub: '가장 강한 상대 20% 승률 − 가장 약한 상대 20% 승률' },
       comeback: {
-        rateSub: '패배 중 역전승한 비율',
-        allowedSub: '승리 중 역전패한 비율',
+        rateSub: '불리한 경기 중 역전승한 비율',
+        allowedSub: '유리한 경기 중 역전패한 비율',
         of: (n, k) => `${n}번 중 ${k}번`,
         rateInfo: {
           lead: '크게 뒤진 경기를 끝내 이긴 비율 · 높을수록 좋음',
           table: {
             caption: '역전 기회 기준',
-            head: ['형식', '뒤진 점수'],
+            head: ['형식', '뒤처진 라운드'],
             rows: [
               ['3선승', '2판+'],
               ['5선승', '3판+'],
@@ -412,7 +418,7 @@ const ko: Strings = {
           lead: '크게 앞선 경기를 끝내 진 비율 · 낮을수록 좋음',
           table: {
             caption: '역전 허용 기회 기준',
-            head: ['형식', '앞선 점수'],
+            head: ['형식', '앞선 라운드'],
             rows: [
               ['3선승', '2판+'],
               ['5선승', '2판+'],
@@ -647,17 +653,23 @@ const en: Strings = {
       },
       trend: {
         legendTr: 'TR (actual value)',
-        recent: (n) => `Recent ${n}g`,
+        deltaInfo: {
+          lead: 'How far your recent average TR is above your average over all analyzed games · ▲ rising, ▼ falling',
+          rows: [
+            ['Recent', 'Latest 30% of games with TR (min 3, max 30)'],
+            ['All', 'Every analyzed game — past year, up to 300, games without TR excluded'],
+            ['Formula', 'Recent avg TR − overall avg TR'],
+          ],
+        },
         avgOf: (n) => `Avg of ${n}g`,
-        gap: 'Gap',
         missing: 'No TR series was received, so only ΔTR is shown.',
         game: 'Game',
         tableNote: (n) => `All ${n} games · scroll inside the table`,
         aria: 'TR trend',
       },
       playstyle: { right: 'No absolute values · Δ only', metric: 'Metric', desc: 'Description', aria: 'Deviation vs opponents' },
-      sub: { app: 'Attack per piece', wapp: 'Weighted attack', vsapm: 'Defensive headroom', cheese: 'Garbage clearing' },
-      split: { right: 'Opponent TR in fifths · the two ends', sub: 'Win rate vs strongest 20% − win rate vs weakest 20%' },
+      sub: { app: 'Attack per piece', wapp: 'Attack tendency', vsapm: 'Defense-to-attack ratio', cheese: 'Garbage clearing' },
+      split: { right: 'TR gap vs opponent in fifths · the two ends', sub: 'Win rate vs strongest 20% − win rate vs weakest 20%' },
       comeback: {
         rateSub: 'Won after trailing',
         allowedSub: 'Lost after leading',
@@ -666,7 +678,7 @@ const en: Strings = {
           lead: 'Matches won after falling well behind · higher is better',
           table: {
             caption: 'Comeback chance',
-            head: ['Format', 'Behind by'],
+            head: ['Format', 'Rounds behind'],
             rows: [
               ['FT3', '2+'],
               ['FT5', '3+'],
@@ -685,7 +697,7 @@ const en: Strings = {
           lead: 'Matches lost after leading well · lower is better',
           table: {
             caption: 'Blown-lead chance',
-            head: ['Format', 'Ahead by'],
+            head: ['Format', 'Rounds ahead'],
             rows: [
               ['FT3', '2+'],
               ['FT5', '2+'],

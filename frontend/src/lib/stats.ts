@@ -122,7 +122,7 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     pick: (d) => d.playstyle_relative?.delta_opener,
   },
   delta_plonk: {
-    code: 'ΔPlonk', label: { ko: '단순 적재', en: 'Plonk' }, kind: 'delta', decimals: 2,
+    code: 'ΔPlonk', label: { ko: '효율 중시', en: 'Plonk' }, kind: 'delta', decimals: 2,
     pick: (d) => d.playstyle_relative?.delta_plonk,
   },
   delta_stride: {
@@ -130,7 +130,7 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     pick: (d) => d.playstyle_relative?.delta_stride,
   },
   delta_inf_ds: {
-    code: 'ΔInf DS', label: { ko: '다운스택 유지', en: 'Inf DS' }, kind: 'delta', decimals: 2,
+    code: 'ΔInf DS', label: { ko: '다운스태킹 중심', en: 'Inf DS' }, kind: 'delta', decimals: 2,
     pick: (d) => d.playstyle_relative?.delta_inf_ds,
   },
   delta_app: {
@@ -138,11 +138,11 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     pick: (d) => d.attack?.delta_app,
   },
   delta_weighted_app: {
-    code: 'ΔWeighted APP', label: { ko: '가중 공격 효율', en: 'Weighted attack' }, kind: 'delta', decimals: 3,
+    code: 'ΔWeighted APP', label: { ko: '공격 성향', en: 'Attack tendency' }, kind: 'delta', decimals: 3,
     pick: (d) => d.attack?.delta_weighted_app,
   },
   delta_vs_apm: {
-    code: 'ΔVS/APM', label: { ko: '수비 여력', en: 'Defensive headroom' }, kind: 'delta', decimals: 3,
+    code: 'ΔVS/APM', label: { ko: '공격 대비 방어 비율', en: 'Defense-to-attack ratio' }, kind: 'delta', decimals: 3,
     pick: (d) => d.defense?.delta_vs_apm,
   },
   delta_cheese_index: {

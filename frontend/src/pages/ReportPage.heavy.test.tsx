@@ -112,8 +112,10 @@ describe('ReportPage — 헤비 뷰', () => {
 
     const tr = chapter('TR · 능력치 추이')
     expect(within(tr).getByRole('img', { name: 'TR 추이' })).toBeInTheDocument()
-    expect(within(tr).getByText('Recent 1g')).toBeInTheDocument()
+    /* 근거는 전체 평균만 — 최근·차이는 위쪽 ΔTR(백엔드 값)과 기준이 달라 두지 않는다 */
     expect(within(tr).getByText('Avg of 4g')).toBeInTheDocument()
+    expect(within(tr).queryByText(/^Recent/)).not.toBeInTheDocument()
+    expect(within(tr).queryByText('Gap')).not.toBeInTheDocument()
 
     const ps = chapter('플레이스타일 상대비교')
     expect(within(ps).getByRole('img', { name: '상대 대비 편차' })).toBeInTheDocument()
@@ -128,13 +130,30 @@ describe('ReportPage — 헤비 뷰', () => {
     const cb = chapter('역전승 퍼포먼스')
     expect(within(cb).getByRole('img', { name: '역전승률과 역전 허용률 비교' })).toBeInTheDocument()
     expect(within(cb).getByText('+30.6%p')).toBeInTheDocument()
-    expect(within(cb).getByText('패배 중 역전승한 비율 · 9번 중 5번')).toBeInTheDocument()
-    expect(within(cb).getByText('승리 중 역전패한 비율 · 8번 중 2번')).toBeInTheDocument()
+    expect(within(cb).getByText('불리한 경기 중 역전승한 비율 · 9번 중 5번')).toBeInTheDocument()
+    expect(within(cb).getByText('유리한 경기 중 역전패한 비율 · 8번 중 2번')).toBeInTheDocument()
 
     const cond = chapter('경기 내 컨디션 변화')
     expect(within(cond).getByRole('img', { name: '라운드별 평균 VS' })).toBeInTheDocument()
     expect(within(cond).getByText('R3 평균 VS')).toBeInTheDocument()
     expect(within(cond).getByText('−0.05')).toBeInTheDocument()
+  })
+
+  it('01장 ΔTR 알약을 누르면 무슨 값인지 펼치고, Esc로 닫힌다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    const tr = chapter('TR · 능력치 추이')
+    const pill = within(tr).getByRole('button', { name: 'ΔTR 설명' })
+    expect(pill).toHaveTextContent('+12.4 TR')
+    await user.click(pill)
+    expect(pill).toHaveAttribute('aria-expanded', 'true')
+    const note = within(tr).getByRole('note')
+    expect(note).toHaveTextContent('최근 평균 TR − 전체 평균 TR')
+    expect(note).toHaveTextContent('최신 30% (최소 3경기 · 최대 30경기)')
+    await user.keyboard('{Escape}')
+    expect(within(tr).queryByRole('note')).not.toBeInTheDocument()
   })
 
   it('역전승 칸의 ? 버튼은 값이 뭔지 펼쳐 보이고, 다시 누르거나 Esc로 닫힌다', async () => {

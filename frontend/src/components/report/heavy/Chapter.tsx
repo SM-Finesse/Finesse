@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { HeavyChapterResult } from '../../../api/types'
 import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
@@ -39,20 +39,15 @@ export function StatBox({ k, v, s, color, info }: { k: string; v: string; s?: st
   )
 }
 
-/** ? 버튼 + 설명 카드. 칸 안쪽 폭에 맞춰 띄워서 챕터 테두리에 잘리지 않는다 — Esc · 바깥 클릭 · 다시 누르면 닫힌다 */
-function InfoTip({ name, info }: { name: string; info: StatInfo }) {
-  const { t } = useI18n()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const id = useId()
-
+/** 열린 설명 카드를 Esc · 바깥 클릭으로 닫는다 */
+function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!open) return
     const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+      if (!ref.current?.contains(e.target as Node)) close()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') close()
     }
     document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
@@ -60,7 +55,69 @@ function InfoTip({ name, info }: { name: string; info: StatInfo }) {
       document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [open, close, ref])
+}
+
+const CARD = 'z-10 rounded-md border-2 border-frame bg-[#0E1E2B] px-3.5 py-3 text-left text-[13px] leading-[1.6] font-normal text-ink shadow-[0_10px_24px_rgba(0,0,0,.55)]'
+
+/** 설명 카드 — 한 줄 정의 · 경기 형식별 기준 표 · 측정 기준 항목 */
+function InfoCard({ id, info, className }: { id: string; info: StatInfo; className: string }) {
+  return (
+    <div id={id} role="note" className={cx(CARD, className)}>
+      <p className="m-0">{info.lead}</p>
+      {info.table && (
+        <table className="mt-2.5 w-full border-collapse border border-[#27485F] text-[12.5px]">
+          <caption className="pb-1.5 text-left font-display text-xs font-bold tracking-[.04em] text-primary-bright">{info.table.caption}</caption>
+          <thead>
+            <tr className="bg-[#153046] text-faint">
+              {info.table.head.map((th) => (
+                <th key={th} scope="col" className="px-2.5 py-1 text-left font-medium">
+                  {th}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {info.table.rows.map(([fmt, gap]) => (
+              <tr key={fmt} className="border-t border-[#27485F]">
+                <th scope="row" className="px-2.5 py-1 text-left font-normal text-muted">
+                  {fmt}
+                </th>
+                <td className="px-2.5 py-1 font-num font-bold text-head">{gap}</td>
+              </tr>
+            ))}
+          </tbody>
+          {info.table.foot && (
+            <tfoot>
+              <tr className="border-t border-[#27485F]">
+                <td colSpan={2} className="px-2.5 py-1 text-xs text-faint">
+                  {info.table.foot}
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      )}
+      <dl className="m-0 mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-dashed border-[#27485F] pt-2.5">
+        {info.rows.map(([label, text]) => (
+          <div key={label} className="contents">
+            <dt className="font-display text-xs leading-[1.6] font-bold tracking-[.04em] text-primary-bright">{label}</dt>
+            <dd className="m-0 text-muted">{text}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+/** ? 버튼 + 설명 카드. 칸 안쪽 폭에 맞춰 띄워서 챕터 테두리에 잘리지 않는다 — Esc · 바깥 클릭 · 다시 누르면 닫힌다 */
+function InfoTip({ name, info }: { name: string; info: StatInfo }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const id = useId()
+  const close = useCallback(() => setOpen(false), [])
+  useDismiss(open, close, ref)
 
   return (
     <div ref={ref} className="contents">
@@ -74,56 +131,33 @@ function InfoTip({ name, info }: { name: string; info: StatInfo }) {
       >
         ?
       </button>
-      {open && (
-        <div
-          id={id}
-          role="note"
-          className="absolute inset-x-2 top-[40px] z-10 rounded-md border-2 border-frame bg-[#0E1E2B] px-3.5 py-3 text-[13px] leading-[1.6] text-ink shadow-[0_10px_24px_rgba(0,0,0,.55)]"
-        >
-          <p className="m-0">{info.lead}</p>
-          {info.table && (
-            <table className="mt-2.5 w-full border-collapse border border-[#27485F] text-[12.5px]">
-              <caption className="pb-1.5 text-left font-display text-xs font-bold tracking-[.04em] text-primary-bright">{info.table.caption}</caption>
-              <thead>
-                <tr className="bg-[#153046] text-faint">
-                  {info.table.head.map((th) => (
-                    <th key={th} scope="col" className="px-2.5 py-1 text-left font-medium">
-                      {th}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {info.table.rows.map(([fmt, gap]) => (
-                  <tr key={fmt} className="border-t border-[#27485F]">
-                    <th scope="row" className="px-2.5 py-1 text-left font-normal text-muted">
-                      {fmt}
-                    </th>
-                    <td className="px-2.5 py-1 font-num font-bold text-head">{gap}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {info.table.foot && (
-                <tfoot>
-                  <tr className="border-t border-[#27485F]">
-                    <td colSpan={2} className="px-2.5 py-1 text-xs text-faint">
-                      {info.table.foot}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          )}
-          <dl className="m-0 mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-dashed border-[#27485F] pt-2.5">
-            {info.rows.map(([label, text]) => (
-              <div key={label} className="contents">
-                <dt className="font-display text-xs leading-[1.6] font-bold tracking-[.04em] text-primary-bright">{label}</dt>
-                <dd className="m-0 text-muted">{text}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      )}
+      {open && <InfoCard id={id} info={info} className="absolute inset-x-2 top-[40px]" />}
+    </div>
+  )
+}
+
+/** 챕터 머리의 증감 알약을 눌러 무슨 값인지 펼친다 — 카드는 알약 오른쪽 끝에 맞춰 아래로 */
+export function PillInfo({ name, info, children }: { name: string; info: StatInfo; children: ReactNode }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const id = useId()
+  const close = useCallback(() => setOpen(false), [])
+  useDismiss(open, close, ref)
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        aria-label={t.report.heavy.about(name)}
+        onClick={() => setOpen((o) => !o)}
+        className="block cursor-pointer rounded-full transition-[filter] hover:brightness-125 aria-expanded:brightness-125"
+      >
+        {children}
+      </button>
+      {open && <InfoCard id={id} info={info} className="absolute top-[calc(100%+8px)] right-0 w-[min(340px,calc(100vw-48px))]" />}
     </div>
   )
 }
