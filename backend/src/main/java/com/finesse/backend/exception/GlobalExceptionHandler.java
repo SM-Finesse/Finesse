@@ -24,6 +24,10 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    // 사용자에게 보이는 문구 — heavy SSE의 event: error도 같은 문구를 쓴다(CommentService). 내부 메시지는 로그에만.
+    public static final String TETRIO_UNAVAILABLE_MESSAGE = "일시적으로 조회할 수 없습니다, 잠시 후 다시 시도";
+    public static final String SERVER_BUSY_MESSAGE = "사용자가 많습니다, 잠시 후 다시 시도";
+
     /**
      * 오류 본문은 항상 JSON으로 못박는다 — heavy는 브라우저 EventSource가 Accept: text/event-stream만 보내서,
      * 형식을 Accept에 맞춰 고르게 두면 JSON을 쓸 수 없어 스트림을 열기 전 오류(잘못된 유저명 400 등)가
@@ -42,14 +46,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(TetrioApiException.class)
     public ResponseEntity<ApiErrorResponse> handleTetrioApiError(TetrioApiException ex) {
         return json(HttpStatus.BAD_GATEWAY)
-                .body(new ApiErrorResponse("TETRIO_API_UNAVAILABLE", "일시적으로 조회할 수 없습니다, 잠시 후 다시 시도"));
+                .body(new ApiErrorResponse("TETRIO_API_UNAVAILABLE", TETRIO_UNAVAILABLE_MESSAGE));
     }
 
     @ExceptionHandler(ServerBusyException.class)
     public ResponseEntity<ApiErrorResponse> handleServerBusy(ServerBusyException ex) {
         return json(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
-                .body(new ApiErrorResponse("SERVER_BUSY", "사용자가 많습니다, 잠시 후 다시 시도"));
+                .body(new ApiErrorResponse("SERVER_BUSY", SERVER_BUSY_MESSAGE, ex.retryAfterSeconds()));
     }
 
     @ExceptionHandler(LlmFormatException.class)

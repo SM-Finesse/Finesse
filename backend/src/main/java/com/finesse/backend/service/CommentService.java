@@ -9,6 +9,7 @@ import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.dto.StatsResponse;
+import com.finesse.backend.exception.GlobalExceptionHandler;
 import com.finesse.backend.exception.ServerBusyException;
 import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
@@ -199,15 +200,22 @@ public class CommentService {
     }
 
     /** heavy 스트림 시작 전 stats 단계 실패 — event: error / data: {error_code, message} 후 종료. */
-    private void sendStatsFailure(SseEmitter emitter, RuntimeException e) {
-        String code = switch (e) {
-            case UserNotFoundException ignored -> "USER_NOT_FOUND";
-            case ServerBusyException ignored -> "SERVER_BUSY";
-            default -> "TETRIO_API_UNAVAILABLE";
+    static ApiErrorResponse statsFailureBody(RuntimeException e) {
+        return switch (e) {
+            case UserNotFoundException notFound -> new ApiErrorResponse("USER_NOT_FOUND", notFound.getMessage());
+            case ServerBusyException busy -> new ApiErrorResponse("SERVER_BUSY",
+                    GlobalExceptionHandler.SERVER_BUSY_MESSAGE, busy.retryAfterSeconds());
+            default -> new ApiErrorResponse("TETRIO_API_UNAVAILABLE", GlobalExceptionHandler.TETRIO_UNAVAILABLE_MESSAGE);
         };
-        log.warn("heavy 스트림 시작 전 stats 실패({}): {}", code, e.getMessage());
+    }
+
+    private void sendStatsFailure(SseEmitter emitter, RuntimeException e) {
+        // 문구는 HTTP 오류 응답과 같은 사용자용 문구 — 내부 메시지(유저명·수집 상태 등)는 로그에만 남긴다.
+        // SERVER_BUSY는 SSE에 Retry-After 헤더를 실을 수 없으니 retry_after_seconds로 함께 보낸다.
+        ApiErrorResponse body = statsFailureBody(e);
+        log.warn("heavy 스트림 시작 전 stats 실패({}): {}", body.errorCode(), e.getMessage());
         try {
-            emitter.send(SseEmitter.event().name("error").data(new ApiErrorResponse(code, e.getMessage())));
+            emitter.send(SseEmitter.event().name("error").data(body));
         } catch (IOException ignored) {
             // 이미 끊긴 연결
         }
