@@ -11,7 +11,7 @@ import json
 
 from app.schemas import LightRequest
 
-PROMPT_VERSION = "light-baseline-v2"
+PROMPT_VERSION = "light-baseline-v2-trsum"  # v2 문구 + tr_trend 요약 입력 (10/7)
 
 LIGHT_SYSTEM_PROMPT = """당신은 테트리스 게임 TETR.IO의 전적 데이터를 분석해 한국어로 코멘트를
 작성하는 어시스턴트입니다. 입력으로 fixed_metrics와 delta_metrics(하이라이트
@@ -56,19 +56,38 @@ LIGHT_DECODING = {
 }
 
 
+def summarize_tr_trend(values: list[float]) -> dict[str, float | int]:
+    """tr_trend(시간순 TR 목록)를 짧은 요약으로 바꾼다.
+
+    이유: 전적이 많은 유저는 tr_trend 가 80개 이상이라 프롬프트가 n_ctx(2048)를 넘는다
+      (10/7 13번 서버 로그: Requested tokens (2668) exceed context window of 2048).
+    요청 길이와 상관없이 항상 같은 형식으로 요약한다 → 파인튜닝 데이터도 이 형식으로 만든다.
+    ※ 요약 방식은 v1.2 5.2절에 없음 — 설계 문서에 추가 필요.
+    """
+    if not values:
+        return {"count": 0}
+    first, last = values[0], values[-1]
+    return {
+        "count": len(values),
+        "first": round(first, 2),
+        "last": round(last, 2),
+        "change": round(last - first, 2),
+        "min": round(min(values), 2),
+        "max": round(max(values), 2),
+    }
+
+
 def build_light_messages(req: LightRequest) -> list[dict[str, str]]:
     """chat template 형식의 메시지 목록을 만든다.
 
-    user 메시지 = 요청 JSON을 압축 형태로 그대로 넣는다.
+    user 메시지 = 요청 JSON을 압축 형태로 넣되, fixed_metrics.tr_trend 만 요약으로 바꾼다.
     exclude_unset: 백엔드가 보낸 형태를 그대로 유지한다
       (필드를 생략했으면 생략된 채로, null 로 보냈으면 null 로).
     학습 데이터에 두 형태를 모두 넣기로 했으므로(v1.2 5.1절) 바꾸지 않고 전달한다.
     """
-    user_content = json.dumps(
-        req.model_dump(exclude_unset=True),
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+    payload = req.model_dump(exclude_unset=True)
+    payload["fixed_metrics"]["tr_trend"] = summarize_tr_trend(req.fixed_metrics.tr_trend)
+    user_content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return [
         {"role": "system", "content": LIGHT_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},

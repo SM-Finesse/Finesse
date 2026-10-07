@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
-from app.generator import build_generator
+from app.generator import ContextOverflowError, build_generator
 from app.prompt import build_light_messages
 from app.schemas import LightRequest
 from app.validation import (
@@ -50,7 +50,13 @@ def comment_light(req: LightRequest):
     # ② 프롬프트 조립
     messages = build_light_messages(req)
     # ③ 생성 (LLM_GENERATOR 에 따라 Mock 또는 Qwen)
-    result = generator.generate_light(req, messages)
+    try:
+        result = generator.generate_light(req, messages)
+    except ContextOverflowError as e:
+        # 같은 요청을 다시 보내도 결과가 같으므로 재요청 대상(502)과 구분한다.
+        # 상태 코드 413 은 우리 제안 — 백엔드와 확정 필요(v1.2 9.1절 TBD).
+        logger.warning("입력 길이 초과 generator=%s: %s", generator.name, e)
+        raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
     # ④ 응답 검증 - 형식
     try:
         resp = parse_light_output(result.text)

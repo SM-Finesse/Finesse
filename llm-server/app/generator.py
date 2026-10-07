@@ -36,6 +36,10 @@ class GenerationResult:
     finish_reason: str  # "stop" 정상 종료 / "length" 출력 예산에서 잘림 (v1.2 12.1절 기록 대상)
 
 
+class ContextOverflowError(Exception):
+    """프롬프트 + 출력 예산이 n_ctx 를 넘어 생성을 시작할 수 없음."""
+
+
 class MockGenerator:
     name = "mock"
 
@@ -113,7 +117,13 @@ class LlamaGenerator:
 
         with self._lock:
             t = time.perf_counter()
-            out = self._llm.create_chat_completion(messages=messages, **kwargs)
+            try:
+                out = self._llm.create_chat_completion(messages=messages, **kwargs)
+            except ValueError as e:
+                # llama-cpp-python 은 길이 초과를 ValueError("... exceed context window ...")로 알린다
+                if "context window" in str(e):
+                    raise ContextOverflowError(str(e)) from e
+                raise
             elapsed = time.perf_counter() - t
 
         choice = out["choices"][0]

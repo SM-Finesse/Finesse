@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.generator import (
+    ContextOverflowError,
     LlamaGenerator,
     MockGenerator,
     build_generator,
@@ -100,3 +101,17 @@ def test_스키마_enum은_후보_11개_안에서만():
 def test_잘못된_json_mode는_에러(fake_llama):
     with pytest.raises(ValueError):
         LlamaGenerator("x.gguf", json_mode="strict")
+
+
+def test_길이_초과는_ContextOverflowError로_바꿈(monkeypatch, req):
+    class OverflowLlama:
+        def __init__(self, **kwargs):
+            pass
+
+        def create_chat_completion(self, **kwargs):
+            raise ValueError("Requested tokens (2668) exceed context window of 2048")
+
+    monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=OverflowLlama))
+    gen = LlamaGenerator(model_path="fake.gguf")
+    with pytest.raises(ContextOverflowError):
+        gen.generate_light(req, build_light_messages(req))
