@@ -17,7 +17,8 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 - `GET /api/v1/stats/{username}` → 소문자 정규화·캐시 확인 → `StatCalculatorFacade.analyze(username)`
   → 결과(`AnalysisOutcome`)를 응답으로 변환: Analyzed는 stats 응답, ColdStartBypass는 `cold_start=true`,
   UserNotFound는 404, CollectionFailed는 502
-- TETR.IO 수집·정제·계산은 calc 모듈이 담당. 백엔드는 프로필 사진·XP·국가·가입일용 `GET /users/{username}`만 직접 호출
+- TETR.IO 수집·정제·계산은 calc 모듈이 담당. 백엔드는 프로필 사진·XP·국가·가입일·플레이 시간·친구 수용 `GET /users/{username}`만 직접 호출 —
+  calc와 같은 `RateLimiter`를 함께 써서 서버 전체 TETR.IO 호출이 1초 간격을 지킴(10/7)
 - 백엔드는 calc의 공개 타입만 사용 — calc의 `ArchitectureTest`가 빌드 때 강제
 - 설정: `BackendApplication`의 `@ConfigurationPropertiesScan` + `application.yml`의 `finesse.analytics.*`
   (TETR.IO 호출 최초 포함 3회, 페이지당 100판)
@@ -40,8 +41,8 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 - calc delta가 null(계산 가능한 매치 없음)이면 `playstyle_relative`·`attack`·`defense` 생략
 
 ### calc 모듈과 남은 협의
-- `/users/{username}` 호출을 calc로 이전 (레이트리미터 일원화)
+- `/users/{username}` 호출 자체를 calc로 이전 (선택 — 레이트리미터는 공유로 이미 일원화)
 - 라이벌 반환 범위(반복 조우 상대만 vs 전체 상대), 헤비 8챕터 차트 데이터 스키마
 
 ### 검증
-빌드·테스트 176개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/7 calc 2차 병합 후 재실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
+빌드·테스트 180개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/7 calc 2차 병합 후 재실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
