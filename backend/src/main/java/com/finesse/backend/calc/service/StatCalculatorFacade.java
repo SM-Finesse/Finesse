@@ -177,14 +177,7 @@ public class StatCalculatorFacade {
         return metrics.timeCalculation(key, () -> registry.<T>calculate(key, context));
     }
 
-    /** 이전 구간은 구간 비교(11.11절)에만 쓰므로, 전부 제외되면 빈 목록으로 둔다. */
-    private List<MatchHistory> preprocessPreviousWindow(List<RawMatch> previousRaw) {
-        try {
-            return preprocessor.preprocess(previousRaw).matches();
-        } catch (AllMatchesExcludedException e) {
-            return List.of();
-        }
-    }
+
 
     /** 마스킹 닉네임만 붙여 외부 노출용으로 바꾼다 — 원본 닉네임·유저 ID는 나가지 않는다 (11.12절). */
     private RivalryStats toRivalryStats(RivalryAggregate aggregate, PseudonymScope scope) {
