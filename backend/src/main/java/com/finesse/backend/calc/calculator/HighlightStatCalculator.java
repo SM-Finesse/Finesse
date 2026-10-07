@@ -3,6 +3,7 @@ package com.finesse.backend.calc.calculator;
 import com.finesse.backend.calc.config.AnalyticsProperties;
 import com.finesse.backend.calc.domain.AnalyticsContext;
 import com.finesse.backend.calc.domain.HighlightStats;
+import com.finesse.backend.calc.domain.HighlightStats.StrengthQuintile;
 import com.finesse.backend.calc.domain.MatchHistory;
 import com.finesse.backend.calc.domain.MatchRound;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,7 +25,7 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
     static final int TR_TREND_MIN_N = 3;                    // 11.1절: N 하한
     static final int TR_TREND_MAX_N = 30;                   // 11.1절: N 상한
     static final int QUINTILES = 5;                         // 11.2절
-    static final int LEAD_ROUND_GAP = 2;                    // 11.3부절: 역전 허용 기회는 2판 이상 우세
+
 
     private final double trTrendRatio;
 
@@ -56,7 +57,8 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
                 .toList();
 
         Double trTrend = trTrendDelta(matches, trTrendRatio);
-        Double strengthSplit = strengthSplit(matches);
+        List<StrengthQuintile> quintiles = strengthQuintiles(matches);
+        Double strengthSplit = strengthSplit(quintiles);
 
         List<MatchHistory> comebackOpp = matches.stream()
                 .filter(MatchHistory::isComebackEligible)
@@ -67,7 +69,7 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
 
         List<MatchHistory> leadOpp = matches.stream()
                 .filter(MatchHistory::isComebackEligible)
-                .filter(m -> hadRoundGap(m, true, LEAD_ROUND_GAP)).toList();
+                .filter(m -> hadRoundGap(m, true, comebackGap(m.firstTo()))).toList();   // v3.9: 역전 기회와 같은 형식별 점수 차
         int comebackAgainstAllowed = (int) leadOpp.stream().filter(m -> !m.isWin()).count();
         Double comebackRateAgainst = leadOpp.isEmpty()
                 ? null : (double) comebackAgainstAllowed / leadOpp.size();
@@ -86,7 +88,8 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
                 comebackOpp.size(), comebackWon, comebackRate,
                 leadOpp.size(), comebackAgainstAllowed, comebackRateAgainst,
                 deltaComeback,
-                vsSlope, eligible
+                vsSlope, eligible,
+                quintiles
         );
     }
 
@@ -130,19 +133,32 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
     }
 
     /**
-     * Q5(강한 상대) 승률 − Q1(약한 상대) 승률.
-     * 본인·상대 TR이 모두 있는 매치만 사용하며, 그런 매치가 5판 미만이면 null.
+     * 분위별 판수·승수·승률 (Q1 → Q5). 헤비뷰 “상대 강도별 승률” 차트용 (11.2절, v3.8).
+     * 본인·상대 TR이 모두 있는 매치만 사용하며, 그런 매치가 5판 미만이면 빈 목록.
      */
-    static Double strengthSplit(List<MatchHistory> matches) {
+    static List<StrengthQuintile> strengthQuintiles(List<MatchHistory> matches) {
         List<MatchHistory> withTr = matches.stream()
                 .filter(m -> m.myTr() != null && m.oppTr() != null)
                 .toList();
         if (withTr.size() < QUINTILES) {
-            return null;
+            return List.of();
         }
         List<MatchHistory> sorted = withTr.stream().sorted(BY_TR_GAP_DESC).toList();
-        List<QuintileBounds> bounds = computeQuintileBounds(sorted.size());
-        return winRate(slice(sorted, bounds.get(QUINTILES - 1))) - winRate(slice(sorted, bounds.get(0)));
+        List<StrengthQuintile> result = new ArrayList<>();
+        for (QuintileBounds b : computeQuintileBounds(sorted.size())) {
+            List<MatchHistory> slice = slice(sorted, b);
+            int wins = (int) slice.stream().filter(MatchHistory::isWin).count();
+            result.add(new StrengthQuintile(b.quintileIndex() + 1, slice.size(), wins, (double) wins / slice.size()));
+        }
+        return result;
+    }
+
+    /** Q5(강한 상대) 승률 − Q1(약한 상대) 승률. 분위가 없으면(TR 있는 매치 5판 미만) null. */
+    static Double strengthSplit(List<StrengthQuintile> quintiles) {
+        if (quintiles.isEmpty()) {
+            return null;
+        }
+        return quintiles.get(QUINTILES - 1).winRate() - quintiles.get(0).winRate();
     }
 
     record QuintileBounds(int quintileIndex, int size, int startOffset) {}
@@ -165,10 +181,6 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
         return sorted.subList(b.startOffset(), b.startOffset() + b.size());
     }
 
-    private static double winRate(List<MatchHistory> matches) {
-        long wins = matches.stream().filter(MatchHistory::isWin).count();
-        return (double) wins / matches.size();
-    }
 
     // ── 11.3 comeback_rate / 11.3부 comeback_rate_against ─────────────
 
