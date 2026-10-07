@@ -77,6 +77,16 @@ class StatsServiceMappingTest {
     }
 
     @Test
+    void 콜드스타트_경기_수는_승패를_계산한_유효_경기_수로_맞춘다() {
+        // 누적 7판이지만 1년 안 유효 경기는 3판(2승 1패) — 7로 두면 프론트가 승·패를 5승 2패로 계산한다
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 7,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, winLoss(WIN, LOSE, WIN)));
+
+        assertThat(r.matchCount()).isEqualTo(3);
+        assertThat(Math.round(r.fixedMetrics().winRate() * r.matchCount())).isEqualTo(2);
+    }
+
+    @Test
     void 콜드스타트_0판이면_승률은_생략() {
         StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 0,
                 AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
@@ -107,9 +117,11 @@ class StatsServiceMappingTest {
                 RivalryStats.empty(), series);
 
         StatsResponse r = stats(new AnalysisOutcome.Analyzed(SUMMARY, result,
-                new AnalysisMeta(30, 0, false, 0, 0, 0, 0)));
+                new AnalysisMeta(30, 0, false, 0, 0, 2, 1)));
 
         assertThat(r.fixedMetrics().trTrend()).containsExactly(20900.0, 21010.5);
+        assertThat(r.chapters()).containsEntry("ended_early_matches", 2).containsEntry("format_unknown_matches", 1)
+                .doesNotContainKey("previous_matches");
         assertThat(r.roundCurves().pps()).containsExactly(2.4, 2.38);
         assertThat(r.roundCurves().vs()).containsExactly(2.1, 2.0);
         assertThat(r.deltaMetrics().attack()).isNull(); // 계산 가능한 매치가 없어 delta가 null

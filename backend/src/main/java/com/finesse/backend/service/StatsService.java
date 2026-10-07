@@ -220,7 +220,10 @@ public class StatsService {
         StatsResponse.FixedMetrics fixed = winLoss == null
                 ? new StatsResponse.FixedMetrics(null, List.of(), List.of())
                 : new StatsResponse.FixedMetrics(winLoss.overallWinRate(), List.of(), recentForm(winLoss));
-        return new StatsResponse(normalized, true, cold.availableMatches(), Instant.now(),
+        // match_count는 승패를 계산한 경기 수와 같아야 한다 — 프론트가 승·패 수를 win_rate × match_count로 낸다.
+        // availableMatches는 사유에 따라 누적 판수(FEW_GAMES_TOTAL)·정제 전 판수(FEW_GAMES_IN_YEAR)라 그대로 쓰면 어긋난다.
+        int matchCount = winLoss != null ? winLoss.overallCount() : cold.availableMatches();
+        return new StatsResponse(normalized, true, matchCount, Instant.now(),
                 profile(normalized, cold.summary()), fixed, null,
                 new StatsResponse.RoundCurves(List.of(), List.of()),
                 new StatsResponse.Rivals(List.of(), 1, RIVAL_PAGE_SIZE, 0),
@@ -259,10 +262,12 @@ public class StatsService {
                 .map(o -> new StatsResponse.RivalItem(o.maskedNickname(), o.matchCount(), o.wins(), o.losses(), null))
                 .toList();
 
+        // 분석 메타 — ended_early_matches·format_unknown_matches는 분석에는 쓰였지만 역전 지표에서만 빠진 경기 수(calc v3.6)
         Map<String, Object> chapters = Map.of(
                 "dropped_records", meta.droppedRecords(),
                 "excluded_matches", meta.excludedMatches(),
-                "previous_matches", meta.previousMatches(),
+                "ended_early_matches", meta.endedEarlyMatches(),
+                "format_unknown_matches", meta.formatUnknownMatches(),
                 "partial", meta.partial(),
                 "note", "8챕터 차트 데이터 세부 스키마는 [협의 필요]");
 
