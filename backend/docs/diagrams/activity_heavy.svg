@@ -1,21 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1110 2044" width="1110" height="2044" font-family="Malgun Gothic, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1110 2079" width="1110" height="2079" font-family="Malgun Gothic, 'Segoe UI', sans-serif">
 <defs>
   <marker id="arrowFilled" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L8,3 L0,6 Z" fill="#333333"/>
   </marker>
 </defs>
-<rect x="0" y="0" width="1110" height="2044" fill="#ffffff"/>
+<rect x="0" y="0" width="1110" height="2079" fill="#ffffff"/>
 <text x="555.0" y="24" font-size="18" font-weight="bold" text-anchor="middle" fill="#1a1a1a">GET /api/v1/comment/{username}?scope=heavy — 활동 다이어그램 (헤비 뷰, SSE 스트리밍)</text>
-<rect x="285.0" y="50" width="270" height="1994" fill="#f5f7fa"/>
-<rect x="825.0" y="50" width="270" height="1994" fill="#f5f7fa"/>
-<line x1="285.0" y1="50" x2="285.0" y2="2044" stroke="#c9cfd6" stroke-width="1.2"/>
-<line x1="555.0" y1="50" x2="555.0" y2="2044" stroke="#c9cfd6" stroke-width="1.2"/>
-<line x1="825.0" y1="50" x2="825.0" y2="2044" stroke="#c9cfd6" stroke-width="1.2"/>
+<rect x="285.0" y="50" width="270" height="2029" fill="#f5f7fa"/>
+<rect x="825.0" y="50" width="270" height="2029" fill="#f5f7fa"/>
+<line x1="285.0" y1="50" x2="285.0" y2="2079" stroke="#c9cfd6" stroke-width="1.2"/>
+<line x1="555.0" y1="50" x2="555.0" y2="2079" stroke="#c9cfd6" stroke-width="1.2"/>
+<line x1="825.0" y1="50" x2="825.0" y2="2079" stroke="#c9cfd6" stroke-width="1.2"/>
 <rect x="25.0" y="50" width="250" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
 <rect x="295.0" y="50" width="250" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
 <rect x="565.0" y="50" width="250" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
 <rect x="835.0" y="50" width="250" height="34" rx="5" fill="#2f4b7c" stroke="#1c2f52" stroke-width="1.3"/>
-<rect x="561.0" y="1066" width="528.0" height="476" rx="14" fill="none" stroke="#888888" stroke-width="1.3" stroke-dasharray="7,5"/>
+<rect x="561.0" y="1066" width="528.0" height="511" rx="14" fill="none" stroke="#888888" stroke-width="1.3" stroke-dasharray="7,5"/>
 <circle cx="150" cy="114" r="9" fill="#1a1a1a"/>
 <text x="150" y="98" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.5" fill="#555555" text-anchor="middle" font-weight="normal" font-style="italic">헤비 뷰 열기</text>
 <rect x="32.0" y="144" width="236" height="46" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
@@ -113,8 +113,8 @@
 <line x1="690" y1="957" x2="690" y2="979" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
 <rect x="572.0" y="1102" width="236" height="38" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
 <text x="690" y="1125.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">서버 고르기 (라운드로빈)</text>
-<text x="690" y="1155" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">연결 실패 서버는 30s 제외</text>
-<text x="690" y="1168" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">전부 제외면 호출 없이 이번 시도 실패</text>
+<text x="690" y="1155" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">연결 실패 → 30s 제외, 횟수 안 세고 다음 서버</text>
+<text x="690" y="1168" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">전부 제외면 바로 status=failed</text>
 <line x1="690" y1="1038" x2="690" y2="1102" stroke="#333333" stroke-width="1.5"/>
 <line x1="690" y1="1038" x2="690" y2="1102" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
 <rect x="842.0" y="1190" width="236" height="38" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
@@ -123,80 +123,82 @@
 <text x="960" y="1256" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">호출 1회 10s</text>
 <line x1="690" y1="1174" x2="960" y2="1190" stroke="#333333" stroke-width="1.5"/>
 <line x1="690" y1="1174" x2="960" y2="1190" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<polygon points="690,1276 722.0,1308.0 690,1340 658.0,1308.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
-<text x="690" y="1306.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">footnote</text>
-<text x="690" y="1318.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">유효?</text>
+<polygon points="690,1276 732.0,1318.0 690,1360 648.0,1318.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
+<text x="690" y="1310.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">응답 받음 &amp;</text>
+<text x="690" y="1322.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">footnote</text>
+<text x="690" y="1334.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">유효?</text>
 <line x1="960" y1="1262" x2="690" y2="1276" stroke="#333333" stroke-width="1.5"/>
 <line x1="960" y1="1262" x2="690" y2="1276" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<polygon points="690,1360 730.0,1400.0 690,1440 650.0,1400.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
-<text x="690" y="1398.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">남은 ≥5s &amp;</text>
-<text x="690" y="1410.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">4회 미만?</text>
-<line x1="690" y1="1340" x2="690" y2="1360" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1340" x2="690" y2="1360" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="714.0" y="1344.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
-<path d="M650.0,1400.0 L572,1400.0 L572,1094 L690,1094 L690,1102" fill="none" stroke="#333333" stroke-width="1.5"/>
+<polygon points="690,1380 730.0,1420.0 690,1460 650.0,1420.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
+<text x="690" y="1418.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">남은 ≥5s &amp;</text>
+<text x="690" y="1430.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">4회 미만?</text>
+<line x1="690" y1="1360" x2="690" y2="1380" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1360" x2="690" y2="1380" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="714.0" y="1364.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
+<path d="M650.0,1420.0 L572,1420.0 L572,1094 L690,1094 L690,1102" fill="none" stroke="#333333" stroke-width="1.5"/>
 <line x1="690" y1="1094" x2="690" y2="1102" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="606" y="1393.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#b35900" text-anchor="middle" font-weight="bold" font-style="normal">재시도</text>
-<text x="578" y="1251.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#b35900" text-anchor="start" font-weight="normal" font-style="italic">다음 서버로</text>
-<rect x="572.0" y="1474" width="236" height="46" rx="14" fill="#f1eafa" stroke="#6a3fa0" stroke-width="1.4"/>
-<text x="690" y="1493.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">끝나는 즉시 전송</text>
-<text x="690" y="1508.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: chapter (id)</text>
-<line x1="690" y1="1440" x2="690" y2="1474" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1440" x2="690" y2="1474" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="618.0" y="1459.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오 → status=failed</text>
-<path d="M722.0,1308.0 L808,1308.0 L808,1464 L730,1464 L730,1474" fill="none" stroke="#333333" stroke-width="1.5"/>
-<line x1="730" y1="1464" x2="730" y2="1474" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="798" y="1300.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예 → status=ok</text>
+<text x="606" y="1413.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#b35900" text-anchor="middle" font-weight="bold" font-style="normal">재시도</text>
+<text x="578" y="1261.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#b35900" text-anchor="start" font-weight="normal" font-style="italic">다음 서버로</text>
+<rect x="572.0" y="1494" width="236" height="46" rx="14" fill="#f1eafa" stroke="#6a3fa0" stroke-width="1.4"/>
+<text x="690" y="1513.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">끝나는 즉시 전송</text>
+<text x="690" y="1528.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: chapter (id)</text>
+<text x="690" y="1555" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">마감 뒤에 끝난 결과는 버림 (챕터당 1건)</text>
+<line x1="690" y1="1460" x2="690" y2="1494" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1460" x2="690" y2="1494" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="618.0" y="1479.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오 → status=failed</text>
+<path d="M732.0,1318.0 L808,1318.0 L808,1484 L730,1484 L730,1494" fill="none" stroke="#333333" stroke-width="1.5"/>
+<line x1="730" y1="1484" x2="730" y2="1494" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="798" y="1310.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예 → status=ok</text>
 <text x="573.0" y="1083" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11" fill="#555555" text-anchor="start" font-weight="bold" font-style="normal">«parallel» 남은 챕터마다 동시에 (llmExecutor)</text>
 <rect x="40" y="1086" width="220" height="59" fill="#fbfbf5" stroke="#6a3fa0" stroke-width="1.1"/>
 <text x="150.0" y="1104" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#6a3fa0" text-anchor="middle" font-weight="normal" font-style="italic">chapter 이벤트가 올 때마다</text>
 <text x="150.0" y="1119" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#6a3fa0" text-anchor="middle" font-weight="normal" font-style="italic">해당 챕터 칸을 채움</text>
 <text x="150.0" y="1134" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#6a3fa0" text-anchor="middle" font-weight="normal" font-style="italic">(끝난 순서대로 — 순서 섞일 수 있음)</text>
-<rect x="572.0" y="1562" width="236" height="38" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
-<text x="690" y="1585.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">하트비트 중지</text>
-<text x="690" y="1615" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">모든 챕터가 끝나거나 마감되면</text>
-<line x1="690" y1="1520" x2="690" y2="1542" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1520" x2="690" y2="1542" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<line x1="690" y1="1542" x2="690" y2="1562" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1542" x2="690" y2="1562" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<polygon points="690,1635 723.0,1668.0 690,1701 657.0,1668.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
-<text x="690" y="1666.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">마감 전</text>
-<text x="690" y="1678.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">다 끝남?</text>
-<line x1="690" y1="1621" x2="690" y2="1635" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1621" x2="690" y2="1635" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<rect x="315.0" y="1648.0" width="210" height="40" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
-<text x="420" y="1665.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">남은 챕터 status=timeout</text>
-<text x="420" y="1679.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: chapter 전송</text>
-<line x1="657.0" y1="1668.0" x2="525.0" y2="1668.0" stroke="#333333" stroke-width="1.5"/>
-<line x1="657.0" y1="1668.0" x2="525.0" y2="1668.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="591.0" y="1662.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
-<rect x="572.0" y="1735" width="236" height="61" rx="14" fill="#f1eafa" stroke="#6a3fa0" stroke-width="1.4"/>
-<text x="690" y="1754.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: done</text>
-<text x="690" y="1769.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">{completed, failed_chapters,</text>
-<text x="690" y="1784.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">meta.elapsed_ms}</text>
-<line x1="690" y1="1701" x2="690" y2="1735" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1701" x2="690" y2="1735" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<text x="704.0" y="1712.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예</text>
-<path d="M420,1688.0 L420,1725 L650,1725 L650,1735" fill="none" stroke="#333333" stroke-width="1.5"/>
-<line x1="650" y1="1725" x2="650" y2="1735" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<path d="M1100,701.0 L1100,1757 L808.0,1757" fill="none" stroke="#333333" stroke-width="1.5"/>
-<line x1="1100" y1="1757" x2="808.0" y2="1757" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<rect x="572.0" y="1818" width="236" height="46" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
-<text x="690" y="1837.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">ok 챕터만 heavy 캐시 저장</text>
-<text x="690" y="1852.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">→ 스트림 종료</text>
-<text x="690" y="1879" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">캐시 저장은 LLM을 부른 경우만</text>
-<line x1="690" y1="1796" x2="690" y2="1818" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1796" x2="690" y2="1818" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<rect x="32.0" y="1901" width="236" height="46" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
-<text x="150" y="1920.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">done 받으면</text>
-<text x="150" y="1935.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">EventSource 직접 닫기</text>
-<text x="150" y="1962" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">안 닫으면 브라우저가 자동 재연결</text>
-<line x1="690" y1="1885" x2="150" y2="1901" stroke="#333333" stroke-width="1.5"/>
-<line x1="690" y1="1885" x2="150" y2="1901" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
-<circle cx="150" cy="1990" r="12" fill="none" stroke="#1a1a1a" stroke-width="1.8"/>
-<circle cx="150" cy="1990" r="6" fill="#1a1a1a"/>
-<line x1="150" y1="1968" x2="150" y2="1990" stroke="#333333" stroke-width="1.5"/>
-<line x1="150" y1="1968" x2="150" y2="1990" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<rect x="572.0" y="1597" width="236" height="38" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
+<text x="690" y="1620.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">하트비트 중지</text>
+<text x="690" y="1650" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">모든 챕터가 끝나거나 마감되면</text>
+<line x1="690" y1="1561" x2="690" y2="1577" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1561" x2="690" y2="1577" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<line x1="690" y1="1577" x2="690" y2="1597" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1577" x2="690" y2="1597" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<polygon points="690,1670 723.0,1703.0 690,1736 657.0,1703.0" fill="#fff6d8" stroke="#b8a349" stroke-width="1.4"/>
+<text x="690" y="1701.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">마감 전</text>
+<text x="690" y="1713.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">다 끝남?</text>
+<line x1="690" y1="1656" x2="690" y2="1670" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1656" x2="690" y2="1670" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<rect x="315.0" y="1683.0" width="210" height="40" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
+<text x="420" y="1700.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">남은 챕터 status=timeout</text>
+<text x="420" y="1714.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: chapter 전송</text>
+<line x1="657.0" y1="1703.0" x2="525.0" y2="1703.0" stroke="#333333" stroke-width="1.5"/>
+<line x1="657.0" y1="1703.0" x2="525.0" y2="1703.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="591.0" y="1697.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">아니오</text>
+<rect x="572.0" y="1770" width="236" height="61" rx="14" fill="#f1eafa" stroke="#6a3fa0" stroke-width="1.4"/>
+<text x="690" y="1789.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: done</text>
+<text x="690" y="1804.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">{completed, failed_chapters,</text>
+<text x="690" y="1819.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">meta.elapsed_ms}</text>
+<line x1="690" y1="1736" x2="690" y2="1770" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1736" x2="690" y2="1770" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<text x="704.0" y="1747.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">예</text>
+<path d="M420,1723.0 L420,1760 L650,1760 L650,1770" fill="none" stroke="#333333" stroke-width="1.5"/>
+<line x1="650" y1="1760" x2="650" y2="1770" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<path d="M1100,701.0 L1100,1792 L808.0,1792" fill="none" stroke="#333333" stroke-width="1.5"/>
+<line x1="1100" y1="1792" x2="808.0" y2="1792" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<rect x="572.0" y="1853" width="236" height="46" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
+<text x="690" y="1872.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">ok 챕터만 heavy 캐시 저장</text>
+<text x="690" y="1887.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">→ 스트림 종료</text>
+<text x="690" y="1914" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">캐시 저장은 LLM을 부른 경우만</text>
+<line x1="690" y1="1831" x2="690" y2="1853" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1831" x2="690" y2="1853" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<rect x="32.0" y="1936" width="236" height="46" rx="14" fill="#eaf1fb" stroke="#4a76c4" stroke-width="1.4"/>
+<text x="150" y="1955.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">done 받으면</text>
+<text x="150" y="1970.5" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="11.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">EventSource 직접 닫기</text>
+<text x="150" y="1997" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.3" fill="#b35900" text-anchor="middle" font-weight="normal" font-style="italic">안 닫으면 브라우저가 자동 재연결</text>
+<line x1="690" y1="1920" x2="150" y2="1936" stroke="#333333" stroke-width="1.5"/>
+<line x1="690" y1="1920" x2="150" y2="1936" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
+<circle cx="150" cy="2025" r="12" fill="none" stroke="#1a1a1a" stroke-width="1.8"/>
+<circle cx="150" cy="2025" r="6" fill="#1a1a1a"/>
+<line x1="150" y1="2003" x2="150" y2="2025" stroke="#333333" stroke-width="1.5"/>
+<line x1="150" y1="2003" x2="150" y2="2025" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
 <text x="150" y="65.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="bold" font-style="normal">프론트</text>
 <text x="150" y="79.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="bold" font-style="normal">(EventSource)</text>
 <text x="420" y="65.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="12.5" fill="#ffffff" text-anchor="middle" font-weight="bold" font-style="normal">백엔드</text>

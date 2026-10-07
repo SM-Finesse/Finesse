@@ -38,4 +38,4 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 - (반영됨, 10/6) 폴더 `calc/matrics` → `calc/metrics` — package 선언과 일치하도록 backend 브랜치에서 이름만 변경
 
 ### 검증
-빌드·테스트 116개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/6 실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
+빌드·테스트 126개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/6 실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
