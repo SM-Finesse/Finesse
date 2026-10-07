@@ -3,7 +3,6 @@ package com.finesse.backend.calc.calculator;
 import com.finesse.backend.calc.domain.AnalyticsContext;
 import com.finesse.backend.calc.domain.FancyStats;
 import com.finesse.backend.calc.domain.MatchHistory;
-import com.finesse.backend.calc.exception.InsufficientMatchException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -70,9 +69,9 @@ class FancyMathCalculatorTest {
     }
 
     @Test
-    void 계산_가능한_매치가_없으면_예외를_던진다() {
-        assertThatThrownBy(() -> calc(match(0, 1.0, 120)))
-                .isInstanceOf(InsufficientMatchException.class);
+    void 계산_가능한_매치가_없으면_null을_반환한다() {
+        // APM = 0·PPS ≥ 0.2 매치는 정제를 통과하지만 평균에서는 빠진다 (6.5절·7장, v3.5)
+        assertThat(calc(match(0, 1.0, 120))).isNull();
     }
 
     @Test

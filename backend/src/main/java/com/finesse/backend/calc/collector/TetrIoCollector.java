@@ -37,6 +37,18 @@ public class TetrIoCollector {
         return api.fetchLeagueSummary(username, sessionId);
     }
 
+    /**
+     * Cold Start(누적 10판 미만) 유저의 최근 승패 기록용 — records 첫 페이지만 1회 호출한다 (3.3절, v3.6).
+     * 1년 컷오프보다 오래된 매치는 뺀다. 호출이 실패하면 TetrIoApiException을 그대로 던진다.
+     */
+    public List<RawMatch> collectFirstPage(String username, String sessionId, Instant now) {
+        Instant cutoff = now.minus(properties.maxAgeDays(), ChronoUnit.DAYS);
+        RecordPage page = api.fetchRecentRecords(username, sessionId, null, properties.maxMatchesPerPage());
+        return page.matches().stream()
+                .filter(m -> !m.playedAt().isBefore(cutoff))
+                .toList();
+    }
+
     public CollectionResult collectMatches(String username, String sessionId, Instant now) {
         Instant cutoff = now.minus(properties.maxAgeDays(), ChronoUnit.DAYS);
         int windowSize = properties.maxTotalMatches();

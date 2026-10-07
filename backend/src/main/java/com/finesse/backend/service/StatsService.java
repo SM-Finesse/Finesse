@@ -4,6 +4,7 @@ import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.MatchResult;
+import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
@@ -169,10 +170,12 @@ public class StatsService {
     }
 
     private StatsResponse coldStartResponse(String normalized, AnalysisOutcome.ColdStartBypass cold) {
-        // TODO(data-eng 진행 중): 콜드스타트 결과에는 아직 승패 기록이 없어 win_rate·recent_form을 채울 수 없다.
-        //  ColdStartBypass에 RecentWinLossStats가 들어오면 여기서 채운다(10/2 확정: 1~9판은 승률·승패 칸만).
-        //  그 전까지 win_rate는 0.0이 아니라 null(생략) — 프론트는 "—"로 표시(frontend 1dbd9bd).
-        StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(null, List.of(), List.of());
+        // 10/2 확정: 1~9판은 승률·승패 칸만 — calc가 있는 경기만큼 계산한 승패를 준다.
+        // 계산할 경기가 없으면(0판) recentWinLoss가 null이고, win_rate는 0.0이 아니라 생략 — 프론트는 "—"로 표시.
+        RecentWinLossStats winLoss = cold.recentWinLoss();
+        StatsResponse.FixedMetrics fixed = winLoss == null
+                ? new StatsResponse.FixedMetrics(null, List.of(), List.of())
+                : new StatsResponse.FixedMetrics(winLoss.overallWinRate(), List.of(), recentForm(winLoss));
         return new StatsResponse(normalized, true, cold.availableMatches(), Instant.now(),
                 profile(normalized, cold.summary()), fixed, null,
                 new StatsResponse.RoundCurves(List.of(), List.of()),
@@ -187,20 +190,17 @@ public class StatsService {
         DeltaStats delta = r.delta();
         HighlightStats highlight = r.highlight();
 
-        // recentResults는 최신순 — recent_form의 "index 0이 가장 최근"과 같은 순서
-        List<String> recentForm = winLoss.recentResults().stream()
-                .map(m -> m == MatchResult.WIN ? "W" : "L")
-                .toList();
-        // TODO(data-eng 협의): 경기별 TR 시계열(tr_trend)·라운드별 곡선(round_curves)은 calc 결과에 없어 빈 값.
+        MatchSeriesStats series = r.series();
         StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(
-                winLoss.overallWinRate(), List.of(), recentForm);
+                winLoss.overallWinRate(), trTrend(series), recentForm(winLoss));
 
+        // delta는 계산 가능한 매치(APM > 0, PPS ≥ 0.1)가 하나도 없으면 null — 그때 플레이스타일·공격·수비는 생략
         StatsResponse.DeltaMetrics deltaMetrics = new StatsResponse.DeltaMetrics(
                 highlight.trTrendDelta(),
-                new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
+                delta == null ? null : new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
                         delta.deltaStride(), delta.deltaInfDs()),
-                new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp()),
-                new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex()),
+                delta == null ? null : new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp()),
+                delta == null ? null : new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex()),
                 highlight.strengthSplit(),
                 highlight.comebackRate(),
                 highlight.comebackRateAgainst(),
@@ -221,15 +221,46 @@ public class StatsService {
 
         return new StatsResponse(normalized, false, meta.analyzedMatches(), Instant.now(),
                 profile(normalized, analyzed.summary()), fixed, deltaMetrics,
-                new StatsResponse.RoundCurves(List.of(), List.of()),
+                roundCurves(series),
                 new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
                 chapters);
     }
 
+    /** recentResults는 최신순 — recent_form의 "index 0이 가장 최근"과 같은 순서 */
+    private static List<String> recentForm(RecentWinLossStats winLoss) {
+        return winLoss.recentResults().stream()
+                .map(m -> m == MatchResult.WIN ? "W" : "L")
+                .toList();
+    }
+
+    /** 매치 당시 TR, 오래된 경기 → 최근 경기 순 (TR 없는 매치는 calc가 이미 뺌) */
+    static List<Double> trTrend(MatchSeriesStats series) {
+        if (series == null) {
+            return List.of();
+        }
+        return series.trSeries().stream().map(MatchSeriesStats.TrPoint::tr).toList();
+    }
+
     /**
-     * 랭크·TR 등은 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
+     * 라운드 순서별 평균 PPS·VS — 배열 index 0이 1라운드.
+     * PPS가 없는 라운드가 하나라도 있으면 pps는 빈 배열로 둔다 — 프론트는 pps 길이가 vs와 다르면 PPS 선을
+     * 그리지 않으므로, 배열 중간에 null을 섞어 보내 화면이 깨지는 일을 막는다.
+     */
+    static StatsResponse.RoundCurves roundCurves(MatchSeriesStats series) {
+        if (series == null) {
+            return new StatsResponse.RoundCurves(List.of(), List.of());
+        }
+        List<MatchSeriesStats.RoundPoint> curve = series.roundCurve();
+        List<Double> vs = curve.stream().map(MatchSeriesStats.RoundPoint::avgVs).toList();
+        boolean ppsComplete = curve.stream().allMatch(p -> p.avgPps() != null);
+        List<Double> pps = ppsComplete ? curve.stream().map(MatchSeriesStats.RoundPoint::avgPps).toList() : List.of();
+        return new StatsResponse.RoundCurves(pps, vs);
+    }
+
+    /**
+     * 랭크·TR·APM·PPS·VS는 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
      * 백엔드가 /users/{username}을 직접 불러 채운다.
-     * TODO(data-eng 협의): /users/{username} 호출과 apm/pps/vs를 calc 모듈로 옮기면 백엔드 TetrioClient를 걷어낼 수 있다
+     * TODO(data-eng 협의): /users/{username} 호출을 calc 모듈로 옮기면 백엔드 TetrioClient를 걷어낼 수 있다
      *  (지금은 레이트리미터가 calc와 따로라 두 모듈 호출이 겹치면 초당 1회를 잠깐 넘길 수 있음).
      */
     private StatsResponse.Profile profile(String normalized, UserSummary summary) {
@@ -241,7 +272,7 @@ public class StatsService {
             user = TetrioClient.UserInfo.empty();
         }
         return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
-                null, null, null,
+                summary.apm(), summary.pps(), summary.vs(),
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
                 user.gametime(), user.friendCount());
     }

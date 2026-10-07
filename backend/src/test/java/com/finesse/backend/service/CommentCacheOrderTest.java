@@ -40,7 +40,8 @@ class CommentCacheOrderTest {
     void stats가_캐시에_없어도_light를_먼저_부를_수_있다() {
         StatCalculatorFacade facade = mock(StatCalculatorFacade.class);
         when(facade.analyze("abc")).thenReturn(new AnalysisOutcome.ColdStartBypass(
-                new UserSummary("abc", "z", -1, -1, -1, null, 3), 3, AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL));
+                new UserSummary("abc", "z", -1, -1, -1, null, 3, null, null, null), 3,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
         TetrioClient tetrio = mock(TetrioClient.class);
         when(tetrio.fetchUserInfo(any(), any())).thenReturn(TetrioClient.UserInfo.empty());
 

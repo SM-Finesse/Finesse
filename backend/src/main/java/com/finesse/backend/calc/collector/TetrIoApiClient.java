@@ -65,7 +65,10 @@ public class TetrIoApiClient implements TetrIoApi {
                 data.path("glicko").asDouble(),
                 data.path("rd").asDouble(),
                 data.hasNonNull("gxe") ? data.path("gxe").asDouble() : null,
-                data.path("gamesplayed").asInt()
+                data.path("gamesplayed").asInt(),
+                data.hasNonNull("apm") ? data.path("apm").asDouble() : null,
+                data.hasNonNull("pps") ? data.path("pps").asDouble() : null,
+                data.hasNonNull("vs") ? data.path("vs").asDouble() : null
         );
     }
 
