@@ -75,17 +75,6 @@ public record LlmLightRequest(FixedMetrics fixedMetrics, DeltaMetrics deltaMetri
         return new LlmLightRequest(
                 new FixedMetrics(f.winRate(), f.trTrend()),
                 new DeltaMetrics(d.playstyleRelative(), d.attack(), d.defense(), d.strengthSplit(),
-                        deltaComeback(d), d.sessionVsSlope()));
-    }
-
-    /**
-     * calc HighlightStats.deltaComeback과 같은 정의(HighlightStatCalculator) — comeback_rate − comeback_rate_against,
-     * 둘 중 하나라도 null(분모 0)이면 null. stats 응답에는 두 비율만 있어 여기서 같은 식으로 만든다.
-     */
-    private static Double deltaComeback(StatsResponse.DeltaMetrics d) {
-        if (d.comebackRate() == null || d.comebackRateAgainst() == null) {
-            return null;
-        }
-        return d.comebackRate() - d.comebackRateAgainst();
+                        d.deltaComeback(), d.sessionVsSlope()));
     }
 }

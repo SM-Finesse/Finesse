@@ -33,6 +33,8 @@ class LlmLightRequestTest {
                 new StatsResponse.Attack(-0.05, -1.34),
                 new StatsResponse.Defense(-0.07, -2.56),
                 strengthSplit, comebackRate, comebackRateAgainst,
+                // calc HighlightStats.deltaComeback과 같은 정의 — 둘 중 하나라도 없으면 null
+                comebackRate == null || comebackRateAgainst == null ? null : comebackRate - comebackRateAgainst,
                 new StatsResponse.ComebackSamples(10, 4, 12, 7), 0.55);
         return new StatsResponse("icly", false, 300, Instant.now(), null, fixed, delta, null, null, Map.of());
     }

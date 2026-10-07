@@ -114,6 +114,8 @@ class StatsServiceMappingTest {
         assertThat(r.roundCurves().vs()).containsExactly(2.1, 2.0);
         assertThat(r.deltaMetrics().attack()).isNull(); // 계산 가능한 매치가 없어 delta가 null
         assertThat(r.deltaMetrics().comebackRate()).isEqualTo(0.4);
+        assertThat(r.deltaMetrics().deltaComeback()).isEqualTo(0.15); // calc 값 그대로 — 프론트 하이라이트 근거 값
+        assertThat(r.deltaMetrics().comebackSamples().comebackOpportunities()).isEqualTo(10);
     }
 
     @Test

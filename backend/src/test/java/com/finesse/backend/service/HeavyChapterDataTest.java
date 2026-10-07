@@ -57,7 +57,7 @@ class HeavyChapterDataTest {
                 new StatsResponse.PlaystyleRelative(0.1, -0.22, null, -0.17),
                 new StatsResponse.Attack(-0.05, -1.34),
                 new StatsResponse.Defense(-0.07, -2.56),
-                strengthSplit, 0.31, 0.29, new StatsResponse.ComebackSamples(41, 13, 24, 7), 0.55);
+                strengthSplit, 0.31, 0.29, 0.02, new StatsResponse.ComebackSamples(41, 13, 24, 7), 0.55);
         List<StatsResponse.RivalItem> items = IntStream.range(0, rivalCount)
                 .mapToObj(i -> new StatsResponse.RivalItem("pla***_" + i, 20 - i, 10, 10 - i, null))
                 .toList();

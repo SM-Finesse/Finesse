@@ -43,6 +43,9 @@ public record StatsResponse(
             Double strengthSplit, // 매치 당시 TR이 있는 매치가 5판 미만이면 null (필드 자체 제외에 해당)
             Double comebackRate,
             Double comebackRateAgainst, // 2판 이상 앞서다 역전당한 비율 (API 명세서 4.1 표)
+            // comeback_rate − comeback_rate_against (calc HighlightStats) — 라이트 하이라이트 후보 키.
+            // 프론트가 LLM이 고른 stat의 근거 값을 delta_metrics에서 찾으므로 여기에도 둔다. 둘 중 하나라도 없으면 null
+            Double deltaComeback,
             ComebackSamples comebackSamples,
             Double sessionVsSlope
     ) {

@@ -63,7 +63,7 @@ class CommentCacheOrderTest {
     void 하이라이트가_모자란_light_응답은_보여주되_캐시하지_않는다() {
         StatsService stats = org.mockito.Mockito.mock(StatsService.class);
         com.finesse.backend.dto.StatsResponse.DeltaMetrics delta = new com.finesse.backend.dto.StatsResponse.DeltaMetrics(
-                null, null, null, null, null, null, null, null, 0.0);
+                null, null, null, null, null, null, null, null, null, 0.0);
         when(stats.getStats("abc", false)).thenReturn(new com.finesse.backend.dto.StatsResponse("abc", false, 30,
                 java.time.Instant.now(), null,
                 new com.finesse.backend.dto.StatsResponse.FixedMetrics(0.5, java.util.List.of(), java.util.List.of()),

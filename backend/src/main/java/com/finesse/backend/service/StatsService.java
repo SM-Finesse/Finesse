@@ -248,6 +248,7 @@ public class StatsService {
                 highlight.strengthSplit(),
                 highlight.comebackRate(),
                 highlight.comebackRateAgainst(),
+                highlight.deltaComeback(),
                 new StatsResponse.ComebackSamples(highlight.comebackOpportunities(), highlight.comebackWon(),
                         highlight.comebackAgainstOpportunities(), highlight.comebackAgainstAllowed()),
                 highlight.sessionVsSlope());

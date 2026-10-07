@@ -53,8 +53,9 @@ public class CommentService {
     // 라이벌 챕터 LLM 입력 인원 (v1.2 7.4절 제안, 백엔드 결정 10/7)
     static final int RIVALS_FOR_LLM = 5;
 
-    // 반복 조우 상대가 없을 때 라이벌 챕터 각주 — LLM을 부르지 않고 status=ok로 보낸다 (10/7 결정)
-    static final String NO_RIVALS_FOOTNOTE = "5경기 이상 만난 상대가 아직 없어 라이벌 분석은 표시하지 않습니다.";
+    // 반복 조우 상대가 없을 때 라이벌 챕터 각주 — LLM을 부르지 않고 status=ok로 보낸다 (10/7 결정).
+    // 프론트는 이때도 만난 상대 목록이 있으면 그대로 그리므로, 목록 위에 붙어도 어색하지 않은 문구로 (프론트 의견 10/7)
+    static final String NO_RIVALS_FOOTNOTE = "5경기 이상 만난 상대가 아직 없어 상성을 판단하기 이릅니다.";
 
     private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "sse-heartbeat");
