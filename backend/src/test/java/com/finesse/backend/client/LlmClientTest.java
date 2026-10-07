@@ -196,6 +196,47 @@ class LlmClientTest {
     }
 
     @Test
+    void 추론_서버의_502_형식_오류는_응답_없음이_아니라_형식_오류로_세고_재요청한다() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        // 실제 추론 서버는 출력 형식이 틀리면 502를 준다 (10/7 Qwen 베이스 모델 연동 때 확인)
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext(LIGHT_PATH, ex -> {
+            int n = hits.incrementAndGet();
+            String body = n < 3 ? "{\"detail\":\"LLM 출력 형식 오류\"}" : light("delta_opener", "delta_plonk", "delta_app");
+            byte[] b = body.getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(n < 3 ? 502 : 200, b.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(b);
+            }
+        });
+        server.start();
+        servers.add(server);
+
+        LightCommentResponse r = client(3, "http://127.0.0.1:" + server.getAddress().getPort()).callLight(REQUEST, deadline());
+
+        assertThat(r.highlights()).hasSize(3);
+        assertThat(hits.get()).isEqualTo(3);
+    }
+
+    @Test
+    void 끝까지_502만_오면_503이_아니라_502_형식_오류() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext(LIGHT_PATH, ex -> {
+            byte[] b = "{}".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(502, b.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(b);
+            }
+        });
+        server.start();
+        servers.add(server);
+
+        assertThatThrownBy(() -> client(1, "http://127.0.0.1:" + server.getAddress().getPort()).callLight(REQUEST, deadline()))
+                .isInstanceOf(com.finesse.backend.exception.LlmFormatException.class);
+    }
+
+    @Test
     void 연결_실패는_시도_횟수에_넣지_않고_다음_서버로() throws IOException {
         AtomicInteger hits = new AtomicInteger();
         String live = llmServer(hits, LIGHT_PATH, light("delta_opener", "delta_plonk", "delta_app"));

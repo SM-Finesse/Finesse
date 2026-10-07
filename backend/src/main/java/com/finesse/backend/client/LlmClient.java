@@ -11,6 +11,7 @@ import com.finesse.backend.exception.LlmUnavailableException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
 import java.util.HashSet;
@@ -152,7 +153,8 @@ public class LlmClient {
      * 것 가운데 유효 하이라이트가 가장 많은 응답을 200으로 돌려준다 — 1~2개면 그만큼, 0개면 총평만 (10/7 결정, 9/29의
      * "최종 실패 502"를 대체). 빈자리를 백엔드가 채우지 않는다(LLM이 고르지 않은 내용이 섞이므로).
      * 총평이 있는 응답을 하나도 못 받았을 때만 실패: 모든 서버가 제외 상태면 LlmUnavailableException(503, 23번 5.5절),
-     * 시도가 전부 호출 1회 타임아웃이었다면 503, 응답은 받았지만 형식이 계속 틀렸다면 LlmFormatException(502).
+     * 시도가 전부 호출 1회 타임아웃(응답 자체가 없음)이었다면 503, 응답은 받았지만 형식이 계속 틀렸다면(추론 서버의
+     * 502 등 오류 상태 응답 포함) LlmFormatException(502).
      *
      * @param endpointDeadlineNanos light 엔드포인트(EndpointProperties.lightSeconds) 마감 시각(System.nanoTime() 기준)
      */
@@ -178,11 +180,15 @@ public class LlmClient {
             } catch (WebClientRequestException e) {
                 lastFailure = e;
                 continue; // 연결 실패 — 서버는 postTracked가 제외했고, 시도 횟수에 넣지 않고 다음 서버로
+            } catch (WebClientResponseException e) {
+                attempt++;
+                lastFailure = e;
+                continue; // 서버가 오류 상태로 응답(추론 서버는 형식 오류를 502로 줌) — 응답은 받았으니 형식 오류로 세고 재요청
             } catch (Exception e) {
                 attempt++;
                 callFailures++;
                 lastFailure = e;
-                continue; // 호출 1회 타임아웃 등 — 재요청
+                continue; // 호출 1회 타임아웃 등 응답 자체가 없음 — 재요청
             }
             attempt++;
             List<LightCommentResponse.Highlight> valid = validHighlights(resp, available);
