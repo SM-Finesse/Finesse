@@ -25,9 +25,11 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 
 ### 그 밖의 기능
 - `GET /api/v1/comment/{username}?scope=light|heavy` — LLM 오케스트레이션
-  - 서버당 동시 1건(순차) + light 우선 대기열, 호출 1회/엔드포인트 타임아웃 분리, 연결 실패 서버 30초 제외
+  - 서버당 동시 1건(순차) + light 우선 대기열, 호출 1회/엔드포인트 타임아웃 분리, 연결 실패 서버 30초 제외(시도 횟수에 안 넣음)
+  - light: LLM/AI 파트 설계 v1.2 요청 형식, 유효 하이라이트는 값이 있는 후보 키만, 목표 min(3, 후보 수) — 못 채우면 받은 만큼 200
   - heavy는 SSE(챕터별 `chapter` 이벤트 + `done` 요약, 10초 하트비트), 성공 챕터만 챕터 단위 캐시
 - 캐싱 — stats/comment-light/comment-heavy 분리, stats 갱신 시 comment 캐시 연쇄 무효화
+- 트래픽 몰림 — 캐시 미스 수집 동시 2건, 자리가 없으면 최대 6초 순서대로 대기, 대기 2명 초과면 503 SERVER_BUSY(Retry-After·retry_after_seconds 5)
 - `docs/diagrams/` — 라이트·헤비 뷰 활동 다이어그램 (SSE·calc 모듈·503 BUSY 반영), `tools/MockLlmServer.java` — 로컬 mock LLM 서버
 
 ### calc 2차 결과 연결 (10/7, data-eng 6a012cd 병합)
@@ -42,4 +44,4 @@ Spring Boot — API · 라우팅 · 인프라 호출부.
 - 라이벌 반환 범위(반복 조우 상대만 vs 전체 상대), 헤비 8챕터 차트 데이터 스키마
 
 ### 검증
-빌드·테스트 169개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/6 실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.
+빌드·테스트 176개(실제 TETR.IO 호출 테스트 2개는 `-Dtetrio.live=true`일 때만, 10/7 calc 2차 병합 후 재실행해 통과) · 실제 TETR.IO + mock LLM으로 API·프론트 화면 확인.

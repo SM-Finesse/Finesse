@@ -58,6 +58,7 @@
 <rect x="855.0" y="525.0" width="210" height="40" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.4"/>
 <text x="960" y="542.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">event: error {error_code}</text>
 <text x="960" y="556.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="10.8" fill="#1a1a1a" text-anchor="middle" font-weight="bold" font-style="normal">→ 스트림 종료</text>
+<text x="960" y="591.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="9.6" fill="#c0392b" text-anchor="middle" font-weight="normal" font-style="italic">SERVER_BUSY면 retry_after_seconds: 5</text>
 <text x="960" y="578.0" font-family="Malgun Gothic, 'Segoe UI', sans-serif" font-size="9.6" fill="#c0392b" text-anchor="middle" font-weight="normal" font-style="italic">USER_NOT_FOUND · SERVER_BUSY · TETRIO_API_UNAVAILABLE</text>
 <line x1="718.0" y1="545.0" x2="855.0" y2="545.0" stroke="#333333" stroke-width="1.5"/>
 <line x1="718.0" y1="545.0" x2="855.0" y2="545.0" stroke="transparent" stroke-width="10" marker-end="url(#arrowFilled)"/>
