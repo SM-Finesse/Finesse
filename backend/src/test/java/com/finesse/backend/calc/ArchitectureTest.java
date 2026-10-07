@@ -2,6 +2,7 @@ package com.finesse.backend.calc;
 
 import com.finesse.backend.calc.calculator.AnalyticsCalculator;
 import com.finesse.backend.calc.collector.CollectionStatus;
+import com.finesse.backend.calc.collector.RateLimiter;
 import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.FancyStats;
@@ -100,7 +101,7 @@ class ArchitectureTest {
                         StatResult.class, FancyStats.class, DeltaStats.class, HighlightStats.class,
                         RecentWinLossStats.class, ProfileWindowDeltaStats.class, MatchSeriesStats.class,
                         RivalryStats.class, RivalOpponentStats.class, RivalBadge.class, MatchResult.class,
-                        UserSummary.class, CollectionStatus.class))))
+                        UserSummary.class, CollectionStatus.class, RateLimiter.class))))
                 .allowEmptyShould(true)
                 .check(classes);
     }
