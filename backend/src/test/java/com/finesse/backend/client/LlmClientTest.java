@@ -236,6 +236,44 @@ class LlmClientTest {
                 .isInstanceOf(com.finesse.backend.exception.LlmFormatException.class);
     }
 
+    /** 항상 같은 상태 코드로 응답하는 추론 서버 — 받은 요청 수를 센다 */
+    private String statusServer(AtomicInteger hits, String path, int status) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext(path, ex -> {
+            hits.incrementAndGet();
+            byte[] b = "{\"detail\":\"LLM 입력 길이 초과\"}".getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().add("Content-Type", "application/json");
+            ex.sendResponseHeaders(status, b.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(b);
+            }
+        });
+        server.start();
+        servers.add(server);
+        return "http://127.0.0.1:" + server.getAddress().getPort();
+    }
+
+    @Test
+    void light_413_입력_길이_초과는_재요청하지_않고_502() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = statusServer(hits, LIGHT_PATH, 413);
+
+        assertThatThrownBy(() -> client(3, url).callLight(REQUEST, deadline()))
+                .isInstanceOf(com.finesse.backend.exception.LlmFormatException.class);
+        assertThat(hits.get()).isEqualTo(1); // 다시 보내도 같으므로 한 번만
+    }
+
+    @Test
+    void heavy_413_입력_길이_초과는_재요청하지_않고_바로_failed() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String url = statusServer(hits, HEAVY_PATH, 413);
+
+        HeavyCommentResponse.ChapterResult r = client(3, url).callHeavyChapter("tr_trend", null, deadline());
+
+        assertThat(r.status()).isEqualTo(HeavyCommentResponse.STATUS_FAILED);
+        assertThat(hits.get()).isEqualTo(1);
+    }
+
     @Test
     void 연결_실패는_시도_횟수에_넣지_않고_다음_서버로() throws IOException {
         AtomicInteger hits = new AtomicInteger();

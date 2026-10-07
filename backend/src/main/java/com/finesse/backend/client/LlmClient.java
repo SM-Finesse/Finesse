@@ -183,6 +183,9 @@ public class LlmClient {
             } catch (WebClientResponseException e) {
                 attempt++;
                 lastFailure = e;
+                if (isInputTooLarge(e)) {
+                    break; // 413 입력 길이 초과 — 같은 요청은 다시 보내도 결과가 같으므로 재요청하지 않는다
+                }
                 continue; // 서버가 오류 상태로 응답(추론 서버는 형식 오류를 502로 줌) — 응답은 받았으니 형식 오류로 세고 재요청
             } catch (Exception e) {
                 attempt++;
@@ -216,6 +219,14 @@ public class LlmClient {
                     "light 코멘트 서버가 응답하지 않음 (" + attempt + "회 시도)", lastFailure);
         }
         throw new LlmFormatException("light 코멘트 형식 오류가 " + attempt + "회 시도 후에도 지속됨 (또는 엔드포인트 잔여시간 부족)");
+    }
+
+    /**
+     * 추론 서버의 413 "LLM 입력 길이 초과" — 프롬프트가 모델 입력 한도를 넘은 것이라 같은 요청을 다시 보내도 결과가 같다
+     * (LLM 담당 협의 10/7). 재요청하지 않고 끝내며, light는 받은 응답이 없으면 502 LLM_FORMAT_ERROR로 끝난다.
+     */
+    private static boolean isInputTooLarge(WebClientResponseException e) {
+        return e.getStatusCode().value() == 413;
     }
 
     private static boolean hasSummary(LightCommentResponse resp) {
@@ -262,6 +273,12 @@ public class LlmClient {
                         () -> postTracked(server, props.heavyChapterPath(), request, LlmHeavyChapterResponse.class, props.heavyCallTimeoutSeconds()));
             } catch (WebClientRequestException e) {
                 continue; // 연결 실패 — 서버는 postTracked가 제외, 시도 횟수에 넣지 않고 다음 서버로
+            } catch (WebClientResponseException e) {
+                attempt++;
+                if (isInputTooLarge(e)) {
+                    break; // 413 입력 길이 초과 — 재요청해도 같으므로 이 챕터는 바로 failed
+                }
+                continue; // 형식 오류(502) 등 — 재요청
             } catch (Exception e) {
                 attempt++;
                 continue; // 호출 1회 타임아웃 등 — 재요청. 챕터 단위는 절대 예외를 던지지 않는다
