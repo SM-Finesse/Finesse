@@ -24,13 +24,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 트래픽 몰림 1단계(타임아웃 기준 문서 23번 5.4절) — 캐시 미스 수집 동시 상한을 넘으면 줄 세우지 않고 바로 503 BUSY.
+ * 트래픽 몰림(타임아웃 기준 문서 23번 5.4절) — 캐시 미스 수집 동시 상한. 1단계: 대기열 없이 바로 503 BUSY,
+ * 2단계: 정해진 시간까지 차례를 기다리고, 대기열이 차 있거나 시간 안에 자리가 안 나면 503 BUSY.
  * CacheManager는 캐시를 돌려주지 않게 두어(getCache → null) 매 요청이 수집 경로를 타게 한다.
  */
 class StatsServiceBusyTest {
 
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
-    private final ExecutorService callers = Executors.newFixedThreadPool(2);
+    private final ExecutorService callers = Executors.newFixedThreadPool(3);
 
     @AfterEach
     void shutdown() {
@@ -39,9 +40,24 @@ class StatsServiceBusyTest {
     }
 
     private StatsService service(StatCalculatorFacade facade, int maxConcurrent, int statsSeconds) {
+        return service(facade, new StatsLoadProperties(maxConcurrent, 5), statsSeconds);
+    }
+
+    private StatsService service(StatCalculatorFacade facade, StatsLoadProperties load, int statsSeconds) {
         return new StatsService(facade, mock(TetrioClient.class), mock(CacheManager.class),
-                new EndpointProperties(statsSeconds, 40, 60, 120),
-                new StatsLoadProperties(maxConcurrent, 5), executor);
+                new EndpointProperties(statsSeconds, 40, 60, 120), load, executor);
+    }
+
+    /** getStats를 다른 스레드에서 부르고, 끝나면 던진 예외(정상이면 null)를 돌려준다 */
+    private CompletableFuture<Throwable> callAsync(StatsService service, String username) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                service.getStats(username, false);
+                return null;
+            } catch (Throwable t) {
+                return t;
+            }
+        }, callers);
     }
 
     /**
@@ -85,7 +101,7 @@ class StatsServiceBusyTest {
         long started = System.nanoTime();
         assertThatThrownBy(() -> service.getStats("free", false))
                 .isInstanceOfSatisfying(ServerBusyException.class, e -> assertThat(e.retryAfterSeconds()).isEqualTo(5));
-        // 기다리지 않고 바로 거절해야 한다 (대기열은 다음 단계)
+        // 대기열을 끈 설정(1단계)이면 기다리지 않고 바로 거절해야 한다
         assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(500);
 
         release.countDown();
@@ -120,5 +136,70 @@ class StatsServiceBusyTest {
             }
         } while (last instanceof ServerBusyException && System.nanoTime() < deadline);
         assertThat(last).isInstanceOf(UserNotFoundException.class);
+    }
+
+    // ---- 2단계 대기열 (23번 5.4절): 자리가 없으면 정해진 시간까지 차례를 기다린다
+
+    @Test
+    void 자리가_없으면_기다렸다가_자리가_나면_처리한다() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        StatsService service = service(blockingFacade("slow", entered, release),
+                new StatsLoadProperties(1, 5, 3, 1), 20);
+
+        CompletableFuture<Throwable> first = callAsync(service, "slow");
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        long started = System.nanoTime();
+        CompletableFuture<Throwable> waiting = callAsync(service, "free");
+        Thread.sleep(500);
+        assertThat(waiting).isNotDone(); // 503을 바로 내지 않고 기다리는 중
+        release.countDown();
+
+        // 앞 수집이 끝나 자리가 나면 이어서 처리 — BUSY가 아니라 정상 처리(여기선 없는 유저 404)
+        assertThat(waiting.get(5, TimeUnit.SECONDS)).isInstanceOf(UserNotFoundException.class);
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isGreaterThanOrEqualTo(400);
+        assertThat(first.get(5, TimeUnit.SECONDS)).isInstanceOf(UserNotFoundException.class);
+    }
+
+    @Test
+    void 대기열이_차_있으면_기다리지_않고_바로_503() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        StatsService service = service(blockingFacade("slow", entered, release),
+                new StatsLoadProperties(1, 5, 3, 1), 20);
+
+        CompletableFuture<Throwable> first = callAsync(service, "slow");
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Throwable> waiting = callAsync(service, "free"); // 대기 1명 — 자리 꽉 참
+        Thread.sleep(300);
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> service.getStats("free", false)).isInstanceOf(ServerBusyException.class);
+        assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(500);
+
+        release.countDown();
+        assertThat(waiting.get(5, TimeUnit.SECONDS)).isInstanceOf(UserNotFoundException.class);
+        first.get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void 정해진_시간까지_기다려도_자리가_안_나면_503() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        StatsService service = service(blockingFacade("slow", entered, release),
+                new StatsLoadProperties(1, 5, 1, 1), 20);
+
+        CompletableFuture<Throwable> first = callAsync(service, "slow");
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> service.getStats("free", false))
+                .isInstanceOfSatisfying(ServerBusyException.class, e -> assertThat(e.retryAfterSeconds()).isEqualTo(5));
+        long waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        assertThat(waitedMs).isBetween(900L, 3000L); // 대기 1초를 채우고 거절
+
+        release.countDown();
+        first.get(5, TimeUnit.SECONDS);
     }
 }

@@ -4,6 +4,8 @@ import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.MatchResult;
+import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
@@ -20,7 +22,9 @@ import com.finesse.backend.exception.TetrioApiException;
 import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
@@ -36,6 +40,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * GET /api/v1/stats/{username} 오케스트레이션 — Finesse-API명세서 4.1절 처리 흐름 그대로.
@@ -47,6 +52,11 @@ public class StatsService {
 
     private static final int RIVAL_PAGE_SIZE = 20;
 
+    // calc HighlightStatCalculator 11.1절과 같은 N 범위 — TR 추이 근거 값(tr_trend_basis)용
+    static final int TR_TREND_MIN_N = 3;
+    static final int TR_TREND_MAX_N = 30;
+    static final double DEFAULT_TR_TREND_RATIO = 0.3;
+
     private final StatCalculatorFacade statCalculatorFacade;
     private final TetrioClient tetrioClient;
     private final CacheManager cacheManager;
@@ -54,17 +64,31 @@ public class StatsService {
     private final StatsLoadProperties statsLoadProperties;
     private final ExecutorService statsExecutor;
     private final Semaphore collectionSlots;
+    private final AtomicInteger waitingForSlot = new AtomicInteger();
+    private final double trTrendRatio;
 
     public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
                          EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
-                         @Qualifier("statsExecutor") ExecutorService statsExecutor) {
+                         ExecutorService statsExecutor) {
+        this(statCalculatorFacade, tetrioClient, cacheManager, endpointProperties, statsLoadProperties, statsExecutor,
+                DEFAULT_TR_TREND_RATIO);
+    }
+
+    /** trTrendRatio는 calc와 같은 설정 키를 읽는다 — 범위 검사(0.1~0.5)는 calc AnalyticsProperties가 기동 때 한다. */
+    @Autowired
+    public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
+                         EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
+                         @Qualifier("statsExecutor") ExecutorService statsExecutor,
+                         @Value("${finesse.analytics.tr-trend-ratio:0.3}") double trTrendRatio) {
+        this.trTrendRatio = trTrendRatio;
         this.statCalculatorFacade = statCalculatorFacade;
         this.tetrioClient = tetrioClient;
         this.cacheManager = cacheManager;
         this.endpointProperties = endpointProperties;
         this.statsLoadProperties = statsLoadProperties;
         this.statsExecutor = statsExecutor;
-        this.collectionSlots = new Semaphore(statsLoadProperties.maxConcurrentCollections());
+        // 공정(fair) — 기다리는 요청은 도착 순서대로 자리를 얻는다
+        this.collectionSlots = new Semaphore(statsLoadProperties.maxConcurrentCollections(), true);
     }
 
     public StatsResponse getStats(String username, boolean refresh) {
@@ -111,11 +135,11 @@ public class StatsService {
 
     // stats 엔드포인트 상한(타임아웃 기준 문서 23번 9절, EndpointProperties.statsSeconds) 강제 —
     // TETR.IO 호출은 블로킹이라 별도 스레드에서 실행하고 Future.get(timeout)으로 마감을 건다.
-    // 캐시 미스 수집은 동시에 maxConcurrentCollections건까지만 — 넘치면 줄 세우지 않고 바로 503 BUSY(23번 5.4절).
+    // 캐시 미스 수집은 동시에 maxConcurrentCollections건까지만 — 자리가 없으면 정해진 시간까지 차례를 기다리고,
+    // 그래도 안 되면 503 BUSY(23번 5.4절). 기다린 시간도 stats 마감 안에서 쓴다.
     private StatsResponse compute(String normalized) {
-        if (!collectionSlots.tryAcquire()) {
-            log.warn("stats 수집 동시 처리 상한({}건) 초과 — 503 BUSY: {}",
-                    statsLoadProperties.maxConcurrentCollections(), normalized);
+        long startedAt = System.nanoTime();
+        if (!acquireCollectionSlot(normalized)) {
             throw new ServerBusyException("stats 수집 동시 처리 상한 초과: " + normalized,
                     statsLoadProperties.busyRetryAfterSeconds());
         }
@@ -135,7 +159,9 @@ public class StatsService {
             throw new TetrioApiException("stats 실행 거부: " + normalized, e);
         }
         try {
-            return future.get(endpointProperties.statsSeconds(), TimeUnit.SECONDS);
+            long remainingNanos = TimeUnit.SECONDS.toNanos(endpointProperties.statsSeconds())
+                    - (System.nanoTime() - startedAt);
+            return future.get(Math.max(remainingNanos, 0), TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             future.cancel(true);
             throw new TetrioApiException(
@@ -148,6 +174,45 @@ public class StatsService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new TetrioApiException("stats 계산 중단됨: " + normalized, e);
+        }
+    }
+
+    /**
+     * 수집 자리 얻기 — 비어 있으면 바로, 없으면 maxQueueWaitSeconds까지 도착 순서대로 기다린다(공정 세마포어).
+     * 이미 maxWaiting명이 기다리고 있으면 기다려도 그 시간 안에 차례가 오기 어려우므로 기다리지 않고 거절한다
+     * (23번 5.4절 "대기가 6초를 넘을 요청은 대기열에 넣지 않고 503"). 기다리는 동안 요청 스레드를 붙잡으므로
+     * 대기 인원을 작게 둔다.
+     */
+    private boolean acquireCollectionSlot(String normalized) {
+        try {
+            // tryAcquire()는 공정성을 무시하고 끼어들기 때문에, 기다리는 요청이 있으면 그 뒤에 서도록 0초 대기로 시도
+            if (collectionSlots.tryAcquire(0, TimeUnit.SECONDS)) {
+                return true;
+            }
+            int maxWait = statsLoadProperties.maxQueueWaitSeconds();
+            if (maxWait <= 0 || waitingForSlot.incrementAndGet() > statsLoadProperties.maxWaiting()) {
+                if (maxWait > 0) {
+                    waitingForSlot.decrementAndGet();
+                }
+                log.warn("stats 수집 자리 없음, 대기열도 참({}명) — 503 BUSY: {}", waitingForSlot.get(), normalized);
+                return false;
+            }
+            try {
+                long waitStart = System.nanoTime();
+                boolean acquired = collectionSlots.tryAcquire(maxWait, TimeUnit.SECONDS);
+                long waitedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - waitStart);
+                if (acquired) {
+                    log.info("stats 수집 자리 대기 {}ms 후 시작: {}", waitedMs, normalized);
+                } else {
+                    log.warn("stats 수집 자리 {}초 대기 후에도 없음 — 503 BUSY: {}", maxWait, normalized);
+                }
+                return acquired;
+            } finally {
+                waitingForSlot.decrementAndGet();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -169,13 +234,18 @@ public class StatsService {
     }
 
     private StatsResponse coldStartResponse(String normalized, AnalysisOutcome.ColdStartBypass cold) {
-        // TODO(data-eng 진행 중): 콜드스타트 결과에는 아직 승패 기록이 없어 win_rate·recent_form을 채울 수 없다.
-        //  ColdStartBypass에 RecentWinLossStats가 들어오면 여기서 채운다(10/2 확정: 1~9판은 승률·승패 칸만).
-        //  그 전까지 win_rate는 0.0이 아니라 null(생략) — 프론트는 "—"로 표시(frontend 1dbd9bd).
-        StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(null, List.of(), List.of());
-        return new StatsResponse(normalized, true, cold.availableMatches(), Instant.now(),
-                profile(normalized, cold.summary()), fixed, null,
-                new StatsResponse.RoundCurves(List.of(), List.of()),
+        // 10/2 확정: 1~9판은 승률·승패 칸만 — calc가 있는 경기만큼 계산한 승패를 준다.
+        // 계산할 경기가 없으면(0판) recentWinLoss가 null이고, win_rate는 0.0이 아니라 생략 — 프론트는 "—"로 표시.
+        RecentWinLossStats winLoss = cold.recentWinLoss();
+        StatsResponse.FixedMetrics fixed = winLoss == null
+                ? new StatsResponse.FixedMetrics(null, List.of(), List.of())
+                : new StatsResponse.FixedMetrics(winLoss.overallWinRate(), List.of(), recentForm(winLoss));
+        // match_count는 승패를 계산한 경기 수와 같아야 한다 — 프론트가 승·패 수를 win_rate × match_count로 낸다.
+        // availableMatches는 사유에 따라 누적 판수(FEW_GAMES_TOTAL)·정제 전 판수(FEW_GAMES_IN_YEAR)라 그대로 쓰면 어긋난다.
+        int matchCount = winLoss != null ? winLoss.overallCount() : cold.availableMatches();
+        return new StatsResponse(normalized, true, matchCount, Instant.now(),
+                profile(normalized, cold.summary(), null), fixed, null,
+                new StatsResponse.RoundCurves(List.of(), List.of(), List.of()),
                 new StatsResponse.Rivals(List.of(), 1, RIVAL_PAGE_SIZE, 0),
                 Map.of("note", "콜드스타트 — 챕터 데이터 없음", "cold_start_reason", cold.reason().name()));
     }
@@ -187,23 +257,25 @@ public class StatsService {
         DeltaStats delta = r.delta();
         HighlightStats highlight = r.highlight();
 
-        // recentResults는 최신순 — recent_form의 "index 0이 가장 최근"과 같은 순서
-        List<String> recentForm = winLoss.recentResults().stream()
-                .map(m -> m == MatchResult.WIN ? "W" : "L")
-                .toList();
-        // TODO(data-eng 협의): 경기별 TR 시계열(tr_trend)·라운드별 곡선(round_curves)은 calc 결과에 없어 빈 값.
+        MatchSeriesStats series = r.series();
         StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(
-                winLoss.overallWinRate(), List.of(), recentForm);
+                winLoss.overallWinRate(), trTrend(series), recentForm(winLoss));
 
+        // delta는 계산 가능한 매치(APM > 0, PPS ≥ 0.1)가 하나도 없으면 null — 그때 플레이스타일·공격·수비는 생략
         StatsResponse.DeltaMetrics deltaMetrics = new StatsResponse.DeltaMetrics(
                 highlight.trTrendDelta(),
-                new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
+                trTrendBasis(fixed.trTrend(), highlight.trTrendDelta(), trTrendRatio),
+                delta == null ? null : new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
                         delta.deltaStride(), delta.deltaInfDs()),
-                new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp()),
-                new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex()),
+                delta == null ? null : attack(delta),
+                delta == null ? null : defense(delta),
                 highlight.strengthSplit(),
+                strengthQuintiles(highlight),
                 highlight.comebackRate(),
                 highlight.comebackRateAgainst(),
+                highlight.deltaComeback(),
+                new StatsResponse.ComebackSamples(highlight.comebackOpportunities(), highlight.comebackWon(),
+                        highlight.comebackAgainstOpportunities(), highlight.comebackAgainstAllowed()),
                 highlight.sessionVsSlope());
 
         RivalryStats rivalry = r.rivalryStats();
@@ -212,27 +284,109 @@ public class StatsService {
                 .map(o -> new StatsResponse.RivalItem(o.maskedNickname(), o.matchCount(), o.wins(), o.losses(), null))
                 .toList();
 
+        // 분석 메타 — ended_early_matches·format_unknown_matches는 분석에는 쓰였지만 역전 지표에서만 빠진 경기 수(calc v3.6)
         Map<String, Object> chapters = Map.of(
                 "dropped_records", meta.droppedRecords(),
                 "excluded_matches", meta.excludedMatches(),
-                "previous_matches", meta.previousMatches(),
+                "ended_early_matches", meta.endedEarlyMatches(),
+                "format_unknown_matches", meta.formatUnknownMatches(),
                 "partial", meta.partial(),
                 "note", "8챕터 차트 데이터 세부 스키마는 [협의 필요]");
 
         return new StatsResponse(normalized, false, meta.analyzedMatches(), Instant.now(),
-                profile(normalized, analyzed.summary()), fixed, deltaMetrics,
-                new StatsResponse.RoundCurves(List.of(), List.of()),
+                profile(normalized, analyzed.summary(),
+                        windowDelta(r.profileWindowDelta(), meta.analyzedMatches(), trTrendRatio)), fixed, deltaMetrics,
+                roundCurves(series),
                 new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
                 chapters);
     }
 
+    /** recentResults는 최신순 — recent_form의 "index 0이 가장 최근"과 같은 순서 */
+    private static List<String> recentForm(RecentWinLossStats winLoss) {
+        return winLoss.recentResults().stream()
+                .map(m -> m == MatchResult.WIN ? "W" : "L")
+                .toList();
+    }
+
+    /** 매치 당시 TR, 오래된 경기 → 최근 경기 순 (TR 없는 매치는 calc가 이미 뺌) */
+    static List<Double> trTrend(MatchSeriesStats series) {
+        if (series == null) {
+            return List.of();
+        }
+        return series.trSeries().stream().map(MatchSeriesStats.TrPoint::tr).toList();
+    }
+
+    /** 03장 — Δ와 같은 매치 집합의 본인·상대 평균(calc mine·opp)을 막대 그래프용으로 함께 */
+    static StatsResponse.Attack attack(DeltaStats delta) {
+        DeltaStats.StatAverages mine = delta.mine();
+        DeltaStats.StatAverages opp = delta.opp();
+        return new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp(),
+                mine == null ? null : new StatsResponse.AttackAvg(mine.app(), mine.weightedApp()),
+                opp == null ? null : new StatsResponse.AttackAvg(opp.app(), opp.weightedApp()));
+    }
+
+    /** 04장 — attack과 같은 규칙 */
+    static StatsResponse.Defense defense(DeltaStats delta) {
+        DeltaStats.StatAverages mine = delta.mine();
+        DeltaStats.StatAverages opp = delta.opp();
+        return new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex(),
+                mine == null ? null : new StatsResponse.DefenseAvg(mine.vsApm(), mine.cheeseIndex()),
+                opp == null ? null : new StatsResponse.DefenseAvg(opp.vsApm(), opp.cheeseIndex()));
+    }
+
+    /** 분위별 승률 Q1 → Q5 — calc가 빈 목록(TR 있는 매치 5판 미만)을 주면 strength_split처럼 생략 */
+    static List<StatsResponse.StrengthQuintile> strengthQuintiles(HighlightStats highlight) {
+        if (highlight.strengthQuintiles().isEmpty()) {
+            return null;
+        }
+        return highlight.strengthQuintiles().stream()
+                .map(q -> new StatsResponse.StrengthQuintile(q.quintile(), q.matches(), q.wins(), q.winRate()))
+                .toList();
+    }
+
     /**
-     * 랭크·TR 등은 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
-     * 백엔드가 /users/{username}을 직접 불러 채운다.
-     * TODO(data-eng 협의): /users/{username} 호출과 apm/pps/vs를 calc 모듈로 옮기면 백엔드 TetrioClient를 걷어낼 수 있다
-     *  (지금은 레이트리미터가 calc와 따로라 두 모듈 호출이 겹치면 초당 1회를 잠깐 넘길 수 있음).
+     * tr_trend_delta의 근거 값 — 프론트가 "최근 N판 평균 / 전체 평균 / 차이"를 calc와 같은 N으로 보여주게 한다(모듈 요청 10/7).
+     * tr_trend는 calc가 tr_trend_delta를 낸 것과 같은 경기(매치 당시 TR이 있는 경기)라 길이가 곧 calc의 판수다.
+     * 최근 평균은 전체 평균 + tr_trend_delta로 내서 화면의 차이 값이 tr_trend_delta와 정확히 같게 한다.
      */
-    private StatsResponse.Profile profile(String normalized, UserSummary summary) {
+    static StatsResponse.TrTrendBasis trTrendBasis(List<Double> trTrend, Double trTrendDelta, double ratio) {
+        if (trTrend == null || trTrend.isEmpty() || trTrendDelta == null) {
+            return null;
+        }
+        int total = trTrend.size();
+        double overall = trTrend.stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+        return new StatsResponse.TrTrendBasis(trTrendN(total, ratio), total, overall + trTrendDelta, overall);
+    }
+
+    /** N = clamp(ceil(판수 × ratio), 3, 30), 판수보다 클 수 없다 — calc HighlightStatCalculator.trTrendN과 같은 식 */
+    static int trTrendN(int matchesWithTr, double ratio) {
+        int n = (int) Math.ceil(matchesWithTr * ratio);
+        n = Math.max(TR_TREND_MIN_N, Math.min(TR_TREND_MAX_N, n));
+        return Math.min(n, matchesWithTr);
+    }
+
+    /**
+     * 라운드 순서별 평균 PPS·VS — 배열 index 0이 1라운드.
+     * PPS가 없는 라운드가 하나라도 있으면 pps는 빈 배열로 둔다 — 프론트는 pps 길이가 vs와 다르면 PPS 선을
+     * 그리지 않으므로, 배열 중간에 null을 섞어 보내 화면이 깨지는 일을 막는다.
+     */
+    static StatsResponse.RoundCurves roundCurves(MatchSeriesStats series) {
+        if (series == null) {
+            return new StatsResponse.RoundCurves(List.of(), List.of(), List.of());
+        }
+        List<MatchSeriesStats.RoundPoint> curve = series.roundCurve();
+        List<Double> vs = curve.stream().map(MatchSeriesStats.RoundPoint::avgVs).toList();
+        boolean ppsComplete = curve.stream().allMatch(p -> p.avgPps() != null);
+        List<Double> pps = ppsComplete ? curve.stream().map(MatchSeriesStats.RoundPoint::avgPps).toList() : List.of();
+        List<Integer> samples = curve.stream().map(MatchSeriesStats.RoundPoint::samples).toList();
+        return new StatsResponse.RoundCurves(pps, vs, samples);
+    }
+
+    /**
+     * 랭크·TR·APM·PPS·VS는 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
+     * 백엔드가 /users/{username}을 직접 불러 채운다(calc와 같은 RateLimiter 사용). windowDelta는 콜드스타트면 null.
+     */
+    private StatsResponse.Profile profile(String normalized, UserSummary summary, StatsResponse.WindowDelta windowDelta) {
         TetrioClient.UserInfo user;
         try {
             user = tetrioClient.fetchUserInfo(normalized, TetrioClient.newSessionId());
@@ -241,9 +395,23 @@ public class StatsService {
             user = TetrioClient.UserInfo.empty();
         }
         return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
-                null, null, null,
+                summary.apm(), summary.pps(), summary.vs(),
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
-                user.gametime(), user.friendCount());
+                user.gametime(), user.friendCount(), windowDelta);
+    }
+
+    /**
+     * 프로필 배지 5칸 — calc ProfileWindowDeltaStats를 그대로 옮기고, 화면 문구("최근 N판 대비")용 N을 붙인다.
+     * N은 calc ProfileWindowDeltaCalculator.recentN과 같은 식(분석 판수 기준 — tr_trend_basis의 TR 있는 판수 기준과 다를 수 있음).
+     */
+    static StatsResponse.WindowDelta windowDelta(ProfileWindowDeltaStats stats, int analyzedMatches, double ratio) {
+        if (stats == null || !stats.isAvailable()) {
+            return null;
+        }
+        int n = (int) Math.ceil(analyzedMatches * ratio);
+        n = Math.max(TR_TREND_MIN_N, Math.min(TR_TREND_MAX_N, n));
+        return new StatsResponse.WindowDelta(n, stats.trDeltaPct(), stats.wrDeltaPct(), stats.apmDeltaPct(),
+                stats.ppsDeltaPct(), stats.vsDeltaPct());
     }
 
     /** TETR.IO 프로필 사진 주소 — 사진을 올린 적 없는 유저는 avatar_revision이 없어 null(응답에서 생략). */

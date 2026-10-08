@@ -44,6 +44,40 @@ class ApiErrorMappingTest {
     }
 
     @Test
+    void EventSource처럼_Accept가_이벤트_스트림이어도_잘못된_유저명은_JSON_400() throws Exception {
+        CommentService service = mock(CommentService.class);
+        when(service.getHeavyStream(anyString())).thenThrow(new IllegalArgumentException("유저명 형식 오류"));
+
+        mvc(service).perform(get("/api/v1/comment/a b").param("scope", "heavy")
+                        .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(org.springframework.http.MediaType.APPLICATION_JSON))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("BAD_REQUEST")));
+    }
+
+    @Test
+    void heavy_오류_이벤트는_내부_메시지_없이_사용자용_문구와_재시도_시간을_보낸다() {
+        var busy = com.finesse.backend.service.CommentServiceTestAccess.statsFailureBody(
+                new ServerBusyException("stats 수집 동시 처리 상한 초과: hahi", 5));
+        org.assertj.core.api.Assertions.assertThat(busy.errorCode()).isEqualTo("SERVER_BUSY");
+        org.assertj.core.api.Assertions.assertThat(busy.message()).isEqualTo(GlobalExceptionHandler.SERVER_BUSY_MESSAGE);
+        org.assertj.core.api.Assertions.assertThat(busy.retryAfterSeconds()).isEqualTo(5);
+
+        var tetrio = com.finesse.backend.service.CommentServiceTestAccess.statsFailureBody(
+                new TetrioApiException("TETR.IO 수집 실패(FAILED): hahi", null));
+        org.assertj.core.api.Assertions.assertThat(tetrio.message()).isEqualTo(GlobalExceptionHandler.TETRIO_UNAVAILABLE_MESSAGE);
+        org.assertj.core.api.Assertions.assertThat(tetrio.retryAfterSeconds()).isNull();
+    }
+
+    @Test
+    void HTTP_503_SERVER_BUSY도_본문에_재시도_시간을_싣는다() {
+        var response = new GlobalExceptionHandler().handleServerBusy(new ServerBusyException("내부", 5));
+        org.assertj.core.api.Assertions.assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+        org.assertj.core.api.Assertions.assertThat(response.getBody().retryAfterSeconds()).isEqualTo(5);
+        org.assertj.core.api.Assertions.assertThat(response.getBody().message()).doesNotContain("내부");
+    }
+
+    @Test
     void 예상하지_못한_오류는_내부_정보_없이_500() throws Exception {
         CommentService service = mock(CommentService.class);
         when(service.getLight(anyString())).thenThrow(new IllegalStateException("내부 상태 노출되면 안 됨"));

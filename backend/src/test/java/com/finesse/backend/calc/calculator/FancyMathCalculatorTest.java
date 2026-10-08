@@ -3,7 +3,6 @@ package com.finesse.backend.calc.calculator;
 import com.finesse.backend.calc.domain.AnalyticsContext;
 import com.finesse.backend.calc.domain.FancyStats;
 import com.finesse.backend.calc.domain.MatchHistory;
-import com.finesse.backend.calc.exception.InsufficientMatchException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -17,7 +16,7 @@ class FancyMathCalculatorTest {
     private final FancyMathCalculator calculator = new FancyMathCalculator();
 
     private FancyStats calc(MatchHistory... matches) {
-        return calculator.calculate(new AnalyticsContext(List.of(matches), null));
+        return calculator.calculate(new AnalyticsContext(List.of(matches)));
     }
 
     @Test
@@ -70,9 +69,9 @@ class FancyMathCalculatorTest {
     }
 
     @Test
-    void 계산_가능한_매치가_없으면_예외를_던진다() {
-        assertThatThrownBy(() -> calc(match(0, 1.0, 120)))
-                .isInstanceOf(InsufficientMatchException.class);
+    void 계산_가능한_매치가_없으면_null을_반환한다() {
+        // APM = 0·PPS ≥ 0.2 매치는 정제를 통과하지만 평균에서는 빠진다 (6.5절·7장, v3.5)
+        assertThat(calc(match(0, 1.0, 120))).isNull();
     }
 
     @Test
@@ -84,8 +83,8 @@ class FancyMathCalculatorTest {
     @Test
     void 같은_입력은_항상_같은_결과를_낸다() {
         List<MatchHistory> input = List.of(match(60, 1.0, 120), match(90, 1.5, 150));
-        FancyStats first = calculator.calculate(new AnalyticsContext(input, null));
-        FancyStats second = calculator.calculate(new AnalyticsContext(input, null));
+        FancyStats first = calculator.calculate(new AnalyticsContext(input));
+        FancyStats second = calculator.calculate(new AnalyticsContext(input));
 
         assertThat(first).isEqualTo(second);
     }

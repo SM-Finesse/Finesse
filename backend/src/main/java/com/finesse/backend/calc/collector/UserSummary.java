@@ -3,6 +3,7 @@ package com.finesse.backend.calc.collector;
 /**
  * GET /users/{username}/summaries/league 응답 (설계서 3.2절).
  * TR은 조회 시점의 현재 TR이며 매치 단위 계산에는 쓰지 않는다(1.1절 ⑧).
+ * apm·pps·vs도 조회 시점의 리그 평균으로, 프로필 표시에만 쓴다. 응답에 없으면 null (v3.6).
  */
 public record UserSummary(
         String username,
@@ -11,5 +12,8 @@ public record UserSummary(
         double glicko,
         double rd,
         Double gxe,
-        int gamesPlayed
+        int gamesPlayed,
+        Double apm,
+        Double pps,
+        Double vs
 ) {}

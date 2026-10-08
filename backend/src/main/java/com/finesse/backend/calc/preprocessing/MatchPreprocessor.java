@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**
  * 원천 매치 → MatchHistory 변환 (설계서 5.9절 순서).
- * 정제(MatchValidator) → 스코프 발급 → 최신순으로 상대 유저 ID를 PseudonymId로 변환 → MatchHistory 생성.
+ * 정제(MatchValidator) → 스코프 발급 → 최신순으로 상대 유저 ID를 PseudonymId로 변환 → 경기 형식 판정(5.11절) → MatchHistory 생성.
  * 정제를 먼저 해야 버려질 매치의 상대가 스코프에 등록되지 않는다.
  */
 @Component
@@ -70,8 +70,13 @@ public class MatchPreprocessor {
         List<MatchRound> rounds = new ArrayList<>();
         for (int i = 0; i < raw.rounds().size(); i++) {
             RawRound r = raw.rounds().get(i);
-            rounds.add(new MatchRound(i, r.myVs(), r.opponentVs(), trGap, r.meAlive()));
+            rounds.add(new MatchRound(i, r.myVs(), r.opponentVs(), trGap, r.meAlive(), r.myPps()));
         }
+
+        MatchFormatJudge.Judgment format = MatchFormatJudge.judge(
+                MatchValidator.winnerWins(raw),
+                MatchFormatJudge.formatOf(me.rankBefore(), me.trBefore()),
+                MatchFormatJudge.formatOf(opp.rankBefore(), opp.trBefore()));
 
         return new MatchHistory(
                 raw.matchId(), raw.playedAt(), opponentId,
@@ -81,7 +86,8 @@ public class MatchPreprocessor {
                 null, null, null, null,
                 me.trBefore(), opp.trBefore(),
                 "victory".equals(raw.result()) ? MatchResult.WIN : MatchResult.LOSE,
-                rounds
+                rounds,
+                format.firstTo(), format.endedEarly()
         );
     }
 }

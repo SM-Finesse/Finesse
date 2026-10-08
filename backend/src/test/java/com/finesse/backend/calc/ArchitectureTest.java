@@ -2,11 +2,13 @@ package com.finesse.backend.calc;
 
 import com.finesse.backend.calc.calculator.AnalyticsCalculator;
 import com.finesse.backend.calc.collector.CollectionStatus;
+import com.finesse.backend.calc.collector.RateLimiter;
 import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.FancyStats;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.MatchResult;
+import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalBadge;
@@ -97,9 +99,9 @@ class ArchitectureTest {
                 .should().dependOnClassesThat(resideInAPackage(CALC).and(not(belongToAnyOf(
                         StatCalculatorFacade.class, AnalysisOutcome.class, AnalysisMeta.class,
                         StatResult.class, FancyStats.class, DeltaStats.class, HighlightStats.class,
-                        RecentWinLossStats.class, ProfileWindowDeltaStats.class,
+                        RecentWinLossStats.class, ProfileWindowDeltaStats.class, MatchSeriesStats.class,
                         RivalryStats.class, RivalOpponentStats.class, RivalBadge.class, MatchResult.class,
-                        UserSummary.class, CollectionStatus.class))))
+                        UserSummary.class, CollectionStatus.class, RateLimiter.class))))
                 .allowEmptyShould(true)
                 .check(classes);
     }

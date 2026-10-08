@@ -37,11 +37,23 @@ public class TetrIoCollector {
         return api.fetchLeagueSummary(username, sessionId);
     }
 
+    /**
+     * Cold Start(누적 10판 미만) 유저의 최근 승패 기록용 — records 첫 페이지만 1회 호출한다 (3.3절, v3.6).
+     * 1년 컷오프보다 오래된 매치는 뺀다. 호출이 실패하면 TetrIoApiException을 그대로 던진다.
+     */
+    public List<RawMatch> collectFirstPage(String username, String sessionId, Instant now) {
+        Instant cutoff = now.minus(properties.maxAgeDays(), ChronoUnit.DAYS);
+        RecordPage page = api.fetchRecentRecords(username, sessionId, null, properties.maxMatchesPerPage());
+        return page.matches().stream()
+                .filter(m -> !m.playedAt().isBefore(cutoff))
+                .toList();
+    }
+
     public CollectionResult collectMatches(String username, String sessionId, Instant now) {
         Instant cutoff = now.minus(properties.maxAgeDays(), ChronoUnit.DAYS);
         int windowSize = properties.maxTotalMatches();
-        int maxMatches = windowSize * 2;           // 현재 구간 + 이전 구간
-        int maxPageCalls = properties.maxPages() * 2;
+        int maxMatches = windowSize;               // 300판에서 멈춘다 (3.4절, v3.10)
+        int maxPageCalls = properties.maxPages();  // 페이지 최대 3회
 
         Map<String, RawMatch> collected = new LinkedHashMap<>(); // matchId 중복 제거, 최신순 유지
         int requested = 0;
@@ -81,17 +93,13 @@ public class TetrIoCollector {
 
         List<RawMatch> all = new ArrayList<>(collected.values());
         List<RawMatch> current = all.subList(0, Math.min(windowSize, all.size()));
-        List<RawMatch> previous = all.size() > windowSize ? all.subList(windowSize, all.size()) : List.of();
 
-        return new CollectionResult(current, previous,
+        return new CollectionResult(current,
                 status(successful, failed, current.size(), windowSize),
                 requested, successful, failed, dropped, reachedCutoff);
     }
 
-    /**
-     * 3.7절 판정 순서. 현재 구간(300판)을 다 채운 뒤 이전 구간 페이지에서만 실패했다면
-     * 분석 대상은 온전하므로 COMPLETE로 본다(이전 구간만 짧아짐).
-     */
+    /** 3.7절 판정 순서. 300판을 다 채웠다면 실패가 있었어도 COMPLETE로 본다. */
     CollectionStatus status(int successful, int failed, int currentSize, int windowSize) {
         if (successful == 0) return CollectionStatus.FAILED;
         if (failed == 0 || currentSize >= windowSize) return CollectionStatus.COMPLETE;
