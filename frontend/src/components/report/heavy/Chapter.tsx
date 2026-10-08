@@ -4,6 +4,7 @@ import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
 import type { StatInfo } from '../../../i18n/strings'
 import { cx } from '../../../lib/cx'
+import { TREND_MARK, type Trend } from '../../../lib/stats'
 import { BigNum } from '../parts'
 
 /** 근거 칩 한 개 — 이름과 값 */
@@ -61,9 +62,34 @@ function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLE
 const CARD = 'z-10 rounded-md border-2 border-frame bg-[#0E1E2B] px-3.5 py-3 text-left text-[13px] leading-[1.6] font-normal text-ink shadow-[0_10px_24px_rgba(0,0,0,.55)]'
 
 /** 설명 카드 — 한 줄 정의 · 경기 형식별 기준 표 · 측정 기준 항목 */
-function InfoCard({ id, info, className }: { id: string; info: StatInfo; className: string }) {
+/** 알약 설명 머리 — 무슨 지표인지, 지금 값, ▲·▼가 이 지표에서 뜻하는 것 */
+export interface PillHead {
+  code: string
+  label: string
+  value: string
+  trend: Trend
+}
+
+const HEAD_COLOR: Record<Trend, string> = { up: 'text-delta-up', down: 'text-[#E5837E]', even: 'text-muted' }
+
+function InfoCard({ id, info, className, head }: { id: string; info: StatInfo; className: string; head?: PillHead }) {
+  const { t } = useI18n()
+  const meaning = head && (head.trend === 'up' ? info.dir?.up : head.trend === 'down' ? info.dir?.down : t.report.heavy.even)
   return (
     <div id={id} role="note" className={cx(CARD, className)}>
+      {head && (
+        <div className="mb-2.5 border-b border-dashed border-[#27485F] pb-2.5">
+          <p className="m-0 font-display text-[13px] font-bold text-head">
+            {head.code} <span className="font-normal text-muted">· {head.label}</span>
+          </p>
+          <p className={cx('m-0 mt-0.5 font-semibold', HEAD_COLOR[head.trend])}>
+            <span className="font-num">
+              {head.value} {TREND_MARK[head.trend]}
+            </span>
+            {meaning && <span className="ml-1.5">{meaning}</span>}
+          </p>
+        </div>
+      )}
       <p className="m-0">{info.lead}</p>
       {info.table && (
         <table className="mt-2.5 w-full border-collapse border border-[#27485F] text-[12.5px]">
@@ -137,7 +163,7 @@ function InfoTip({ name, info }: { name: string; info: StatInfo }) {
 }
 
 /** 챕터 머리의 증감 알약을 눌러 무슨 값인지 펼친다 — 카드는 알약 오른쪽 끝에 맞춰 아래로 */
-export function PillInfo({ name, info, children }: { name: string; info: StatInfo; children: ReactNode }) {
+export function PillInfo({ name, info, head, children }: { name: string; info: StatInfo; head?: PillHead; children: ReactNode }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -157,7 +183,7 @@ export function PillInfo({ name, info, children }: { name: string; info: StatInf
       >
         {children}
       </button>
-      {open && <InfoCard id={id} info={info} className="absolute top-[calc(100%+8px)] right-0 w-[min(340px,calc(100vw-48px))]" />}
+      {open && <InfoCard id={id} info={info} head={head} className="absolute top-[calc(100%+8px)] right-0 w-[min(340px,calc(100vw-48px))]" />}
     </div>
   )
 }

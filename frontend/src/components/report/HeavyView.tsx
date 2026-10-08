@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react'
 import { HEAVY_CHAPTERS, type HeavyChapterId, type StatsResponse } from '../../api/types'
 import { footStateOf, type HeavyState } from '../../hooks/useHeavyComment'
 import { useI18n } from '../../i18n/context'
+import type { StatInfo } from '../../i18n/strings'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
@@ -10,11 +11,11 @@ import { Chapter, DataTable, DetailModal, PillInfo, StatBox, Strip, type Chip } 
 import { ColdHeavy } from './heavy/ColdHeavy'
 import { CHAPTER_COLORS, EYEBROWS } from './heavy/meta'
 import { RivalBoard, RivalPolicy } from './heavy/Rivals'
-import { ColumnChart, DivergingBars, Legend, LineChart, type LinePoint } from './heavy/svg'
+import { ColumnChart, CompareBars, DivergingBars, Legend, LineChart, RECENT_COLOR, type CompareRow, type LinePoint, type RecentBand } from './heavy/svg'
 import { Caption, DeltaPill, Notice } from './parts'
 import { ProfilePanel } from './ProfilePanel'
 
-type Detail = 'tr_trend' | 'playstyle' | 'session_vs_slope'
+type Detail = 'tr_trend' | 'playstyle' | 'strength_split' | 'session_vs_slope'
 
 const PLAYSTYLE: StatKey[] = ['delta_opener', 'delta_plonk', 'delta_stride', 'delta_inf_ds']
 const PLAYSTYLE_COLORS = ['#4FC3D9', '#D3BE55', '#B76AD0', '#8FC93A']
@@ -78,8 +79,19 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   const tr = ev('tr_trend_delta')
   const buckets = series.length >= 2 ? trBuckets(series) : []
   const trSeries = [{ key: 'tr', label: h.trend.legendTr, color: '#66C0F4', fill: '#66C0F4', fmt: (v: number) => num(v) }]
+  /* 최근·전체 판수와 평균은 백엔드가 tr_trend_delta를 계산한 근거 그대로 — 없으면(구버전 응답) 그래프 시계열로 */
+  const basis = d?.tr_trend_basis
+  /*
+   * ΔTR이 쓰는 최근 N판(백엔드 tr_trend_basis — TR 있는 경기의 30%, 3~30판)을 초록으로.
+   * 경기 g(0부터)는 묶음 차트에서 (g − (per−1)/2) ÷ per 위치 — 최근 구간의 왼쪽 경계는 그 사이 반 칸.
+   */
+  const recentN = basis && basis.recent_matches < series.length ? basis.recent_matches : 0
+  const bandAt = (per: number): RecentBand | undefined =>
+    recentN ? { from: (series.length - recentN - per / 2) / per, label: h.trend.recentBand(recentN) } : undefined
+  const trLegend = recentN ? [...trSeries, { label: h.trend.recentBand(recentN), color: RECENT_COLOR }] : trSeries
   const trChips: Chip[] = []
-  if (buckets.length) trChips.push({ k: h.trend.avgOf(series.length), v: num(Math.round(avg(series))) })
+  if (basis) trChips.push({ k: h.trend.avgOf(basis.total_matches), v: num(Math.round(basis.overall_avg_tr)) })
+  else if (buckets.length) trChips.push({ k: h.trend.avgOf(series.length), v: num(Math.round(avg(series))) })
   else if (tr) trChips.push(chipOf(tr))
 
   /* 02 — 플레이스타일 */
@@ -90,15 +102,39 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   const hasPs = ps.some((p) => p.e)
 
   /* 03·04·05 — 공격 / 수비 / 상대 강도: 스코어 칸 */
-  const tile = (k: StatKey, sub: string) => {
+  const tile = (k: StatKey, sub: string, info?: StatInfo) => {
     const e = ev(k)
-    return <StatBox key={k} k={STAT_META[k].code} v={e ? markText(e) : '—'} s={sub} color={e?.trend ? STAT_COLOR[e.trend] : 'var(--color-muted)'} />
+    return <StatBox key={k} k={STAT_META[k].code} v={e ? markText(e) : '—'} s={sub} color={e?.trend ? STAT_COLOR[e.trend] : 'var(--color-muted)'} info={info} />
   }
   const app = ev('delta_app')
   const wapp = ev('delta_weighted_app')
   const vsApm = ev('delta_vs_apm')
   const cheese = ev('delta_cheese_index')
   const split = ev('strength_split')
+  /* 03·04 나 vs 상대 평균 — 평균이 온 지표만 행으로 */
+  const cmpRow = (k: StatKey, kr: string, mine: number | undefined, opp: number | undefined): CompareRow[] => {
+    const e = ev(k)
+    return e && e.trend && mine !== undefined && opp !== undefined
+      ? [{ k: STAT_META[k].code, kr, mine, opp, decimals: STAT_META[k].decimals, delta: e.text, trend: e.trend }]
+      : []
+  }
+  const atk = d?.attack
+  const def = d?.defense
+  const atkRows = [
+    ...cmpRow('delta_app', h.sub.app, atk?.my_avg?.app, atk?.opp_avg?.app),
+    ...cmpRow('delta_weighted_app', h.sub.wapp, atk?.my_avg?.weighted_app, atk?.opp_avg?.weighted_app),
+  ]
+  const defRows = [
+    ...cmpRow('delta_vs_apm', h.sub.vsapm, def?.my_avg?.vs_apm, def?.opp_avg?.vs_apm),
+    ...cmpRow('delta_cheese_index', h.sub.cheese, def?.my_avg?.cheese_index, def?.opp_avg?.cheese_index),
+  ]
+  /* 5구간 승률 — Q1(가장 약한 상대) → Q5(가장 강한 상대). 다섯 개가 다 와야 그린다 */
+  const quint = d?.strength_quintiles?.length === 5 ? d.strength_quintiles : []
+  const quintItems = quint.map((q, i) => ({
+    k: i === 0 ? `Q1 · ${h.split.weak}` : i === 4 ? `Q5 · ${h.split.strong}` : `Q${q.quintile}`,
+    s: h.split.games(q.matches),
+    v: q.win_rate * 100,
+  }))
 
   /* 06 — 역전 */
   const cb = ev('comeback_rate')
@@ -112,8 +148,10 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   /* 07 — 경기 내 컨디션 */
   const vsCurve = data.round_curves.vs
   const ppsCurve = data.round_curves.pps.length === vsCurve.length ? data.round_curves.pps : []
+  /* 라운드 순서별 라운드 수 — 뒤쪽 라운드는 표본이 적어 평균이 흔들리므로 툴팁·표에 같이 보인다 */
+  const roundSamples = data.round_curves.samples?.length === vsCurve.length ? data.round_curves.samples : []
   const slope = ev('session_vs_slope')
-  const condData: LinePoint[] = vsCurve.map((v, i) => ({ label: `R${i + 1}`, head: `ROUND ${i + 1}`, values: { vs: v, ...(ppsCurve.length ? { pps: ppsCurve[i] } : {}) } }))
+  const condData: LinePoint[] = vsCurve.map((v, i) => ({ label: `R${i + 1}`, head: h.condition.head(i + 1, roundSamples[i]), values: { vs: v, ...(ppsCurve.length ? { pps: ppsCurve[i] } : {}) } }))
   const condSeries = [
     { key: 'vs', label: h.condition.avgVs, color: '#66C0F4', fill: '#66C0F4', fmt: (v: number) => v.toFixed(2) },
     ...(ppsCurve.length ? [{ key: 'pps', label: h.condition.ppsNorm, color: '#D3BE55', norm: true, dash: true, fmt: (v: number) => v.toFixed(2) }] : []),
@@ -134,22 +172,37 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   const r = h.rivals
 
   const present = (xs: (Evidence | null)[]) => xs.filter((e): e is Evidence => e !== null)
-  const pill = (e: Evidence | null) => (e?.trend ? <DeltaPill text={e.text} trend={e.trend} /> : undefined)
+  /* 머리 증감 알약 — 누르면 이 값이 무엇인지 펼친다. 버튼 이름에 값을 넣어 칸의 ? 버튼과 구분되게 */
+  const pill = (e: Evidence | null, info: StatInfo) =>
+    e?.trend ? (
+      <PillInfo name={`${e.meta.code} ${e.text}`} info={info} head={{ code: e.meta.code, label: e.meta.label[lang], value: e.text, trend: e.trend }}>
+        <DeltaPill text={e.text} trend={e.trend} />
+      </PillInfo>
+    ) : undefined
+
+  /*
+   * 03·04 머리 알약 — 칸의 ? 버튼이 정의(식·범위)를 맡으므로, 알약은 이 챕터 결과만 요약한다:
+   * 대표값이 무엇인지 + 칸마다 지금 값과 ▲·▼의 뜻.
+   */
+  const summary = (lead: Evidence | null, items: [Evidence | null, StatInfo][]): StatInfo => ({
+    lead: h.summary(lead?.meta.code ?? ''),
+    dir: items.find(([e]) => e === lead)?.[1].dir,
+    rows: items.flatMap(([e, info]) => {
+      if (!e?.trend) return []
+      const meaning = e.trend === 'up' ? info.dir?.up : e.trend === 'down' ? info.dir?.down : h.even
+      return [[e.meta.code, `${e.text} ${TREND_MARK[e.trend]}${meaning ? ` · ${meaning}` : ''}`] as [string, string]]
+    }),
+  })
 
   const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; tail?: ReactNode; body: ReactNode }> = {
     tr_trend: {
-      /* 알약을 누르면 이 값이 무엇인지(최근·전체 기준, 계산식) 펼친다 */
-      right: tr?.trend ? (
-        <PillInfo name={tr.meta.code} info={h.trend.deltaInfo}>
-          <DeltaPill text={tr.text} trend={tr.trend} />
-        </PillInfo>
-      ) : undefined,
+      right: pill(tr, h.trend.deltaInfo(basis?.recent_matches, basis?.total_matches)),
       detail: buckets.length > 0,
       chips: trChips,
       body: buckets.length ? (
         <>
-          <LineChart data={buckets} series={trSeries} h={300} aria={h.trend.aria} onOpen={() => setDetail('tr_trend')} />
-          <Legend items={trSeries} />
+          <LineChart data={buckets} series={trSeries} h={300} aria={h.trend.aria} onOpen={() => setDetail('tr_trend')} recent={bandAt(Math.ceil(series.length / 15))} />
+          <Legend items={trLegend} />
         </>
       ) : tr ? (
         <Caption>{h.trend.missing}</Caption>
@@ -164,22 +217,48 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       body: hasPs ? <DivergingBars items={psItems} max={psMax} tick={psTick} aria={h.playstyle.aria} /> : noData,
     },
     attack: {
-      right: pill(app),
+      right: pill(app, summary(app, [[app, h.subInfo.app], [wapp, h.subInfo.wapp]])),
       chips: present([app, wapp]).map((e) => chipOf(e)),
-      body: app || wapp ? <Strip>{[tile('delta_app', h.sub.app), tile('delta_weighted_app', h.sub.wapp)]}</Strip> : noData,
+      body:
+        app || wapp ? (
+          <>
+            <Strip>{[tile('delta_app', h.sub.app, h.subInfo.app), tile('delta_weighted_app', h.sub.wapp, h.subInfo.wapp)]}</Strip>
+            {atkRows.length > 0 && <CompareBars rows={atkRows} me={h.compare.me} opp={h.compare.opp} aria={h.compare.attackAria} />}
+          </>
+        ) : (
+          noData
+        ),
     },
     defense: {
-      right: pill(vsApm),
+      right: pill(vsApm, summary(vsApm, [[vsApm, h.subInfo.vsapm], [cheese, h.subInfo.cheese]])),
       chips: present([vsApm, cheese]).map((e) => chipOf(e)),
-      body: vsApm || cheese ? <Strip>{[tile('delta_vs_apm', h.sub.vsapm), tile('delta_cheese_index', h.sub.cheese)]}</Strip> : noData,
+      body:
+        vsApm || cheese ? (
+          <>
+            <Strip>{[tile('delta_vs_apm', h.sub.vsapm, h.subInfo.vsapm), tile('delta_cheese_index', h.sub.cheese, h.subInfo.cheese)]}</Strip>
+            {defRows.length > 0 && <CompareBars rows={defRows} me={h.compare.me} opp={h.compare.opp} aria={h.compare.defenseAria} />}
+          </>
+        ) : (
+          noData
+        ),
     },
     strength_split: {
       right: <Caption>{h.split.right}</Caption>,
+      detail: quintItems.length > 0,
       chips: present([split]).map((e) => chipOf(e)),
-      body: split ? <Strip>{tile('strength_split', h.split.sub)}</Strip> : noData,
+      body: split ? (
+        <>
+          <Strip>{tile('strength_split', h.split.sub, h.split.info)}</Strip>
+          {quintItems.length > 0 && (
+            <ColumnChart items={quintItems} h={250} mb={62} max={100} bw={72} note={h.split.chartNote} aria={h.split.chartAria} onOpen={() => setDetail('strength_split')} />
+          )}
+        </>
+      ) : (
+        noData
+      ),
     },
     comeback_rate: {
-      right: pill(cbNet),
+      right: pill(cbNet, h.comeback.netInfo),
       chips: present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')),
       body:
         cb || ca ? (
@@ -207,7 +286,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
         ),
     },
     session_vs_slope: {
-      right: pill(slope),
+      right: pill(slope, h.condition.slopeInfo),
       detail: vsCurve.length >= 2,
       chips: condChips,
       body:
@@ -249,9 +328,19 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       const full: LinePoint[] = series.map((v, i) => ({ label: String(i + 1), head: `GAME ${i + 1}`, values: { tr: v } }))
       body = (
         <>
-          <LineChart data={full} series={trSeries} h={340} every={Math.max(1, Math.round(full.length / 15))} aria={h.trend.aria} />
-          <Legend items={trSeries} />
+          <LineChart data={full} series={trSeries} h={340} every={Math.max(1, Math.round(full.length / 15))} aria={h.trend.aria} recent={bandAt(1)} />
+          <Legend items={trLegend} />
           <DataTable head={[h.trend.game, 'TR']} rows={series.map((v, i) => [i + 1, num(v, 1)])} scroll={460} note={h.trend.tableNote(series.length)} />
+        </>
+      )
+    } else if (detail === 'strength_split') {
+      body = (
+        <>
+          <ColumnChart items={quintItems} h={320} mb={62} max={100} note={h.split.chartNote} aria={h.split.chartAria} />
+          <DataTable
+            head={h.split.table}
+            rows={quint.map((q, i) => [quintItems[i].k, num(q.matches), num(q.wins), `${(q.win_rate * 100).toFixed(1)}%`])}
+          />
         </>
       )
     } else if (detail === 'playstyle') {
@@ -267,8 +356,13 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
           <LineChart data={condData} series={condSeries} h={320} yfmt={(v) => v.toFixed(2)} aria={h.condition.aria} />
           <Legend items={condSeries} />
           <DataTable
-            head={[h.condition.round, h.condition.avgVs, ...(ppsCurve.length ? [h.condition.pps] : [])]}
-            rows={vsCurve.map((v, i) => [`R${i + 1}`, v.toFixed(2), ...(ppsCurve.length ? [ppsCurve[i].toFixed(2)] : [])])}
+            head={[h.condition.round, h.condition.avgVs, ...(ppsCurve.length ? [h.condition.pps] : []), ...(roundSamples.length ? [h.condition.samples] : [])]}
+            rows={vsCurve.map((v, i) => [
+              `R${i + 1}`,
+              v.toFixed(2),
+              ...(ppsCurve.length ? [ppsCurve[i].toFixed(2)] : []),
+              ...(roundSamples.length ? [num(roundSamples[i])] : []),
+            ])}
           />
         </>
       )

@@ -13,14 +13,24 @@ const FULL: StatsResponse = {
   delta_metrics: {
     ...STATS.delta_metrics,
     playstyle_relative: { delta_opener: 0.084, delta_plonk: -0.021, delta_stride: 0.057 },
+    attack: { delta_app: 0.092, delta_weighted_app: 0.045, my_avg: { app: 0.742, weighted_app: 0.688 }, opp_avg: { app: 0.65, weighted_app: 0.643 } },
+    defense: { delta_vs_apm: -0.055, delta_cheese_index: -16.2, my_avg: { vs_apm: 1.967, cheese_index: -23.2 }, opp_avg: { vs_apm: 2.022, cheese_index: -7.0 } },
     strength_split: -0.2,
+    strength_quintiles: [
+      { quintile: 1, matches: 5, wins: 4, win_rate: 0.8 },
+      { quintile: 2, matches: 5, wins: 3, win_rate: 0.6 },
+      { quintile: 3, matches: 5, wins: 3, win_rate: 0.6 },
+      { quintile: 4, matches: 5, wins: 2, win_rate: 0.4 },
+      { quintile: 5, matches: 5, wins: 3, win_rate: 0.6 },
+    ],
+    tr_trend_basis: { recent_matches: 3, total_matches: 4, recent_avg_tr: 24157.2, overall_avg_tr: 24117.9 },
     comeback_rate: 0.556,
     comeback_rate_against: 0.25,
     delta_comeback: 0.306,
     comeback_samples: { comeback_opportunities: 9, comeback_won: 5, comeback_against_opportunities: 8, comeback_against_allowed: 2 },
     session_vs_slope: -0.12,
   },
-  round_curves: { pps: [2.4, 2.38, 2.35], vs: [2.1, 2.0, 1.9] },
+  round_curves: { pps: [2.4, 2.38, 2.35], vs: [2.1, 2.0, 1.9], samples: [25, 25, 18] },
   rivals: {
     items: [
       { nickname_masked: 'zz***', matches: 3, wins: 1, losses: 2 },
@@ -75,8 +85,8 @@ describe('ReportPage — 헤비 뷰', () => {
     await ready()
 
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(TITLES)
-    /* 자세히 보기는 큰 차트가 있는 챕터만 — 01 · 02 · 07 */
-    expect(screen.getAllByRole('button', { name: '자세히 보기' })).toHaveLength(3)
+    /* 자세히 보기는 큰 차트가 있는 챕터만 — 01 · 02 · 05(5구간이 왔을 때) · 07 */
+    expect(screen.getAllByRole('button', { name: '자세히 보기' })).toHaveLength(4)
 
     expect(FakeEventSource.all).toHaveLength(1)
     expect(FakeEventSource.last.url).toBe('/api/v1/comment/ExamplePlayer?scope=heavy')
@@ -112,6 +122,8 @@ describe('ReportPage — 헤비 뷰', () => {
 
     const tr = chapter('TR · 능력치 추이')
     expect(within(tr).getByRole('img', { name: 'TR 추이' })).toBeInTheDocument()
+    /* ΔTR이 쓰는 최근 N판(tr_trend_basis.recent_matches)을 초록 구간으로 */
+    expect(within(tr).getAllByText('최근 3판 (ΔTR 기준)').length).toBeGreaterThan(0)
     /* 근거는 전체 평균만 — 최근·차이는 위쪽 ΔTR(백엔드 값)과 기준이 달라 두지 않는다 */
     expect(within(tr).getByText('Avg of 4g')).toBeInTheDocument()
     expect(within(tr).queryByText(/^Recent/)).not.toBeInTheDocument()
@@ -125,7 +137,20 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(ps).queryByText('Inf DS', { selector: 'span' })).not.toBeInTheDocument()
 
     expect(within(chapter('공격 효율')).getByText('+0.092', { selector: 'b' })).toBeInTheDocument()
-    expect(within(chapter('상대 강도별 승률')).getByText('−20.0%p')).toBeInTheDocument()
+    /* 나 vs 상대 평균 막대 — 음수(Cheese Index)는 0선에서 왼쪽으로 */
+    const atkBars = within(chapter('공격 효율')).getByRole('img', { name: '공격 효율 — 나 대 상대 평균' })
+    expect(atkBars).toHaveTextContent('0.742')
+    expect(atkBars).toHaveTextContent('0.650')
+    const defBars = within(chapter('수비 · 가비지 처리')).getByRole('img', { name: '수비 · 가비지 처리 — 나 대 상대 평균' })
+    expect(defBars).toHaveTextContent('−23.2')
+    expect(defBars).toHaveTextContent('−7.0')
+    const split = chapter('상대 강도별 승률')
+    expect(within(split).getByText('−20.0%p')).toBeInTheDocument()
+    /* 5구간 승률 막대 — Q1(약한 상대) → Q5(강한 상대) */
+    expect(within(split).getByRole('img', { name: '상대와의 TR 차이 구간별 승률' })).toBeInTheDocument()
+    expect(within(split).getByText('Q1 · 약한 상대')).toBeInTheDocument()
+    expect(within(split).getByText('Q5 · 강한 상대')).toBeInTheDocument()
+    expect(within(split).getByText('80.0%')).toBeInTheDocument()
 
     const cb = chapter('역전승 퍼포먼스')
     expect(within(cb).getByRole('img', { name: '역전승률과 역전 허용률 비교' })).toBeInTheDocument()
@@ -139,19 +164,45 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(cond).getByText('−0.05')).toBeInTheDocument()
   })
 
+  it('03·04·06·07장 머리 증감 알약도 누르면 무슨 값인지 펼친다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    /* 알약 버튼 이름에는 값이 같이 들어간다 — 칸의 ? 버튼과 구분 */
+    const cases: [string, string, string][] = [
+      /* 03·04 알약은 정의(식)가 아니라 챕터 결과 요약 — 식은 칸의 ? 버튼에만 */
+      ['공격 효율', 'ΔAPP +0.092 설명', 'ΔWeighted APP+0.045 ▲ · 상대보다 공격적'],
+      ['수비 · 가비지 처리', 'ΔVS/APM −0.055 설명', 'ΔCheese Index−16.2 ▼ · 상대보다 공격적'],
+      ['역전승 퍼포먼스', 'ΔComeback +30.6%p 설명', 'Comeback Rate − Comeback Allowed'],
+      ['경기 내 컨디션 변화', 'VS Slope −0.12/R 설명', '라운드 순서별 평균 VS에 맞춘 직선의 기울기'],
+    ]
+    for (const [title, name, text] of cases) {
+      const ch = chapter(title)
+      await user.click(within(ch).getByRole('button', { name }))
+      expect(within(ch).getByRole('note')).toHaveTextContent(text)
+      /* 머리 — 무슨 지표인지와 ▲·▼의 뜻 */
+      if (title === '공격 효율') expect(within(ch).getByRole('note')).toHaveTextContent('ΔAPP · 공격 효율+0.092 ▲상대보다 블록당 공격이 많음')
+      if (title === '공격 효율') expect(within(ch).getByRole('note')).not.toHaveTextContent('APM ÷ (PPS × 60)')
+      await user.keyboard('{Escape}')
+    }
+  })
+
   it('01장 ΔTR 알약을 누르면 무슨 값인지 펼치고, Esc로 닫힌다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     const { user } = setup()
     await ready()
 
     const tr = chapter('TR · 능력치 추이')
-    const pill = within(tr).getByRole('button', { name: 'ΔTR 설명' })
+    const pill = within(tr).getByRole('button', { name: 'ΔTR +12.4 TR 설명' })
     expect(pill).toHaveTextContent('+12.4 TR')
     await user.click(pill)
     expect(pill).toHaveAttribute('aria-expanded', 'true')
     const note = within(tr).getByRole('note')
     expect(note).toHaveTextContent('최근 평균 TR − 전체 평균 TR')
-    expect(note).toHaveTextContent('최신 30% (최소 3경기 · 최대 30경기)')
+    /* 백엔드가 준 최근·전체 판수(tr_trend_basis)로 */
+    expect(note).toHaveTextContent('최신 3판 — TR이 있는 경기의 30% (최소 3판 · 최대 30판)')
+    expect(note).toHaveTextContent('4판 — 최근 1년')
     await user.keyboard('{Escape}')
     expect(within(tr).queryByRole('note')).not.toBeInTheDocument()
   })
@@ -178,7 +229,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(cb).queryByRole('note')).not.toBeInTheDocument()
 
     await user.click(within(cb).getByRole('button', { name: 'Comeback Allowed 설명' }))
-    expect(within(within(cb).getByRole('note')).getByRole('table', { name: '역전 허용 기회 기준' })).toHaveTextContent('형식과 무관')
+    /* 역전 허용 기회도 경기 형식별 — 7선승은 4점 차부터 */
+    const lead = within(within(cb).getByRole('note')).getByRole('table', { name: '역전 허용 기회 기준' })
+    expect(within(lead).getByRole('row', { name: '7선승 4판+' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(within(cb).queryByRole('note')).not.toBeInTheDocument()
   })
@@ -264,6 +317,53 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(rv).getAllByText('…')).toHaveLength(2)
     expect(within(rv).getByRole('button', { name: '4' })).toHaveAttribute('aria-current', 'page')
     expect(firstCell(rows()[0])).toBe('61')
+  })
+
+  it('03·04장 칸마다 ? 버튼이 있고, 누르면 식과 비교 방법을 펼친다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    const atk = chapter('공격 효율')
+    /* 칸 ? 버튼 2개 + 머리 알약 1개 */
+    expect(within(atk).getAllByRole('button', { name: /설명$/ })).toHaveLength(3)
+    await user.click(within(atk).getByRole('button', { name: 'ΔAPP 설명' }))
+    expect(within(atk).getByRole('note')).toHaveTextContent('APM ÷ (PPS × 60)')
+    await user.keyboard('{Escape}')
+
+    const def = chapter('수비 · 가비지 처리')
+    expect(within(def).getAllByRole('button', { name: /설명$/ })).toHaveLength(3)
+    await user.click(within(def).getByRole('button', { name: 'ΔCheese Index 설명' }))
+    expect(within(def).getByRole('note')).toHaveTextContent('방어 성향')
+  })
+
+  it('05장 Strength Split 칸의 ? 버튼은 구간 나누는 법과 계산식을 펼친다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    const split = chapter('상대 강도별 승률')
+    await user.click(within(split).getByRole('button', { name: 'Strength Split 설명' }))
+    const note = within(split).getByRole('note')
+    expect(within(note).getByRole('row', { name: 'Q5 가장 강한 상대 20%' })).toBeInTheDocument()
+    expect(note).toHaveTextContent('Q5 승률 − Q1 승률')
+    await user.keyboard('{Escape}')
+    expect(within(split).queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('05장 자세히 보기는 5구간 승률 표를 띄운다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    await user.click(within(chapter('상대 강도별 승률')).getByRole('button', { name: '자세히 보기' }))
+    const dialog = screen.getByRole('dialog', { name: '상대 강도별 승률 상세' })
+    expect(within(dialog).getByRole('img', { name: '상대와의 TR 차이 구간별 승률' })).toBeInTheDocument()
+    /* 머리글 + 5구간 */
+    const rows = within(dialog).getAllByRole('row')
+    expect(rows).toHaveLength(6)
+    expect(rows[1]).toHaveTextContent('Q1 · 약한 상대54')
+    expect(rows[1]).toHaveTextContent('80.0%')
   })
 
   it('자세히 보기는 큰 차트와 표를 띄우고, ESC는 리포트를 떠나지 않고 창만 닫는다', async () => {

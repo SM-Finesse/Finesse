@@ -57,6 +57,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   const winRate = data.fixed_metrics.win_rate
   const wins = typeof winRate === 'number' ? Math.round(winRate * data.match_count) : null
   const trDelta = data.delta_metrics?.tr_trend_delta
+  const basis = data.delta_metrics?.tr_trend_basis
 
   return (
     <section className="panel overflow-hidden bg-surface" aria-label="PROFILE">
@@ -95,7 +96,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
               {typeof trDelta === 'number' && (
                 <span className="flex items-baseline gap-1.5">
                   <DeltaInline text={signed(trDelta, 1)} trend={trendOf(trDelta, 1)} />
-                  <Caption className="text-[11px]">{p.trDelta}</Caption>
+                  <Caption className="text-[11px]">{p.trDelta(basis?.recent_matches)}</Caption>
                 </span>
               )}
               <span>{p.trSub}</span>
@@ -122,7 +123,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
         <Strip k="GLICKO" v={numOrDash(pr.glicko, 1)} unit={pr.rd >= 0 ? p.rd(num(pr.rd, 1)) : undefined} />
         {topRank && <TopRank rank={topRank} />}
         <Strip k="GAMES" v={num(data.match_count)} unit={p.gamesSub} />
-        {typeof trDelta === 'number' && <Caption className="text-xs lg:ml-auto">{p.note}</Caption>}
+        {typeof trDelta === 'number' && <Caption className="text-xs lg:ml-auto">{p.note(basis?.recent_matches, basis?.total_matches)}</Caption>}
       </div>
     </section>
   )

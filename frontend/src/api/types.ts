@@ -71,8 +71,9 @@ export interface FixedMetrics {
 export interface DeltaMetrics {
   tr_trend_delta?: number
   playstyle_relative?: PlaystyleRelative
-  attack?: { delta_app: number; delta_weighted_app: number }
-  defense?: { delta_vs_apm: number; delta_cheese_index: number }
+  /** my_avg·opp_avg는 delta를 계산한 같은 경기들의 나·상대 평균 — my − opp = delta. 구버전 응답엔 없다 */
+  attack?: { delta_app: number; delta_weighted_app: number; my_avg?: AttackAvg; opp_avg?: AttackAvg }
+  defense?: { delta_vs_apm: number; delta_cheese_index: number; my_avg?: DefenseAvg; opp_avg?: DefenseAvg }
   strength_split?: number
   /** 크게 뒤지다 이긴 비율 — 기준은 선승 수의 절반(올림): 3선승 2판 · 5선승 3판 · 7선승 4판 */
   comeback_rate?: number
@@ -82,7 +83,38 @@ export interface DeltaMetrics {
   delta_comeback?: number
   /** 위 두 비율의 분자·분모 */
   comeback_samples?: ComebackSamples
+  /** 상대와의 TR 차이 5등분 — Q1(가장 약한 상대) → Q5(가장 강한 상대). strength_split이 없으면 빠진다 */
+  strength_quintiles?: StrengthQuintile[]
+  /** tr_trend_delta의 근거 — 최근 N판(판수 × 0.3, 3~30판) 평균과 전체 평균. 차이가 tr_trend_delta */
+  tr_trend_basis?: TrTrendBasis
   session_vs_slope?: number
+}
+
+export interface AttackAvg {
+  app: number
+  weighted_app: number
+}
+
+export interface DefenseAvg {
+  vs_apm: number
+  /** 음수도 나온다 */
+  cheese_index: number
+}
+
+export interface StrengthQuintile {
+  /** 1 = 가장 약한 상대 구간, 5 = 가장 강한 상대 구간 */
+  quintile: number
+  matches: number
+  wins: number
+  /** 0~1 비율 */
+  win_rate: number
+}
+
+export interface TrTrendBasis {
+  recent_matches: number
+  total_matches: number
+  recent_avg_tr: number
+  overall_avg_tr: number
 }
 
 export interface ComebackSamples {
@@ -106,6 +138,8 @@ export interface PlaystyleRelative {
 export interface RoundCurves {
   pps: number[]
   vs: number[]
+  /** 라운드 순서별 라운드 수 — vs와 길이가 같다. 작을수록 평균이 흔들린다 */
+  samples?: number[]
 }
 
 export interface Rivals {

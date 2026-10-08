@@ -1,5 +1,6 @@
 import { useId, useState, type MouseEvent } from 'react'
-import { TREND_COLOR } from '../../../lib/chart'
+import { rateColor, TREND_COLOR } from '../../../lib/chart'
+import { cx } from '../../../lib/cx'
 import { TREND_MARK, type Trend } from '../../../lib/stats'
 
 /*
@@ -33,7 +34,15 @@ export interface LinePoint {
   values: Record<string, number>
 }
 
-/** 추이 선 차트 — 첫 줄이 기준(실제 값), 나머지는 정규화 점선. 마우스를 올리면 그 지점 값을, 누르면 onOpen */
+/** 최근 구간 강조 — from은 점 위치(소수 가능), 그 오른쪽 끝까지 */
+export interface RecentBand {
+  from: number
+  label: string
+}
+
+export const RECENT_COLOR = '#8FC93A'
+
+/** 추이 선 차트 — 첫 줄이 기준(실제 값), 나머지는 정규화 점선. 마우스를 올리면 그 지점 값을, 누르면 onOpen. recent면 그 구간을 초록으로 */
 export function LineChart({
   data,
   series,
@@ -42,6 +51,7 @@ export function LineChart({
   yfmt = (v) => String(Math.round(v)),
   aria,
   onOpen,
+  recent,
 }: {
   data: LinePoint[]
   series: LineSeries[]
@@ -50,6 +60,7 @@ export function LineChart({
   yfmt?: (v: number) => string
   aria: string
   onOpen?: () => void
+  recent?: RecentBand
 }) {
   const id = `ln${useId().replace(/[^\w-]/g, '')}`
   const [hover, setHover] = useState<number | null>(null)
@@ -84,6 +95,20 @@ export function LineChart({
 
   const tipLeft = hover === null ? 0 : Math.min(88, Math.max(12, (X(hover) / W) * 100))
 
+  /* 최근 구간 — 경계(소수 위치)에서 선을 끊어 그 뒤를 초록으로 다시 그린다 */
+  const band = (() => {
+    if (!recent || n < 2) return null
+    const from = Math.min(n - 1, Math.max(0, recent.from))
+    const yy = lines[0].yy
+    const i0 = Math.floor(from)
+    const t = from - i0
+    const v0 = data[i0].values[base.key]
+    const v1 = data[Math.min(n - 1, i0 + 1)].values[base.key]
+    const start = `${(X(i0) + (X(Math.min(n - 1, i0 + 1)) - X(i0)) * t).toFixed(1)} ${yy(v0 + (v1 - v0) * t).toFixed(1)}`
+    const rest = data.map((d, i) => (i > from ? `${X(i).toFixed(1)} ${yy(d.values[base.key]).toFixed(1)}` : null)).filter(Boolean)
+    return { x: X(0) + (X(n - 1) - X(0)) * (from / (n - 1)), d: `M ${[start, ...rest].join(' L ')}` }
+  })()
+
   return (
     <div className="relative mt-0.5">
       <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} role="img" aria-label={aria} className="block">
@@ -108,6 +133,15 @@ export function LineChart({
             </text>
           ) : null,
         )}
+        {band && recent && (
+          <g>
+            <rect x={band.x} y={m.t} width={m.l + iw - band.x} height={ih} fill={RECENT_COLOR} opacity={0.08} />
+            <line x1={band.x} y1={m.t} x2={band.x} y2={m.t + ih} stroke={RECENT_COLOR} strokeDasharray="3 3" opacity={0.6} />
+            <text x={band.x + 6} y={m.t + 13} {...AXIS} fill={RECENT_COLOR}>
+              {recent.label}
+            </text>
+          </g>
+        )}
         {lines.map(({ sr, pts, yy }, si) => (
           <g key={sr.key}>
             {si === 0 && <path d={`M ${pts.join(' L ')} L ${X(n - 1).toFixed(1)} ${m.t + ih} L ${X(0).toFixed(1)} ${m.t + ih} Z`} fill={`url(#${id})`} />}
@@ -120,7 +154,8 @@ export function LineChart({
               strokeLinecap="round"
               strokeDasharray={sr.dash ? '5 5' : undefined}
             />
-            {!sr.norm && <circle cx={X(n - 1)} cy={yy(data[n - 1].values[sr.key])} r={4} fill={sr.color} />}
+            {si === 0 && band && <path d={band.d} fill="none" stroke={RECENT_COLOR} strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round" />}
+            {!sr.norm && <circle cx={X(n - 1)} cy={yy(data[n - 1].values[sr.key])} r={4} fill={si === 0 && band ? RECENT_COLOR : sr.color} />}
           </g>
         ))}
         <line x1={m.l} y1={m.t + ih} x2={W - m.r} y2={m.t + ih} stroke="#2A475E" />
@@ -156,6 +191,93 @@ export function LineChart({
 }
 
 /** 범례 — 실선/점선 */
+export interface CompareRow {
+  k: string
+  kr: string
+  mine: number
+  opp: number
+  decimals: number
+  /** 오른쪽 끝 — 칸에 찍힌 Δ와 같은 글자 */
+  delta: string
+  trend: Trend
+}
+
+/**
+ * 나 vs 상대 평균 — 지표마다 위(나)·아래(상대) 막대 두 개, 값은 막대 시작 쪽 안에 (프로토타입 7차).
+ * 지표끼리 단위가 달라 행마다 축을 따로 잡는다. 막대는 모두 왼쪽에서 시작하고 값이 클수록 길다 —
+ * 양수만 있으면 0부터(큰 쪽 × 1.18), Cheese Index처럼 음수가 끼면 가장 작은 값보다 조금 아래부터 잡아
+ * −6.5가 −20.7보다 길게 보이도록 한다. 이때 0 위치에 눈금을 남긴다.
+ */
+export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: string; opp: string; aria: string }) {
+  const rowH = 76
+  const h = rows.length * rowH + 22
+  const labW = 210
+  const valW = 150
+  const x0 = labW
+  const x1 = W - valW
+  /* 막대가 이보다 짧으면 값 글자를 막대 밖에 둔다 */
+  const minInside = 52
+
+  return (
+    <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} role="img" aria-label={aria} className="block">
+      {rows.map((r, i) => {
+        const y = 10 + i * rowH
+        const lo = Math.min(0, r.mine, r.opp)
+        const hi = Math.max(0, r.mine, r.opp)
+        const a = lo * 1.18
+        const b = hi * 1.18
+        const X = (v: number) => x0 + ((v - a) / (b - a || 1)) * (x1 - x0)
+        const bar = (v: number, by: number, fill: string, ink: string) => {
+          const width = Math.max(X(v) - x0, 2)
+          const inside = width >= minInside
+          /* 값 글자 — 막대가 충분히 길면 막대 안 왼쪽에, 짧으면 막대 끝 바깥에 */
+          return (
+            <g>
+              <rect x={x0} y={by} width={width} height={18} rx={3} fill={fill} />
+              <text x={inside ? x0 + 8 : x0 + width + 7} y={by + 13} {...AXIS} fill={inside ? ink : '#C7D5E0'}>
+                {`${v < 0 ? '−' : ''}${Math.abs(v).toFixed(r.decimals)}`}
+              </text>
+            </g>
+          )
+        }
+        return (
+          <g key={r.k}>
+            <text x={0} y={y + 18} fontSize={13} fontWeight={600} fill="#C7D5E0">
+              {r.k}
+            </text>
+            <text x={0} y={y + 34} fontSize={11} fill="#6E7D88">
+              {r.kr}
+            </text>
+            {bar(r.mine, y + 4, TREND_COLOR[r.trend], '#0B1218')}
+            {bar(r.opp, y + 28, '#2A475E', '#C7D5E0')}
+            {lo < 0 && (
+              <g>
+                <line x1={X(0)} y1={y} x2={X(0)} y2={y + 50} stroke="#6E7D88" strokeDasharray="2 3" />
+                <text x={X(0)} y={y - 2} textAnchor="middle" {...AXIS} fontSize={10}>
+                  0
+                </text>
+              </g>
+            )}
+            <text x={W} y={y + 30} textAnchor="end" {...AXIS} fontSize={16} fill={TREND_COLOR[r.trend]}>
+              {`${r.delta} ${TREND_MARK[r.trend]}`}
+            </text>
+          </g>
+        )
+      })}
+      <g transform={`translate(${labW},${h - 4})`}>
+        <rect x={0} y={-9} width={10} height={10} rx={2} fill="#8F98A0" />
+        <text x={16} y={0} fontSize={11} fill="#A5A9C4">
+          {me}
+        </text>
+        <rect x={64} y={-9} width={10} height={10} rx={2} fill="#2A475E" />
+        <text x={80} y={0} fontSize={11} fill="#A5A9C4">
+          {opp}
+        </text>
+      </g>
+    </svg>
+  )
+}
+
 export function Legend({ items }: { items: { label: string; color: string; dash?: boolean }[] }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-[18px] pl-0.5">
@@ -258,7 +380,7 @@ export interface ColumnItem {
   vc?: string
 }
 
-/** 블록을 쌓아 올린 세로 막대 — 값은 % */
+/** 블록을 쌓아 올린 세로 막대 — 값은 %. 막대가 셋 이상이면 꼭대기를 점선으로 이어 흐름을 보이고, 누르면 onOpen */
 export function ColumnChart({
   items,
   h = 276,
@@ -267,6 +389,8 @@ export function ColumnChart({
   bw: bwMax = 96,
   note,
   aria,
+  trend = items.length > 2,
+  onOpen,
 }: {
   items: ColumnItem[]
   h?: number
@@ -275,6 +399,8 @@ export function ColumnChart({
   bw?: number
   note?: string
   aria: string
+  trend?: boolean
+  onOpen?: () => void
 }) {
   const m = { l: 48, r: 16, t: 16, b: mb }
   const iw = W - m.l - m.r
@@ -283,9 +409,24 @@ export function ColumnChart({
   const bw = Math.min(bwMax, slot - 46)
   const cellH = 14
   const gap = 3
+  const cxOf = (i: number) => m.l + slot * i + slot / 2
+  const cellsOf = (v: number) => (v > 0 ? Math.max(1, Math.floor(((Math.min(v, max) / max) * ih + gap) / (cellH + gap))) : 0)
+  /* 실제로 쌓인 칸의 꼭대기 — 값 글자와 점선이 같은 높이를 쓴다 */
+  const topOf = (v: number) => {
+    const cells = cellsOf(v)
+    return m.t + ih - cells * (cellH + gap) + (cells ? gap : 0)
+  }
 
   return (
-    <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} role="img" aria-label={aria} className="block">
+    <svg
+      viewBox={`0 0 ${W} ${h}`}
+      width="100%"
+      height={h}
+      role="img"
+      aria-label={aria}
+      className={cx('block', onOpen && 'cursor-zoom-in')}
+      onClick={onOpen}
+    >
       {[0, 0.25, 0.5, 0.75, 1].map((f) => {
         const y = m.t + ih - f * ih
         return (
@@ -298,13 +439,12 @@ export function ColumnChart({
         )
       })}
       {items.map((it, i) => {
-        const cx = m.l + slot * i + slot / 2
-        const hh = (Math.min(it.v, max) / max) * ih
-        const c = it.c ?? (it.v >= 60 ? '#8FC93A' : it.v >= 50 ? '#4FC3D9' : '#D9524C')
+        const cx = cxOf(i)
+        const c = it.c ?? rateColor(it.v)
         /* 0%면 막대를 그리지 않는다. 0보다 크면 아무리 작아도 한 칸은 보이게 */
-        const cells = it.v > 0 ? Math.max(1, Math.floor((hh + gap) / (cellH + gap))) : 0
+        const cells = cellsOf(it.v)
         /* 값 글자는 실제로 쌓인 칸 위에 — 한 칸이 값보다 높게 그려져도 겹치지 않게 */
-        const top = m.t + ih - cells * (cellH + gap) + (cells ? gap : 0)
+        const top = topOf(it.v)
         return (
           <g key={it.k}>
             {Array.from({ length: cells }, (_, k) => {
@@ -331,6 +471,16 @@ export function ColumnChart({
           </g>
         )
       })}
+      {trend && (
+        <path
+          d={`M ${items.map((it, i) => `${cxOf(i).toFixed(1)} ${topOf(it.v).toFixed(1)}`).join(' L ')}`}
+          fill="none"
+          stroke="#66C0F4"
+          strokeWidth={1.5}
+          strokeDasharray="4 4"
+          opacity={0.45}
+        />
+      )}
       {note && (
         <text x={m.l} y={h - 8} fontSize={11} fill="#6E7D88">
           {note}

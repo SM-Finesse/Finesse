@@ -6,6 +6,8 @@ import { USERNAME_MAX, USERNAME_MIN } from '../lib/username'
 /** 스코어 칸 ? 버튼 설명 — 한 줄 정의 · 경기 형식별 기준 표 · 측정 기준 항목들 */
 export interface StatInfo {
   lead: string
+  /** 머리 증감 알약에서 — ▲·▼가 이 지표에서 무슨 뜻인지 */
+  dir?: { up: string; down: string }
   table?: { caption: string; head: [string, string]; rows: [string, string][]; foot?: string }
   rows: [string, string][]
 }
@@ -75,14 +77,15 @@ export interface ReportStrings {
     season: string
     trSub: string
     basis: string
-    trDelta: string
+    /** TR 칸 증감 옆 — 최근 몇 판 기준인지 */
+    trDelta: (recent?: number) => string
     wl: (w: number, l: number) => string
     rd: (rd: string) => string
     gamesSub: string
     apmSub: string
     ppsSub: string
     vsSub: string
-    note: string
+    note: (recent?: number, total?: number) => string
   }
   ai: { loading: string; failed: string; unavailable: string; hint: string }
   win: {
@@ -135,11 +138,17 @@ export interface ReportStrings {
     detail: { open: string; close: string; title: (chapter: string) => string }
     /** 스코어 칸 ? 버튼 이름 */
     about: (name: string) => string
+    /** 알약 설명 머리 — 증감이 거의 없을 때 */
+    even: string
+    /** 03·04 머리 알약 — 칸의 ? 버튼(정의)과 나눠, 챕터 결과 요약만 */
+    summary: (code: string) => string
     chapters: Record<HeavyChapterId, string>
     trend: {
       legendTr: string
-      /** 머리 ΔTR 알약을 눌렀을 때 */
-      deltaInfo: StatInfo
+      /** 초록 구간 — ΔTR이 쓰는 최근 N판 */
+      recentBand: (n: number) => string
+      /** 머리 ΔTR 알약을 눌렀을 때 — 백엔드가 준 최근·전체 판수가 있으면 그 숫자로 */
+      deltaInfo: (recent?: number, total?: number) => StatInfo
       avgOf: (n: number) => string
       missing: string
       game: string
@@ -148,7 +157,22 @@ export interface ReportStrings {
     }
     playstyle: { right: string; metric: string; desc: string; aria: string }
     sub: Record<'app' | 'wapp' | 'vsapm' | 'cheese', string>
-    split: { right: string; sub: string }
+    subInfo: Record<'app' | 'wapp' | 'vsapm' | 'cheese', StatInfo>
+    /** 03·04장 나 vs 상대 평균 막대 */
+    compare: { me: string; opp: string; attackAria: string; defenseAria: string }
+    split: {
+      right: string
+      sub: string
+      chartAria: string
+      chartNote: string
+      weak: string
+      strong: string
+      games: (n: number) => string
+      /** 자세히 보기 표 머리 */
+      table: [string, string, string, string]
+      /** Strength Split 칸 ? 버튼 */
+      info: StatInfo
+    }
     comeback: {
       rateSub: string
       allowedSub: string
@@ -158,6 +182,8 @@ export interface ReportStrings {
       /** ? 버튼 설명 — 측정 기준까지 */
       rateInfo: StatInfo
       allowedInfo: StatInfo
+      /** 머리 ΔComeback 알약 */
+      netInfo: StatInfo
       mine: string
       allowed: string
       mineMark: string
@@ -173,7 +199,12 @@ export interface ReportStrings {
       ppsChange: string
       round: string
       pps: string
+      /** 라운드 순서별 라운드 수 */
+      samples: string
+      head: (round: number, samples?: number) => string
       perRound: string
+      /** 머리 VS Slope 알약 */
+      slopeInfo: StatInfo
       rising: string
       falling: string
       flat: string
@@ -301,14 +332,17 @@ const ko: Strings = {
       season: '현재 시즌 랭크',
       trSub: '시즌 대전 점수',
       basis: '비교 기준',
-      trDelta: '최근 10% 경기',
+      trDelta: (n) => (n ? `최근 ${n}판` : '최근 경기'),
       wl: (w, l) => `${w}승 ${l}패`,
       rd: (rd) => `편차 ±${rd}`,
       gamesSub: '분석한 최근 경기',
       apmSub: '분당 공격',
       ppsSub: '초당 블록',
       vsSub: '종합 지표',
-      note: 'TR 옆 증감은 최근 10% 경기의 평균 TR에서 분석 구간 전체의 평균 TR을 뺀 값입니다.',
+      note: (n, total) =>
+        n && total
+          ? `TR 옆 증감은 최근 ${n}판의 평균 TR에서 분석한 ${total}판 전체의 평균 TR을 뺀 값입니다.`
+          : 'TR 옆 증감은 최근 경기의 평균 TR에서 분석 구간 전체의 평균 TR을 뺀 값입니다.',
     },
     ai: {
       loading: '코멘트 생성 중… 통계는 이미 표시됨',
@@ -362,6 +396,8 @@ const ko: Strings = {
       noData: '이 챕터를 계산할 데이터가 아직 없습니다.',
       detail: { open: '자세히 보기', close: '닫기', title: (c) => `${c} 상세` },
       about: (name) => `${name} 설명`,
+      even: '거의 차이 없음',
+      summary: (code) => `오른쪽 위 값은 이 챕터를 대표하는 ${code}입니다. 지표마다 식과 기준은 각 칸의 ? 버튼에 있습니다.`,
       chapters: {
         tr_trend: 'TR · 능력치 추이',
         playstyle: '플레이스타일 상대비교',
@@ -374,14 +410,16 @@ const ko: Strings = {
       },
       trend: {
         legendTr: 'TR (실제 값)',
-        deltaInfo: {
+        recentBand: (n) => `최근 ${n}판 (ΔTR 기준)`,
+        deltaInfo: (n, total) => ({
           lead: '최근 경기 평균 TR이 분석한 전체 경기 평균 TR보다 얼마나 높은지 · 오르면 ▲, 내리면 ▼',
+          dir: { up: '최근 경기 TR이 전체 평균보다 높음', down: '최근 경기 TR이 전체 평균보다 낮음' },
           rows: [
-            ['최근', 'TR이 있는 경기 중 최신 30% (최소 3경기 · 최대 30경기)'],
-            ['전체', '분석한 경기 전체 — 최근 1년 · 최대 300판, TR이 없는 경기 제외'],
+            ['최근', `${n ? `최신 ${n}판 — ` : ''}TR이 있는 경기의 30% (최소 3판 · 최대 30판)`],
+            ['전체', `${total ? `${total}판 — ` : ''}최근 1년 · 최대 300판, TR이 없는 경기 제외`],
             ['계산', '최근 평균 TR − 전체 평균 TR'],
           ],
-        },
+        }),
         avgOf: (n) => `Avg of ${n}g`,
         missing: 'TR 추이 데이터를 받지 못해 ΔTR만 보여줍니다.',
         game: '경기',
@@ -390,7 +428,77 @@ const ko: Strings = {
       },
       playstyle: { right: '절대값 비노출 · Δ만 표시', metric: 'Metric', desc: '설명', aria: '상대 대비 편차' },
       sub: { app: '블록당 공격량', wapp: '공격 성향', vsapm: '공격 대비 방어 비율', cheese: '가비지 처리' },
-      split: { right: '상대와의 TR 차이 5등분 · 양 끝 구간', sub: '가장 강한 상대 20% 승률 − 가장 약한 상대 20% 승률' },
+      compare: { me: '나', opp: '상대 평균', attackAria: '공격 효율 — 나 대 상대 평균', defenseAria: '수비 · 가비지 처리 — 나 대 상대 평균' },
+      /* 03·04장 칸 ? 버튼 — 정의는 데이터명세서 2절, 식은 calc 명세 FancyMathCalculator */
+      subInfo: {
+        app: {
+          lead: '블록 하나를 놓을 때마다 상대에게 보내는 공격 줄 수 · 높을수록 적은 블록으로 많이 공격',
+          dir: { up: '상대보다 블록당 공격이 많음', down: '상대보다 블록당 공격이 적음' },
+          rows: [
+            ['식', 'APM ÷ (PPS × 60)'],
+            ['비교', '경기마다 내 값 − 그 경기 상대 값, 그 차이의 평균'],
+            ['범위', '최근 1년 · 최대 300판, APM 0이거나 PPS 0.1 미만인 경기 제외'],
+          ],
+        },
+        wapp: {
+          lead: '공격 성향 · 공격적으로 플레이할수록 높고, 방어 성향(Cheese Index)이 높을수록 크게 낮아짐',
+          dir: { up: '상대보다 공격적', down: '상대보다 덜 공격적' },
+          rows: [
+            ['식', 'APP에서 Cheese Index만큼 깎은 값'],
+            ['비교', '경기마다 내 값 − 그 경기 상대 값, 그 차이의 평균'],
+            ['범위', '최근 1년 · 최대 300판, APM 0이거나 PPS 0.1 미만인 경기 제외'],
+          ],
+        },
+        vsapm: {
+          lead: '공격 대비 방어 비율 · 공격보다 방어(가비지 처리)에 힘을 쏟을수록 높음',
+          dir: { up: '상대보다 방어에 더 치중', down: '상대보다 공격에 더 치중' },
+          rows: [
+            ['식', 'VS ÷ APM'],
+            ['VS', '(보낸 공격 줄 + 지운 가비지 줄) ÷ 시간(초) × 100'],
+            ['비교', '경기마다 내 값 − 그 경기 상대 값, 그 차이의 평균'],
+            ['참고', '+면 상대보다 방어 쪽, −면 공격 쪽 — 높다고 무조건 좋은 건 아님'],
+          ],
+        },
+        cheese: {
+          lead: '방어 성향 · 공격은 적고 가비지를 많이, 효율적으로 지울수록 높음',
+          dir: { up: '상대보다 방어적', down: '상대보다 공격적' },
+          rows: [
+            ['식', 'DS/P × 150 + (VS/APM − 2) × 50 + (0.6 − APP) × 125'],
+            ['DS/P', '블록 하나당 지운 가비지 줄'],
+            ['비교', '경기마다 내 값 − 그 경기 상대 값, 그 차이의 평균'],
+            ['참고', '+면 상대보다 방어적, −면 공격적 — 높다고 무조건 좋은 건 아님'],
+          ],
+        },
+      },
+      split: {
+        right: '상대와의 TR 차이 5등분 · 양 끝 구간',
+        sub: '가장 강한 상대 20% 승률 − 가장 약한 상대 20% 승률',
+        chartAria: '상대와의 TR 차이 구간별 승률',
+        chartNote: '상대와의 TR 차이로 경기를 5등분 · 왼쪽일수록 약한 상대, 오른쪽일수록 강한 상대',
+        weak: '약한 상대',
+        strong: '강한 상대',
+        games: (n) => `${n}판`,
+        table: ['구간', '경기', '승', '승률'],
+        info: {
+          lead: '강한 상대를 만났을 때 승률이 약한 상대 때보다 얼마나 떨어지는지 · 0에 가까울수록 덜 흔들림',
+          table: {
+            caption: '구간 나누는 법',
+            head: ['구간', '상대'],
+            rows: [
+              ['Q1', '가장 약한 상대 20%'],
+              ['Q2~Q4', '그 사이'],
+              ['Q5', '가장 강한 상대 20%'],
+            ],
+            foot: '상대 TR − 내 TR(경기 당시) 순으로 줄 세워 경기 수를 5등분',
+          },
+          rows: [
+            ['기준', '고정 TR 구간이 아니라 내 경기 안에서의 상대적 위치'],
+            ['범위', '최근 1년 · 최대 300판, 경기 당시 TR이 있는 경기'],
+            ['계산', 'Q5 승률 − Q1 승률'],
+            ['제외', 'TR이 있는 경기가 5판 미만이면 표시 안 함'],
+          ],
+        },
+      },
       comeback: {
         rateSub: '불리한 경기 중 역전승한 비율',
         allowedSub: '유리한 경기 중 역전패한 비율',
@@ -421,10 +529,10 @@ const ko: Strings = {
             head: ['형식', '앞선 라운드'],
             rows: [
               ['3선승', '2판+'],
-              ['5선승', '2판+'],
-              ['7선승', '2판+'],
+              ['5선승', '3판+'],
+              ['7선승', '4판+'],
             ],
-            foot: '라운드 시작 직전 · 형식과 무관',
+            foot: '라운드 시작 직전 · 선승 수의 절반(올림)',
           },
           rows: [
             ['범위', '최근 1년 · 최대 300판'],
@@ -439,6 +547,15 @@ const ko: Strings = {
         allowedMark: '역전 허용 ▼',
         note: (max) => `왼쪽은 뒤진 경기를 뒤집은 비율, 오른쪽은 앞선 경기를 뒤집힌 비율 (축 최대 ${max}%)`,
         aria: '역전승률과 역전 허용률 비교',
+        netInfo: {
+          lead: '역전승률 − 역전 허용률 · +면 뒤집은 경기가 뒤집힌 경기보다 많음',
+          dir: { up: '뒤집은 경기가 뒤집힌 경기보다 많음', down: '뒤집힌 경기가 뒤집은 경기보다 많음' },
+          rows: [
+            ['식', 'Comeback Rate − Comeback Allowed'],
+            ['단위', '%p (두 비율의 차이)'],
+            ['없음', '둘 중 하나라도 기회가 0번이면 표시 안 함'],
+          ],
+        },
       },
       condition: {
         avgVs: '평균 VS',
@@ -448,7 +565,18 @@ const ko: Strings = {
         ppsChange: 'PPS 변화',
         round: 'Round',
         pps: 'PPS',
+        samples: '라운드 수',
+        head: (r, n) => (n === undefined ? `ROUND ${r}` : `ROUND ${r} · ${n}개`),
         perRound: '라운드당 VS 변화',
+        slopeInfo: {
+          lead: '한 경기 안에서 라운드가 지날수록 VS가 오르는지 내리는지 · 라운드당 VS 변화량',
+          dir: { up: '라운드가 지날수록 VS가 오름', down: '라운드가 지날수록 VS가 내려감' },
+          rows: [
+            ['식', '라운드 순서별 평균 VS에 맞춘 직선의 기울기'],
+            ['범위', '최근 1년 · 최대 300판의 모든 라운드, 중간에 끝난 경기의 마지막 라운드 제외'],
+            ['참고', '뒤쪽 라운드는 표본이 적어 흔들림 — 라운드 수는 자세히 보기 표에'],
+          ],
+        },
         rising: '라운드가 지날수록 VS가 오릅니다',
         falling: '라운드가 지날수록 VS가 내려갑니다',
         flat: '라운드가 지나도 VS가 거의 그대로입니다',
@@ -580,14 +708,17 @@ const en: Strings = {
       season: 'Current season rank',
       trSub: 'Season ranked score',
       basis: 'BASIS',
-      trDelta: 'latest 10%',
+      trDelta: (n) => (n ? `last ${n} games` : 'recent games'),
       wl: (w, l) => `${w}W ${l}L`,
       rd: (rd) => `RD ±${rd}`,
       gamesSub: 'Recent games analyzed',
       apmSub: 'Attack per minute',
       ppsSub: 'Pieces per second',
       vsSub: 'Composite',
-      note: 'The change next to TR is the average TR of your latest 10% of games minus the average over the whole window.',
+      note: (n, total) =>
+        n && total
+          ? `The change next to TR is your average TR over the last ${n} games minus the average over all ${total} analyzed games.`
+          : 'The change next to TR is your recent average TR minus the average over the whole window.',
     },
     ai: {
       loading: 'Generating comment… stats are already shown',
@@ -641,6 +772,8 @@ const en: Strings = {
       noData: 'There is no data to compute this chapter yet.',
       detail: { open: 'Details', close: 'Close', title: (c) => `${c} detail` },
       about: (name) => `About ${name}`,
+      even: 'About the same',
+      summary: (code) => `The value at the top right is ${code}, this chapter’s headline. Each metric’s formula and basis is behind its ? button.`,
       chapters: {
         tr_trend: 'TR / ability trend',
         playstyle: 'Playstyle vs opponents',
@@ -653,14 +786,16 @@ const en: Strings = {
       },
       trend: {
         legendTr: 'TR (actual value)',
-        deltaInfo: {
+        recentBand: (n) => `Last ${n} games (ΔTR basis)`,
+        deltaInfo: (n, total) => ({
           lead: 'How far your recent average TR is above your average over all analyzed games · ▲ rising, ▼ falling',
+          dir: { up: 'Recent TR is above your overall average', down: 'Recent TR is below your overall average' },
           rows: [
-            ['Recent', 'Latest 30% of games with TR (min 3, max 30)'],
-            ['All', 'Every analyzed game — past year, up to 300, games without TR excluded'],
+            ['Recent', `${n ? `Last ${n} games — ` : ''}30% of games with TR (min 3, max 30)`],
+            ['All', `${total ? `${total} games — ` : ''}past year, up to 300, games without TR excluded`],
             ['Formula', 'Recent avg TR − overall avg TR'],
           ],
-        },
+        }),
         avgOf: (n) => `Avg of ${n}g`,
         missing: 'No TR series was received, so only ΔTR is shown.',
         game: 'Game',
@@ -669,7 +804,76 @@ const en: Strings = {
       },
       playstyle: { right: 'No absolute values · Δ only', metric: 'Metric', desc: 'Description', aria: 'Deviation vs opponents' },
       sub: { app: 'Attack per piece', wapp: 'Attack tendency', vsapm: 'Defense-to-attack ratio', cheese: 'Garbage clearing' },
-      split: { right: 'TR gap vs opponent in fifths · the two ends', sub: 'Win rate vs strongest 20% − win rate vs weakest 20%' },
+      compare: { me: 'You', opp: 'Opp. avg', attackAria: 'Attack efficiency — you vs opponent average', defenseAria: 'Defense / garbage — you vs opponent average' },
+      subInfo: {
+        app: {
+          lead: 'Attack lines sent per piece placed · higher means more attack from fewer pieces',
+          dir: { up: 'More attack per piece than opponents', down: 'Less attack per piece than opponents' },
+          rows: [
+            ['Formula', 'APM ÷ (PPS × 60)'],
+            ['Compared', 'Your value − that match’s opponent, averaged over matches'],
+            ['Range', 'Past year · up to 300, matches with APM 0 or PPS under 0.1 excluded'],
+          ],
+        },
+        wapp: {
+          lead: 'Attack tendency · rises with aggressive play and drops sharply as Cheese Index (defensiveness) rises',
+          dir: { up: 'More aggressive than opponents', down: 'Less aggressive than opponents' },
+          rows: [
+            ['Formula', 'APP reduced by Cheese Index'],
+            ['Compared', 'Your value − that match’s opponent, averaged over matches'],
+            ['Range', 'Past year · up to 300, matches with APM 0 or PPS under 0.1 excluded'],
+          ],
+        },
+        vsapm: {
+          lead: 'Defense-to-attack ratio · higher when you put more into defense (clearing garbage) than attack',
+          dir: { up: 'Leans more on defense than opponents', down: 'Leans more on attack than opponents' },
+          rows: [
+            ['Formula', 'VS ÷ APM'],
+            ['VS', '(attack lines sent + garbage lines cleared) ÷ seconds × 100'],
+            ['Compared', 'Your value − that match’s opponent, averaged over matches'],
+            ['Note', '+ leans defensive, − leans offensive — higher isn’t automatically better'],
+          ],
+        },
+        cheese: {
+          lead: 'Defensive tendency · higher with little attack and lots of efficient garbage clearing',
+          dir: { up: 'More defensive than opponents', down: 'More offensive than opponents' },
+          rows: [
+            ['Formula', 'DS/P × 150 + (VS/APM − 2) × 50 + (0.6 − APP) × 125'],
+            ['DS/P', 'Garbage lines cleared per piece'],
+            ['Compared', 'Your value − that match’s opponent, averaged over matches'],
+            ['Note', '+ more defensive than opponents, − more offensive — higher isn’t automatically better'],
+          ],
+        },
+      },
+      split: {
+        right: 'TR gap vs opponent in fifths · the two ends',
+        sub: 'Win rate vs strongest 20% − win rate vs weakest 20%',
+        chartAria: 'Win rate by TR gap vs opponent',
+        chartNote: 'Matches split into fifths by TR gap · weaker opponents on the left, stronger on the right',
+        weak: 'weaker',
+        strong: 'stronger',
+        games: (n) => `${n}g`,
+        table: ['Bracket', 'Games', 'Wins', 'Win rate'],
+        info: {
+          lead: 'How much your win rate drops against strong opponents compared with weak ones · closer to 0 is steadier',
+          table: {
+            caption: 'How the brackets are made',
+            head: ['Bracket', 'Opponents'],
+            rows: [
+              ['Q1', 'Weakest 20%'],
+              ['Q2–Q4', 'In between'],
+              ['Q5', 'Strongest 20%'],
+            ],
+            foot: 'Games ranked by opponent TR − your TR (at match time), split into five equal groups',
+          },
+          rows: [
+            ['Basis', 'Relative position within your own games, not fixed TR bands'],
+            ['Range', 'Past year · up to 300, games with TR recorded'],
+            ['Formula', 'Q5 win rate − Q1 win rate'],
+            ['Excluded', 'Hidden when fewer than 5 games have TR'],
+          ],
+        },
+      },
       comeback: {
         rateSub: 'Won after trailing',
         allowedSub: 'Lost after leading',
@@ -700,10 +904,10 @@ const en: Strings = {
             head: ['Format', 'Rounds ahead'],
             rows: [
               ['FT3', '2+'],
-              ['FT5', '2+'],
-              ['FT7', '2+'],
+              ['FT5', '3+'],
+              ['FT7', '4+'],
             ],
-            foot: 'Before a round · same for every format',
+            foot: 'Before a round · half the wins needed, rounded up',
           },
           rows: [
             ['Range', 'Past year · up to 300'],
@@ -718,6 +922,15 @@ const en: Strings = {
         allowedMark: 'Allowed ▼',
         note: (max) => `Left: games turned around after trailing. Right: leads that were turned around (axis max ${max}%)`,
         aria: 'Comeback rate vs comebacks allowed',
+        netInfo: {
+          lead: 'Comeback rate − comebacks allowed · + means you turn more games around than you let slip',
+          dir: { up: 'You turn more games around than you let slip', down: 'You let more games slip than you turn around' },
+          rows: [
+            ['Formula', 'Comeback Rate − Comeback Allowed'],
+            ['Unit', '%p (difference of two rates)'],
+            ['Hidden', 'When either side has zero chances'],
+          ],
+        },
       },
       condition: {
         avgVs: 'Avg VS',
@@ -727,7 +940,18 @@ const en: Strings = {
         ppsChange: 'PPS change',
         round: 'Round',
         pps: 'PPS',
+        samples: 'Rounds',
+        head: (r, n) => (n === undefined ? `ROUND ${r}` : `ROUND ${r} · n=${n}`),
         perRound: 'VS change per round',
+        slopeInfo: {
+          lead: 'Whether VS rises or falls as rounds go on within a match · VS change per round',
+          dir: { up: 'VS rises as rounds go on', down: 'VS falls as rounds go on' },
+          rows: [
+            ['Formula', 'Slope of a line fitted to average VS by round order'],
+            ['Range', 'Every round in the past year (up to 300 matches), last round of early-ended matches excluded'],
+            ['Note', 'Later rounds have fewer samples and swing more — round counts are in Details'],
+          ],
+        },
         rising: 'VS rises as rounds go on',
         falling: 'VS drops as rounds go on',
         flat: 'VS barely changes across rounds',

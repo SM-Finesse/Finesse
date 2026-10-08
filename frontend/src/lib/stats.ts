@@ -130,7 +130,7 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     pick: (d) => d.playstyle_relative?.delta_stride,
   },
   delta_inf_ds: {
-    code: 'ΔInf DS', label: { ko: '다운스태킹 중심', en: 'Inf DS' }, kind: 'delta', decimals: 2,
+    code: 'ΔInf DS', label: { ko: '가비지 처리 중심', en: 'Inf DS' }, kind: 'delta', decimals: 2,
     pick: (d) => d.playstyle_relative?.delta_inf_ds,
   },
   delta_app: {
