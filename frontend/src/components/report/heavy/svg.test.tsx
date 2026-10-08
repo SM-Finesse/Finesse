@@ -30,11 +30,11 @@ describe('ColumnChart', () => {
     expect(two.container.querySelectorAll('path[stroke-dasharray="4 4"]')).toHaveLength(0)
   })
 
-  it('색을 주지 않으면 값에 따라 — 낮으면 빨강, 높으면 초록, 사이는 섞는다', () => {
-    expect(rateColor(30)).toBe('#d9524c')
-    expect(rateColor(60)).toBe('#d3be55')
-    expect(rateColor(95)).toBe('#8fc93a')
-    expect(rateColor(65)).not.toBe(rateColor(60))
+  it('색을 주지 않으면 값에 따라 5단계로 딱 끊는다 — 80·70·60·50%', () => {
+    expect([82.1, 74.6, 66.2, 55.4, 41.8].map(rateColor)).toEqual(['#8FC93A', '#B4C63F', '#D3BE55', '#D28A8A', '#D9524C'])
+    expect(rateColor(80)).toBe('#8FC93A')
+    expect(rateColor(79.9)).toBe('#B4C63F')
+    expect(rateColor(61)).toBe(rateColor(69))
   })
 
   it('나 vs 상대 막대 — 음수끼리도 값이 클수록 길게, 0 눈금을 남긴다', () => {

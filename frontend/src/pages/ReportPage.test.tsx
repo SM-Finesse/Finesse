@@ -74,15 +74,20 @@ describe('ReportPage — 라이트 뷰', () => {
     await waitFor(() => expect(screen.getByRole('img', { name: '말레이시아' }).getAttribute('src')).toMatch(/svg/))
     expect(screen.getByText(/가입 \d+년 전 · 플레이 1,804시간 · 최근 120경기/)).toBeInTheDocument()
     expect(within(profile).getByText('237')).toBeInTheDocument()
-    /* 이번 시즌 최고 랭크 */
-    expect(within(profile).getByText('TOP RANK').parentElement).toHaveTextContent('TOP RANKX+')
+    /* 5칸 증감 배지 — 최근 N판 vs 그 이전 판 변화율 %. WR도 %p가 아니라 % */
+    expect(within(profile).getByText('+0.5%')).toBeInTheDocument()
+    expect(within(profile).getByText('−19.0%')).toBeInTheDocument()
+    expect(within(profile).getByText('+16.7%')).toBeInTheDocument()
+    expect(within(profile).getByText('+23.6%')).toBeInTheDocument()
+    expect(within(profile).getByText('+17.0%')).toBeInTheDocument()
+    expect(within(profile).getByText('값 아래 증감은 최근 26판 평균을 그 이전 경기 평균과 비교한 변화율(%)입니다.')).toBeInTheDocument()
 
     fireEvent.error(img)
     expect(photo()).toBeNull()
   })
 
   it('유저 정보 값이 빠지면 지어내지 않는다 — 레벨·국가 없음, APM 등은 —', async () => {
-    const { best_rank: _r, avatar_url: _a, xp: _x, country: _c, joined_at: _j, play_time_seconds: _t, friend_count: _f, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
+    const { window_delta: _w, avatar_url: _a, xp: _x, country: _c, joined_at: _j, play_time_seconds: _t, friend_count: _f, apm: _p, pps: _s, vs: _v, ...rest } = STATS.profile
     routeFetch({ stats: [() => json({ ...STATS, profile: rest })], comment: [pending] })
     const { container } = render(
       <LangProvider initial="ko">
@@ -94,7 +99,7 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.queryByText(/^LV/)).not.toBeInTheDocument()
     expect(screen.queryByText(/^가입/)).not.toBeInTheDocument()
     expect(screen.queryByText(/플레이 \d/)).not.toBeInTheDocument()
-    expect(screen.queryByText('TOP RANK')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^값 아래 증감은/)).not.toBeInTheDocument()
     expect(screen.queryByTitle('이 유저를 친구로 추가한 플레이어 수')).not.toBeInTheDocument()
     expect(within(profile).getAllByText('—')).toHaveLength(3)
   })

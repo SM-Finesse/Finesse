@@ -21,8 +21,6 @@ export interface StatsResponse {
 
 export interface Profile {
   rank?: string
-  /** 이번 시즌 최고 랭크 (TETR.IO summaries/league의 bestrank). 랭크를 받은 적 없으면 빠진다 */
-  best_rank?: string
   /** tr·glicko·rd — 랭크 기록이 없으면 TETR.IO가 주는 -1이 그대로 온다 */
   tr: number
   glicko: number
@@ -44,20 +42,23 @@ export interface Profile {
   joined_at?: string
   /** 총 플레이 시간(초) — 유저가 숨겼으면 TETR.IO가 주는 -1이 그대로 온다. 유저 정보 호출이 실패하면 빠진다 */
   play_time_seconds?: number
-  /** 프로필 배지 — 유저 정보 호출이 실패하면 빠진다 */
-  badges?: Badge[]
   /** 이 유저를 친구로 추가한 플레이어 수 */
   friend_count?: number
+  /** 프로필 5칸 증감 배지 — 콜드스타트나 비교할 수 없으면 빠진다 */
+  window_delta?: WindowDelta
 }
 
-/** 프로필 배지 — 백엔드는 보내 주지만 화면에는 그리지 않는다 */
-export interface Badge {
-  id: string
-  label?: string
-  desc?: string
-  group?: string
-  /** 획득 시각(ISO-8601) */
-  ts?: string
+/**
+ * 최근 N판(recent_matches) 평균 vs 그 이전 판 평균의 변화율 % — 9.4 = +9.4%. WR도 %p가 아니라 %.
+ * tr_delta_pct는 따로 빠질 수 있다 (매치 당시 TR이 없을 때).
+ */
+export interface WindowDelta {
+  recent_matches: number
+  tr_delta_pct?: number
+  wr_delta_pct?: number
+  apm_delta_pct?: number
+  pps_delta_pct?: number
+  vs_delta_pct?: number
 }
 
 export interface FixedMetrics {
@@ -77,7 +78,7 @@ export interface DeltaMetrics {
   strength_split?: number
   /** 크게 뒤지다 이긴 비율 — 기준은 선승 수의 절반(올림): 3선승 2판 · 5선승 3판 · 7선승 4판 */
   comeback_rate?: number
-  /** 2판 이상 앞서다 진 비율 */
+  /** 유리한 경기 중 진 비율 — 유리 기준은 역전 기회와 같은 형식별 점수 차(3선승 2 · 5선승 3 · 7선승 4) */
   comeback_rate_against?: number
   /** comeback_rate − comeback_rate_against. 둘 중 하나라도 없으면 빠진다 — 라이트 하이라이트 후보 */
   delta_comeback?: number

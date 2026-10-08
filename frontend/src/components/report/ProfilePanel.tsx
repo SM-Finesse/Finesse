@@ -21,18 +21,6 @@ function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNod
   )
 }
 
-/** 이번 시즌 최고 랭크 */
-function TopRank({ rank }: { rank: string }) {
-  return (
-    <span className="flex items-center gap-2">
-      <span className="font-display text-[9.5px] font-bold tracking-[.18em] text-faint">TOP RANK</span>
-      <span className="font-display text-[19px] leading-none font-extrabold text-head [text-shadow:0_2px_0_rgba(0,0,0,.45)]" style={{ color: rankColor(rank) }}>
-        {rankLabel(rank)}
-      </span>
-    </span>
-  )
-}
-
 /** 아래 띠의 작은 값 — GLICKO · GAMES */
 function Strip({ k, v, unit }: { k: string; v: string; unit?: string }) {
   return (
@@ -52,12 +40,12 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   const p = t.report.profile
   const pr = data.profile
   const rank = rankLabel(pr.rank)
-  /* 최고 랭크가 'z'면 이번 시즌 티어를 받은 적이 없다 — 보여줄 게 없어 숨긴다 */
-  const topRank = pr.best_rank && pr.best_rank !== 'z' ? pr.best_rank : null
   const winRate = data.fixed_metrics.win_rate
   const wins = typeof winRate === 'number' ? Math.round(winRate * data.match_count) : null
-  const trDelta = data.delta_metrics?.tr_trend_delta
-  const basis = data.delta_metrics?.tr_trend_basis
+  /* 5칸 증감 — 최근 N판 vs 그 이전 판 변화율 %. 값이 빠지면 배지도 없다 */
+  const wd = pr.window_delta
+  const pct = (v: number | undefined) =>
+    typeof v === 'number' ? <DeltaInline text={`${signed(v, 1)}%`} trend={trendOf(v, 1)} /> : null
 
   return (
     <section className="panel overflow-hidden bg-surface" aria-label="PROFILE">
@@ -93,12 +81,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
           tag={p.basis}
           sub={
             <>
-              {typeof trDelta === 'number' && (
-                <span className="flex items-baseline gap-1.5">
-                  <DeltaInline text={signed(trDelta, 1)} trend={trendOf(trDelta, 1)} />
-                  <Caption className="text-[11px]">{p.trDelta(basis?.recent_matches)}</Caption>
-                </span>
-              )}
+              {pct(wd?.tr_delta_pct)}
               <span>{p.trSub}</span>
             </>
           }
@@ -106,24 +89,57 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
           <BigNum value={numOrDash(pr.tr, 2)} />
         </Cell>
         {/* 승률을 모르면 지어내지 않고 '—' */}
-        <Cell k="WIN RATE" sub={wins !== null && p.wl(wins, data.match_count - wins)}>
+        <Cell
+          k="WIN RATE"
+          sub={
+            (wd?.wr_delta_pct !== undefined || wins !== null) && (
+              <>
+                {pct(wd?.wr_delta_pct)}
+                {wins !== null && <span>{p.wl(wins, data.match_count - wins)}</span>}
+              </>
+            )
+          }
+        >
           {typeof winRate === 'number' ? <BigNum value={(winRate * 100).toFixed(1)} suffix="%" /> : '—'}
         </Cell>
-        <Cell k="APM" sub={p.apmSub}>
+        <Cell
+          k="APM"
+          sub={
+            <>
+              {pct(wd?.apm_delta_pct)}
+              <span>{p.apmSub}</span>
+            </>
+          }
+        >
           <BigNum value={numOrDash(pr.apm, 2)} />
         </Cell>
-        <Cell k="PPS" sub={p.ppsSub}>
+        <Cell
+          k="PPS"
+          sub={
+            <>
+              {pct(wd?.pps_delta_pct)}
+              <span>{p.ppsSub}</span>
+            </>
+          }
+        >
           <BigNum value={numOrDash(pr.pps, 2)} />
         </Cell>
-        <Cell k="VS" sub={p.vsSub}>
+        <Cell
+          k="VS"
+          sub={
+            <>
+              {pct(wd?.vs_delta_pct)}
+              <span>{p.vsSub}</span>
+            </>
+          }
+        >
           <BigNum value={numOrDash(pr.vs, 2)} />
         </Cell>
       </div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-3">
         <Strip k="GLICKO" v={numOrDash(pr.glicko, 1)} unit={pr.rd >= 0 ? p.rd(num(pr.rd, 1)) : undefined} />
-        {topRank && <TopRank rank={topRank} />}
         <Strip k="GAMES" v={num(data.match_count)} unit={p.gamesSub} />
-        {typeof trDelta === 'number' && <Caption className="text-xs lg:ml-auto">{p.note(basis?.recent_matches, basis?.total_matches)}</Caption>}
+        {wd && <Caption className="text-xs lg:ml-auto">{p.note(wd.recent_matches)}</Caption>}
       </div>
     </section>
   )

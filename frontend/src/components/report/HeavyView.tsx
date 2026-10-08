@@ -181,17 +181,19 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     ) : undefined
 
   /*
-   * 03·04 머리 알약 — 칸의 ? 버튼이 정의(식·범위)를 맡으므로, 알약은 이 챕터 결과만 요약한다:
-   * 대표값이 무엇인지 + 칸마다 지금 값과 ▲·▼의 뜻.
+   * 03·04 머리 알약 — ▲▼가 무엇과 무엇을 비교한 결과인지(나 vs 그 경기 상대) + 같은 챕터 다른 지표의 지금 값.
+   * 지표 정의·식은 칸의 ? 버튼이 맡는다.
    */
-  const summary = (lead: Evidence | null, items: [Evidence | null, StatInfo][]): StatInfo => ({
-    lead: h.summary(lead?.meta.code ?? ''),
-    dir: items.find(([e]) => e === lead)?.[1].dir,
-    rows: items.flatMap(([e, info]) => {
-      if (!e?.trend) return []
-      const meaning = e.trend === 'up' ? info.dir?.up : e.trend === 'down' ? info.dir?.down : h.even
-      return [[e.meta.code, `${e.text} ${TREND_MARK[e.trend]}${meaning ? ` · ${meaning}` : ''}`] as [string, string]]
-    }),
+  const withOthers = (info: StatInfo, others: [Evidence | null, StatInfo][]): StatInfo => ({
+    ...info,
+    rows: [
+      ...info.rows,
+      ...others.flatMap(([e, o]) => {
+        if (!e?.trend) return []
+        const meaning = e.trend === 'up' ? o.dir?.up : e.trend === 'down' ? o.dir?.down : h.even
+        return [[h.with, `${e.meta.code} ${e.text} ${TREND_MARK[e.trend]}${meaning ? ` · ${meaning}` : ''}`] as [string, string]]
+      }),
+    ],
   })
 
   const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; tail?: ReactNode; body: ReactNode }> = {
@@ -217,7 +219,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       body: hasPs ? <DivergingBars items={psItems} max={psMax} tick={psTick} aria={h.playstyle.aria} /> : noData,
     },
     attack: {
-      right: pill(app, summary(app, [[app, h.subInfo.app], [wapp, h.subInfo.wapp]])),
+      right: pill(app, withOthers(h.pillInfo.app, [[wapp, h.subInfo.wapp]])),
       chips: present([app, wapp]).map((e) => chipOf(e)),
       body:
         app || wapp ? (
@@ -230,7 +232,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
         ),
     },
     defense: {
-      right: pill(vsApm, summary(vsApm, [[vsApm, h.subInfo.vsapm], [cheese, h.subInfo.cheese]])),
+      right: pill(vsApm, withOthers(h.pillInfo.vsapm, [[cheese, h.subInfo.cheese]])),
       chips: present([vsApm, cheese]).map((e) => chipOf(e)),
       body:
         vsApm || cheese ? (
@@ -264,8 +266,9 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
         cb || ca ? (
           <>
             <Strip>
-              <StatBox k="Comeback Rate" v={cb ? `${cb.text} ▲` : '—'} s={sampled(h.comeback.rateSub, cs?.comeback_opportunities, cs?.comeback_won)} color={cb ? 'var(--color-delta-up)' : 'var(--color-muted)'} info={h.comeback.rateInfo} />
-              <StatBox k="Comeback Allowed" v={ca ? `${ca.text} ▼` : '—'} s={sampled(h.comeback.allowedSub, cs?.comeback_against_opportunities, cs?.comeback_against_allowed)} color={ca ? 'var(--color-delta-down)' : 'var(--color-muted)'} info={h.comeback.allowedInfo} />
+              {/* 0%면 성공·허용이 한 번도 없다는 뜻 — 방향 기호와 색을 빼고 숫자만 */}
+              <StatBox k="Comeback Rate" v={cb ? (cb.value > 0 ? `${cb.text} ▲` : cb.text) : '—'} s={sampled(h.comeback.rateSub, cs?.comeback_opportunities, cs?.comeback_won)} color={cb && cb.value > 0 ? 'var(--color-delta-up)' : 'var(--color-muted)'} info={h.comeback.rateInfo} />
+              <StatBox k="Comeback Allowed" v={ca ? (ca.value > 0 ? `${ca.text} ▼` : ca.text) : '—'} s={sampled(h.comeback.allowedSub, cs?.comeback_against_opportunities, cs?.comeback_against_allowed)} color={ca && ca.value > 0 ? 'var(--color-delta-down)' : 'var(--color-muted)'} info={h.comeback.allowedInfo} />
             </Strip>
             {/* 뒤집은 쪽과 뒤집힌 쪽을 같은 축에 올려 어느 쪽이 더 큰지 바로 보이게 한다 */}
             <ColumnChart

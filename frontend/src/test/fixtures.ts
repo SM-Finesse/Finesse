@@ -8,7 +8,6 @@ export const STATS: StatsResponse = {
   updated_at: '2026-10-01T08:00:00Z',
   profile: {
     rank: 'x',
-    best_rank: 'x+',
     tr: 24321.6,
     glicko: 3000,
     rd: 60,
@@ -20,12 +19,8 @@ export const STATS: StatsResponse = {
     country: 'MY',
     joined_at: '2020-03-26T14:25:41Z',
     play_time_seconds: 6496543.2,
-    badges: [
-      { id: 'secretgrade', label: 'Achieved the full Secret Grade', ts: '2020-12-27T03:59:00.900Z' },
-      { id: 'snowman_2', label: 'Bottled Snowman', group: 'snowman' },
-      { id: 'snowman_3', label: 'Snowman', group: 'snowman' },
-    ],
     friend_count: 2438,
+    window_delta: { recent_matches: 26, tr_delta_pct: 0.54, wr_delta_pct: -19.03, apm_delta_pct: 16.74, pps_delta_pct: 23.65, vs_delta_pct: 16.97 },
   },
   fixed_metrics: {
     win_rate: 0.625,
@@ -48,6 +43,8 @@ export const COLD: StatsResponse = {
   ...STATS,
   cold_start: true,
   match_count: 7,
+  /* 콜드스타트면 비교할 구간이 없어 window_delta가 빠진다 */
+  profile: { ...STATS.profile, window_delta: undefined },
   fixed_metrics: { win_rate: 3 / 7, tr_trend: [], recent_form: ['W', 'L', 'L', 'W', 'W', 'L', 'L'] },
   delta_metrics: undefined,
 }

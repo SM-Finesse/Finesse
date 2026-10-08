@@ -171,11 +171,11 @@ describe('ReportPage — 헤비 뷰', () => {
 
     /* 알약 버튼 이름에는 값이 같이 들어간다 — 칸의 ? 버튼과 구분 */
     const cases: [string, string, string][] = [
-      /* 03·04 알약은 정의(식)가 아니라 챕터 결과 요약 — 식은 칸의 ? 버튼에만 */
-      ['공격 효율', 'ΔAPP +0.092 설명', 'ΔWeighted APP+0.045 ▲ · 상대보다 공격적'],
-      ['수비 · 가비지 처리', 'ΔVS/APM −0.055 설명', 'ΔCheese Index−16.2 ▼ · 상대보다 공격적'],
-      ['역전승 퍼포먼스', 'ΔComeback +30.6%p 설명', 'Comeback Rate − Comeback Allowed'],
-      ['경기 내 컨디션 변화', 'VS Slope −0.12/R 설명', '라운드 순서별 평균 VS에 맞춘 직선의 기울기'],
+      /* ▲▼ 기준 — 무엇과 무엇을 비교했는지. 03·04는 같은 챕터 다른 지표를 '함께' 줄로 */
+      ['공격 효율', 'ΔAPP +0.092 설명', '같은 경기에서 만난 상대의 APP'],
+      ['수비 · 가비지 처리', 'ΔVS/APM −0.055 설명', '함께ΔCheese Index −16.2 ▼ · 상대보다 공격적'],
+      ['역전승 퍼포먼스', 'ΔComeback +30.6%p 설명', '역전승률 − 역전 허용률 (%p)'],
+      ['경기 내 컨디션 변화', 'VS Slope −0.12/R 설명', '그 평균들에 맞춘 직선의 기울기 = 라운드당 VS 변화'],
     ]
     for (const [title, name, text] of cases) {
       const ch = chapter(title)
@@ -183,7 +183,6 @@ describe('ReportPage — 헤비 뷰', () => {
       expect(within(ch).getByRole('note')).toHaveTextContent(text)
       /* 머리 — 무슨 지표인지와 ▲·▼의 뜻 */
       if (title === '공격 효율') expect(within(ch).getByRole('note')).toHaveTextContent('ΔAPP · 공격 효율+0.092 ▲상대보다 블록당 공격이 많음')
-      if (title === '공격 효율') expect(within(ch).getByRole('note')).not.toHaveTextContent('APM ÷ (PPS × 60)')
       await user.keyboard('{Escape}')
     }
   })
@@ -205,6 +204,18 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(note).toHaveTextContent('4판 — 최근 1년')
     await user.keyboard('{Escape}')
     expect(within(tr).queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('역전승률이 0%면 칸에 ▲를 붙이지 않는다', async () => {
+    routeFetch({ stats: [() => json({ ...FULL, delta_metrics: { ...FULL.delta_metrics, comeback_rate: 0, delta_comeback: -0.25 } })], comment: [pending] })
+    setup()
+    await ready()
+
+    const cb = chapter('역전승 퍼포먼스')
+    const rate = within(cb).getByText('Comeback Rate').parentElement!
+    expect(rate).toHaveTextContent('0.0%')
+    expect(rate).not.toHaveTextContent('▲')
+    expect(within(cb).getByText('Comeback Allowed').parentElement).toHaveTextContent('25.0% ▼')
   })
 
   it('역전승 칸의 ? 버튼은 값이 뭔지 펼쳐 보이고, 다시 누르거나 Esc로 닫힌다', async () => {
