@@ -20,6 +20,7 @@ Mock 규칙(실제 서비스 로직이 아님): light 는 값이 있는 후보�
 import json
 import logging
 import os
+import random
 import threading
 import time
 from dataclasses import dataclass
@@ -137,6 +138,10 @@ class LlamaGenerator:
     def _complete(self, label: str, messages: list[dict[str, str]], decoding: dict,
                   schema: dict | None) -> GenerationResult:
         kwargs = dict(decoding)
+        # 요청마다 다른 seed. 지정하지 않으면 서버를 켤 때마다 같은 순서의 출력이 나와서,
+        # 같은 시점에 켠 11번·13번이 똑같은 출력을 낸다 (10/8 두 서버 로그의 gen 토큰 수가 순서대로 일치).
+        # 그러면 백엔드가 다른 서버로 재요청해도 같은 실패를 받을 수 있다.
+        kwargs["seed"] = random.randrange(2**31)
         if self.repeat_penalty is not None:
             kwargs["repeat_penalty"] = self.repeat_penalty
         if self.json_mode == "json":
@@ -159,8 +164,9 @@ class LlamaGenerator:
         usage = out.get("usage", {})
         finish = choice.get("finish_reason") or ""
         logger.info(
-            "%s 생성 %.1fs finish=%s prompt=%s gen=%s json_mode=%s",
-            label, elapsed, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), self.json_mode,
+            "%s 생성 %.1fs finish=%s prompt=%s gen=%s seed=%s json_mode=%s",
+            label, elapsed, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), kwargs["seed"],
+            self.json_mode,
         )
         return GenerationResult(text=choice["message"]["content"] or "", finish_reason=finish)
 

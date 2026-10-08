@@ -80,6 +80,14 @@ def test_off면_디코딩만_전달(req, fake_llama):
     assert "response_format" not in sent and "repeat_penalty" not in sent
 
 
+def test_요청마다_seed가_다름(req, fake_llama):
+    gen = LlamaGenerator("x.gguf")
+    for _ in range(5):
+        gen.generate_light(req, build_light_messages(req))
+    seeds = {c[1]["seed"] for c in fake_llama if c[0] == "chat"}
+    assert len(seeds) > 1
+
+
 def test_schema면_값있는_후보만_허용하고_정확히_3개(req, fake_llama):
     del_req = req.model_copy(deep=True)
     del_req.delta_metrics.delta_comeback = None
