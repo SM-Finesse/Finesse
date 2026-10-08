@@ -1,0 +1,82 @@
+server:
+  port: 8081
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: finesse-backend
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+
+# TETR.IO 외부 API 설정 (Finesse-API명세서 4.1-1절, TETR.IO API 연동확인 문서 기준)
+# 타임아웃/재시도 값은 타임아웃 기준 문서(23번) 9절을 정본으로 한다.
+tetrio:
+  base-url: https://ch.tetr.io/api
+  request-timeout-seconds: 5
+  # 호출 간격은 calc와 같은 RateLimiter를 쓴다 — finesse.analytics.collector.min-request-interval (10/7)
+  retry: 2 # 최초 포함 총 3회 — calc 모듈 max-retry-attempts(3)와 맞춤 (팀 검토 2026-10-01)
+
+# LLM 추론 서버 목록 (Finesse-API명세서 6장/6.1절 — 라운드로빈 대상)
+# MVP: 학교 PC 8대 중 2대. 여기 값은 로컬 개발용 mock LLM(tools/MockLlmServer.java, 9101/9102) —
+# 실제 추론 서버 주소는 저장소에 넣지 않고 실행할 때 --llm.servers=... 로 지정한다.
+# "호출 1회"와 "엔드포인트"는 다른 레이어 — 엔드포인트 상한은 app.endpoint 아래에 따로 둔다.
+llm:
+  servers:
+    - http://localhost:9101
+    - http://localhost:9102
+  connect-timeout-seconds: 2        # 연결 타임아웃 — 넘으면 "연결 실패"로 보고 서버 제외 대상 (5.5절)
+  heavy-call-timeout-seconds: 10   # heavy 챕터 1회 호출 (9/22 Vulkan 실측 기준)
+  heavy-min-remaining-seconds: 5   # heavy 새 시도 시작 조건 — 엔드포인트 잔여시간이 이보다 적으면 재시도 안 함
+  light-call-timeout-seconds: 15   # light 1회 호출
+  light-min-remaining-seconds: 12  # light 새 시도 시작 조건
+  max-retries: 3                    # 최초 시도 포함 총 4회 (표5)
+  server-exclude-seconds: 30        # 연결 실패한 서버를 이 시간 동안 라운드로빈에서 제외 (5.5절)
+  light-path: /v1/comment/light            # LLM 추론 서버(PR #9)와 맞춤, 10/7 연동 확인
+  heavy-chapter-path: /v1/comment/heavy-chapter   # LLM 쪽 heavy 엔드포인트가 나오면 확인
+
+# 캐시 설정 (Finesse-API명세서 5장 — 인메모리 Caffeine, 최대 10분 유지 후 소멸)
+app:
+  cache:
+    ttl-minutes: 10
+  # 트래픽 몰림(23번 5.4절) — 캐시 미스 수집은 동시에 2건까지만.
+  # 유저 1명 TETR.IO 최대 8회 × 1초 간격 → 2명이면 약 16초로 stats 20초 마감 안.
+  stats:
+    max-concurrent-collections: 2
+    busy-retry-after-seconds: 5
+    # 자리가 없으면 최대 6초 차례를 기다리고(도착 순서대로), 이미 2명이 기다리고 있으면 바로 503 SERVER_BUSY.
+    # 기다린 시간은 stats 20초 마감 안에서 쓴다.
+    max-queue-wait-seconds: 6
+    max-waiting: 2
+  # 엔드포인트(요청 하나를 끝내야 하는 마감) 레벨 타임아웃 — 타임아웃 기준 문서(23번) 9절.
+  # heavy는 LLM 서버 대수에 따라 CommentService가 heavy-seconds/heavy-single-server-seconds 중 하나를 고른다.
+  endpoint:
+    stats-seconds: 20
+    light-seconds: 40
+    heavy-seconds: 60
+    heavy-single-server-seconds: 120
+
+# data-eng calc 모듈(StatCalculatorFacade) 설정 — 값은 data-eng 테스트 기준값
+# max-retry-attempts: 최초 포함 총 3회, 페이지당 100판(max-matches-per-page) — 데이터 엔지니어 검토(2026-10-01)
+finesse:
+  analytics:
+    cold-start-threshold: 10
+    max-match-window: 300
+    recent-win-loss-window: 40
+    collector:
+      base-url: https://ch.tetr.io/api
+      min-request-interval: 1s
+      max-pages: 3
+      max-matches-per-page: 100
+      max-age-days: 365
+      min-partial-matches: 30
+      max-retry-attempts: 3
+      request-timeout: 5s
+      session-refresh-timeout: 5s
+
+logging:
+  level:
+    com.finesse.backend: DEBUG
