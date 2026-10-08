@@ -65,6 +65,16 @@ export function DeltaPill({ text, trend }: { text: string; trend: Trend }) {
 
 const MARK_COLOR: Record<Trend, string> = { up: 'text-delta-up', down: 'text-[#E5837E]', even: 'text-faint' }
 
+/** 작은 증감 배지 — 프로필 칸 값 아래. 옅은 배경·테두리 위에 색 기호 + 밝은 숫자 (프로토타입 .delta.sm) */
+export function DeltaBadge({ text, trend }: { text: string; trend: Trend }) {
+  return (
+    <span className={cx('inline-flex items-center gap-[3px] rounded-[3px] border px-[7px] py-0.5 font-num text-[11px] font-bold whitespace-nowrap', PILL[trend])}>
+      <i aria-hidden="true" className={cx('text-[9px] not-italic', MARK_COLOR[trend])}>{TREND_MARK[trend]}</i>
+      <span className="text-head">{text}</span>
+    </span>
+  )
+}
+
 /** 테두리 없는 작은 증감 — 기호만 색을 입힌다 */
 export function DeltaInline({ text, trend }: { text: string; trend: Trend }) {
   return (

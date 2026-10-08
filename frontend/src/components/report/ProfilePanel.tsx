@@ -4,7 +4,7 @@ import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
 import { rankColor } from '../../lib/rankColors'
 import { num, numOrDash, rankLabel, signed, trendOf } from '../../lib/stats'
-import { BigNum, Caption, DeltaInline } from './parts'
+import { BigNum, Caption, DeltaBadge } from './parts'
 
 function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNode; sub?: ReactNode; accent?: boolean; tag?: string }) {
   return (
@@ -45,7 +45,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   /* 5칸 증감 — 최근 N판 vs 그 이전 판 변화율 %. 값이 빠지면 배지도 없다 */
   const wd = pr.window_delta
   const pct = (v: number | undefined) =>
-    typeof v === 'number' ? <DeltaInline text={`${signed(v, 1)}%`} trend={trendOf(v, 1)} /> : null
+    typeof v === 'number' ? <DeltaBadge text={`${signed(v, 1)}%`} trend={trendOf(v, 1)} /> : null
 
   return (
     <section className="panel overflow-hidden bg-surface" aria-label="PROFILE">
