@@ -1,0 +1,40 @@
+# 추론 서버(학교 PC, Windows + GTX 1050) 설치 목록 — 버전 고정
+# 기준: 11번 PC pip freeze (2026-10-08), Python 3.11.9
+#
+# 설치 (llm-server 폴더, 가상환경 켠 상태):
+#   python -m pip install -r requirements-server.txt
+#
+# llama-cpp-python 은 공식 Vulkan 빌드(미리 빌드된 wheel)를 받는다. 소스 빌드는 하지 않는다.
+#   공식 wheel: llama_cpp_python-0.3.35-py3-none-win_amd64.whl
+#   SHA256 fa06c0c184801410be1ffdcc32cf5b57d92b23a6dff9e90e5870dea8710a233c (45.5MB)
+#   11번 설치본의 ggml-vulkan.dll·llama.dll 해시가 이 wheel 과 일치함을 확인 (10/8)
+#   주소가 사라지면 Drive 백업본으로 설치: python -m pip install <받은 .whl 경로>
+#
+# CI·테스트(모델 없이)는 requirements.txt 만 쓴다. 이 파일은 실제 추론 서버용.
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/vulkan
+--only-binary=:all:
+
+llama_cpp_python==0.3.35
+
+fastapi==0.142.2
+uvicorn==0.54.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+starlette==1.6.0
+httpx==0.28.1
+httpcore==1.0.9
+
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+diskcache==5.6.3
+h11==0.16.0
+idna==3.20
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+numpy==2.4.6
+opentelemetry-api==1.45.1
+typing-inspection==0.4.4
+typing_extensions==4.16.0
