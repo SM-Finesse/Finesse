@@ -21,9 +21,8 @@ from app.validation import (
     HeavyResponse,
     LightResponse,
     OutputFormatError,
-    check_light_output,
     parse_heavy_output,
-    parse_light_output,
+    process_light_output,
 )
 
 # uvicorn 이 이미 설정해 둔 로거를 써서, 서버 창에 우리 로그가 함께 보이게 한다
@@ -61,14 +60,15 @@ def comment_light(req: LightRequest):
     messages = build_light_messages(req)
     # ③ 생성 (LLM_GENERATOR 에 따라 Mock 또는 Qwen)
     result = _generate(generator.generate_light, req, messages)
-    # ④ 응답 검증 - 형식
+    # ④ 응답 검증: 형식(앞 JSON 만 읽기) → 프롬프트 베낌 → stat 키 정리 → 내용 규칙
     try:
-        resp = parse_light_output(result.text)
+        resp, issues, changed = process_light_output(result.text, req.available_stats())
     except OutputFormatError as e:
         logger.warning("형식 오류 generator=%s finish=%s: %s", generator.name, result.finish_reason, e)
         raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from e
-    # ④ 응답 검증 - 내용 (고치지 않고 기록만. 자르기·재요청은 백엔드 몫)
-    issues = check_light_output(resp, req.available_stats())
+    if changed:
+        logger.info("stat 키 정리: %s", changed)
+    # 내용 문제는 고치지 않고 기록만 (3개 초과 자르기·11개 밖 제외·재요청은 백엔드 몫)
     if issues:
         logger.warning("내용 규칙 위반 generator=%s: %s", generator.name, issues)
     return resp

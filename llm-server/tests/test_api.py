@@ -68,3 +68,34 @@ def test_입력_길이_초과는_413(monkeypatch, base):
     r = client.post("/v1/comment/light", json=base)
     assert r.status_code == 413
     assert r.json() == {"detail": "LLM 입력 길이 초과"}
+
+
+class _TextGenerator:
+    """정해진 문자열을 내는 가짜 생성기."""
+    name = "fixed"
+
+    def __init__(self, text):
+        self.text = text
+
+    def generate_light(self, req, messages):
+        from app.generator import GenerationResult
+        return GenerationResult(text=self.text, finish_reason="stop")
+
+
+def _light_text(summary, stats):
+    return json.dumps({"light_summary": summary,
+                       "highlights": [{"stat": s, "sentence": f"{s} 문장"} for s in stats]}, ensure_ascii=False)
+
+
+def test_프롬프트를_베끼면_502(monkeypatch, base):
+    text = _light_text("당신은 테트리스 게임 TETR.IO의 전적 데이터를 분석해", ["delta_plonk", "delta_app", "delta_vs_apm"])
+    monkeypatch.setattr(main_module, "generator", _TextGenerator(text))
+    assert client.post("/v1/comment/light", json=base).status_code == 502
+
+
+def test_점_경로_키는_정리해서_200(monkeypatch, base):
+    text = _light_text("요약", ["playstyle_relative.delta_plonk", "delta_app", "delta_vs_apm"]) + "\n덧붙인 글"
+    monkeypatch.setattr(main_module, "generator", _TextGenerator(text))
+    r = client.post("/v1/comment/light", json=base)
+    assert r.status_code == 200
+    assert [h["stat"] for h in r.json()["highlights"]] == ["delta_plonk", "delta_app", "delta_vs_apm"]
