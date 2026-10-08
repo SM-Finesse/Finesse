@@ -1,0 +1,105 @@
+# =====================================================================
+# Finesse — Docker 이미지 빌드 + DockerHub 푸시 (CI/CD 2단계)
+#
+# 언제: main에 병합될 때 (backend/·frontend/·이 파일이 바뀐 경우), 또는 Actions 탭에서 수동 실행
+# 무엇: backend·frontend 이미지를 빌드해 DockerHub(pdh20020317)에 올림
+#   - main      → :<커밋 7자리> + :latest
+#   - 그 외 브랜치 → :<브랜치>-<커밋 7자리>  (시험용, latest는 건드리지 않음)
+# 인증: 레포 Secrets DOCKERHUB_USERNAME / DOCKERHUB_TOKEN (2026-10-08 등록)
+#
+# 보안: pull_request 이벤트에서는 실행하지 않음 → 외부 fork PR이 Secrets에 접근 불가
+# llm-server는 계획대로 이미지 대상에서 제외 (모델 파일·GPU 문제, 배포는 스크립트로 수동)
+# =====================================================================
+name: Docker Publish
+
+on:
+  push:
+    branches:
+      - main
+      - infra   # [시험용 임시] infra에서 푸시 동작 확인 후 제거 예정
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/docker-publish.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# 같은 브랜치에서 연달아 병합돼도 이전 푸시를 중간에 끊지 않고 순서대로 처리
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOCKERHUB_NAMESPACE: pdh20020317
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false        # backend가 실패해도 frontend는 따로 진행
+      matrix:
+        service: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dockerfile 확인
+        id: df
+        run: |
+          if [ -f "${{ matrix.service }}/Dockerfile" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "ok=false" >> "$GITHUB_OUTPUT"; echo "::notice::${{ matrix.service }}/Dockerfile 없음 — 건너뜀"; fi
+
+      - name: 이미지 이름·태그 정하기
+        id: meta
+        if: steps.df.outputs.ok == 'true'
+        run: |
+          image="${DOCKERHUB_NAMESPACE}/finesse-${{ matrix.service }}"
+          short="${GITHUB_SHA::7}"
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tags="${image}:${short} ${image}:latest"
+          else
+            branch="${GITHUB_REF_NAME//\//-}"
+            tags="${image}:${branch}-${short}"
+          fi
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}"   >> "$GITHUB_OUTPUT"
+          echo "올릴 태그: ${tags}"
+
+      - name: DockerHub 로그인
+        if: steps.df.outputs.ok == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Secrets DOCKERHUB_USERNAME / DOCKERHUB_TOKEN 이 없습니다"; exit 1
+          fi
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: 빌드
+        if: steps.df.outputs.ok == 'true'
+        run: |
+          args=""
+          for t in ${{ steps.meta.outputs.tags }}; do args="$args -t $t"; done
+          docker build $args \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            ./${{ matrix.service }}
+
+      - name: 푸시
+        if: steps.df.outputs.ok == 'true'
+        run: |
+          for t in ${{ steps.meta.outputs.tags }}; do docker push "$t"; done
+
+      - name: 업로드 확인 (DockerHub에서 다시 조회)
+        if: steps.df.outputs.ok == 'true'
+        run: |
+          for t in ${{ steps.meta.outputs.tags }}; do
+            docker buildx imagetools inspect "$t" > /dev/null && echo "확인됨: $t"
+            echo "::notice::DockerHub 업로드 확인 — $t"
+          done
+
+      - name: 로그아웃
+        if: always()
+        run: docker logout || true
