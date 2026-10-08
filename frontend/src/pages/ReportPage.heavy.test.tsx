@@ -164,6 +164,24 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(cond).getByText('−0.05')).toBeInTheDocument()
   })
 
+  it('02장 머리 ? 버튼은 네 성향과 Δ 계산을 펼치고, Esc로 카드만 닫힌다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user, onBack } = setup()
+    await ready()
+
+    const ps = chapter('플레이스타일 상대비교')
+    await user.click(within(ps).getByRole('button', { name: '플레이스타일 상대비교 설명' }))
+    const note = within(ps).getByRole('note')
+    expect(note).toHaveTextContent('Opener높은 APM으로 몰아치는')
+    expect(note).toHaveTextContent('Inf DS')
+    expect(note).toHaveTextContent('나 − 상대 성향 점수')
+    expect(note).toHaveTextContent('TETR.IO 공식 지표 아님')
+
+    await user.keyboard('{Escape}')
+    expect(within(ps).queryByRole('note')).not.toBeInTheDocument()
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
   it('03·04·06·07장 머리 증감 알약도 누르면 무슨 값인지 펼친다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     const { user } = setup()

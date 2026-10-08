@@ -7,7 +7,7 @@ import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
-import { Chapter, DataTable, DetailModal, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
+import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
 import { ColdHeavy } from './heavy/ColdHeavy'
 import { CHAPTER_COLORS, EYEBROWS } from './heavy/meta'
 import { RivalBoard, RivalPolicy } from './heavy/Rivals'
@@ -213,7 +213,12 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       ),
     },
     playstyle: {
-      right: <Caption>{h.playstyle.right}</Caption>,
+      right: (
+        <>
+          <Caption>{h.playstyle.right}</Caption>
+          {hasPs && <HeadTip name={h.chapters.playstyle} info={h.playstyle.info} />}
+        </>
+      ),
       detail: hasPs,
       chips: ps.filter((p) => p.e).map((p) => chipOf(p.e!, nameOf(p.k))),
       body: hasPs ? <DivergingBars items={psItems} max={psMax} tick={psTick} aria={h.playstyle.aria} /> : noData,

@@ -10,6 +10,8 @@ export interface StatInfo {
   dir?: { up: string; down: string }
   table?: { caption: string; head: [string, string]; rows: [string, string][]; foot?: string }
   rows: [string, string][]
+  /** 맨 아래 작은 글씨 — 범위·출처 같은 덧붙임 */
+  foot?: string
 }
 
 type Row = readonly [string, string]
@@ -155,7 +157,8 @@ export interface ReportStrings {
       tableNote: (n: number) => string
       aria: string
     }
-    playstyle: { right: string; metric: string; desc: string; aria: string }
+    /** info — 머리 ? 버튼, 네 성향이 뭔지와 Δ 계산 */
+    playstyle: { right: string; metric: string; desc: string; aria: string; info: StatInfo }
     sub: Record<'app' | 'wapp' | 'vsapm' | 'cheese', string>
     subInfo: Record<'app' | 'wapp' | 'vsapm' | 'cheese', StatInfo>
     /** 03·04장 나 vs 상대 평균 막대 */
@@ -444,7 +447,23 @@ const ko: Strings = {
         tableNote: (n) => `${n}경기 전부 · 표 안에서 스크롤`,
         aria: 'TR 추이',
       },
-      playstyle: { right: '절대값 비노출 · Δ만 표시', metric: 'Metric', desc: '설명', aria: '상대 대비 편차' },
+      /* 02장 ? 버튼 — 식은 백엔드 FancyFormulas.playstyleOf (TetraStats 공개 식) */
+      playstyle: {
+        right: '절대값 비노출 · Δ만 표시',
+        metric: 'Metric',
+        desc: '설명',
+        aria: '상대 대비 편차',
+        info: {
+          lead: '경기마다 나 − 상대 성향 점수를 평균낸 값 · +면 그 성향이 상대보다 강함',
+          rows: [
+            ['Opener', '높은 APM으로 몰아치는 공격형'],
+            ['Plonk', '느려도 효율 높은 공격·가비지 처리'],
+            ['Stride', '블록당 공격보다 속도(PPS)로 승부'],
+            ['Inf DS', '가비지를 지우며 버티는 방어형'],
+          ],
+          foot: '최근 1년 · 최대 300판 중 나와 상대 모두 계산되는 경기 (절반 미만이면 숨김) · APM·PPS·VS로 구하는 TetraStats 공개 식, TETR.IO 공식 지표 아님',
+        },
+      },
       sub: { app: '블록당 공격량', wapp: '공격 성향', vsapm: '공격 대비 방어 비율', cheese: '가비지 처리' },
       compare: { me: '나', opp: '상대 평균', attackAria: '공격 효율 — 나 대 상대 평균', defenseAria: '수비 · 가비지 처리 — 나 대 상대 평균' },
       /* 03·04장 칸 ? 버튼 — 정의는 데이터명세서 2절, 식은 calc 명세 FancyMathCalculator */
@@ -841,7 +860,22 @@ const en: Strings = {
         tableNote: (n) => `All ${n} games · scroll inside the table`,
         aria: 'TR trend',
       },
-      playstyle: { right: 'No absolute values · Δ only', metric: 'Metric', desc: 'Description', aria: 'Deviation vs opponents' },
+      playstyle: {
+        right: 'No absolute values · Δ only',
+        metric: 'Metric',
+        desc: 'Description',
+        aria: 'Deviation vs opponents',
+        info: {
+          lead: 'Your playstyle score minus the opponent’s, averaged per match · + means that tendency is stronger than theirs',
+          rows: [
+            ['Opener', 'Attack-first, high-APM pressure'],
+            ['Plonk', 'Slower but efficient attack and cleaning'],
+            ['Stride', 'Wins on speed (PPS) over attack per piece'],
+            ['Inf DS', 'Defensive, survives by clearing garbage'],
+          ],
+          foot: 'Past year · up to 300 matches where both sides can be scored (hidden if under half) · TetraStats formulas from APM, PPS and VS, not official TETR.IO stats',
+        },
+      },
       sub: { app: 'Attack per piece', wapp: 'Attack tendency', vsapm: 'Defense-to-attack ratio', cheese: 'Garbage clearing' },
       compare: { me: 'You', opp: 'Opp. avg', attackAria: 'Attack efficiency — you vs opponent average', defenseAria: 'Defense / garbage — you vs opponent average' },
       subInfo: {
