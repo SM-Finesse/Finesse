@@ -4,7 +4,8 @@
 # 언제: main에 병합될 때 (backend/·frontend/·이 파일이 바뀐 경우), 또는 Actions 탭에서 수동 실행
 # 무엇: backend·frontend 이미지를 빌드해 DockerHub(pdh20020317)에 올림
 #   - main      → :<커밋 7자리> + :latest
-#   - 그 외 브랜치 → :<브랜치>-<커밋 7자리>  (시험용, latest는 건드리지 않음)
+#   - 그 외 브랜치(수동 실행 시) → :<브랜치>-<커밋 7자리>  (시험용, latest는 건드리지 않음)
+#   ※ 2026-10-08 infra에서 시험 푸시 성공 확인 (finesse-backend·frontend:infra-6dfe434)
 # 인증: 레포 Secrets DOCKERHUB_USERNAME / DOCKERHUB_TOKEN (2026-10-08 등록)
 #
 # 보안: pull_request 이벤트에서는 실행하지 않음 → 외부 fork PR이 Secrets에 접근 불가
@@ -16,7 +17,6 @@ on:
   push:
     branches:
       - main
-      - infra   # [시험용 임시] infra에서 푸시 동작 확인 후 제거 예정
     paths:
       - 'backend/**'
       - 'frontend/**'
