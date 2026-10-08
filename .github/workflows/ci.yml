@@ -88,7 +88,13 @@ jobs:
 
       - name: Gradle build
         if: steps.detect.outputs.tool == 'gradle'
-        run: chmod +x ./gradlew && ./gradlew build --no-daemon
+        run: |
+          chmod +x ./gradlew
+          set -o pipefail
+          ./gradlew build --no-daemon --continue 2>&1 | tee /tmp/gradle.log || {
+            grep -E -A4 "error:|FAILED|What went wrong" /tmp/gradle.log | grep -v "^--$" | head -60 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - name: Maven build
         if: steps.detect.outputs.tool == 'maven'
