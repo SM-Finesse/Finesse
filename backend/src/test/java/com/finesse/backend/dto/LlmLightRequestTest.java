@@ -28,11 +28,11 @@ class LlmLightRequestTest {
     private static StatsResponse stats(Double comebackRate, Double comebackRateAgainst, Double strengthSplit) {
         StatsResponse.FixedMetrics fixed = new StatsResponse.FixedMetrics(0.5, List.of(21323.0, 21417.0), List.of("W", "L"));
         StatsResponse.DeltaMetrics delta = new StatsResponse.DeltaMetrics(
-                12.5,
+                12.5, null,
                 new StatsResponse.PlaystyleRelative(0.1, -0.22, -0.08, -0.17),
                 new StatsResponse.Attack(-0.05, -1.34),
                 new StatsResponse.Defense(-0.07, -2.56),
-                strengthSplit, comebackRate, comebackRateAgainst,
+                strengthSplit, null, comebackRate, comebackRateAgainst,
                 // calc HighlightStats.deltaComeback과 같은 정의 — 둘 중 하나라도 없으면 null
                 comebackRate == null || comebackRateAgainst == null ? null : comebackRate - comebackRateAgainst,
                 new StatsResponse.ComebackSamples(10, 4, 12, 7), 0.55);

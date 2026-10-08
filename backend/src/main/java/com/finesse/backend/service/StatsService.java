@@ -5,6 +5,7 @@ import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
@@ -21,7 +22,9 @@ import com.finesse.backend.exception.TetrioApiException;
 import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
@@ -49,6 +52,11 @@ public class StatsService {
 
     private static final int RIVAL_PAGE_SIZE = 20;
 
+    // calc HighlightStatCalculator 11.1절과 같은 N 범위 — TR 추이 근거 값(tr_trend_basis)용
+    static final int TR_TREND_MIN_N = 3;
+    static final int TR_TREND_MAX_N = 30;
+    static final double DEFAULT_TR_TREND_RATIO = 0.3;
+
     private final StatCalculatorFacade statCalculatorFacade;
     private final TetrioClient tetrioClient;
     private final CacheManager cacheManager;
@@ -57,10 +65,22 @@ public class StatsService {
     private final ExecutorService statsExecutor;
     private final Semaphore collectionSlots;
     private final AtomicInteger waitingForSlot = new AtomicInteger();
+    private final double trTrendRatio;
 
     public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
                          EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
-                         @Qualifier("statsExecutor") ExecutorService statsExecutor) {
+                         ExecutorService statsExecutor) {
+        this(statCalculatorFacade, tetrioClient, cacheManager, endpointProperties, statsLoadProperties, statsExecutor,
+                DEFAULT_TR_TREND_RATIO);
+    }
+
+    /** trTrendRatio는 calc와 같은 설정 키를 읽는다 — 범위 검사(0.1~0.5)는 calc AnalyticsProperties가 기동 때 한다. */
+    @Autowired
+    public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
+                         EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
+                         @Qualifier("statsExecutor") ExecutorService statsExecutor,
+                         @Value("${finesse.analytics.tr-trend-ratio:0.3}") double trTrendRatio) {
+        this.trTrendRatio = trTrendRatio;
         this.statCalculatorFacade = statCalculatorFacade;
         this.tetrioClient = tetrioClient;
         this.cacheManager = cacheManager;
@@ -224,8 +244,8 @@ public class StatsService {
         // availableMatches는 사유에 따라 누적 판수(FEW_GAMES_TOTAL)·정제 전 판수(FEW_GAMES_IN_YEAR)라 그대로 쓰면 어긋난다.
         int matchCount = winLoss != null ? winLoss.overallCount() : cold.availableMatches();
         return new StatsResponse(normalized, true, matchCount, Instant.now(),
-                profile(normalized, cold.summary()), fixed, null,
-                new StatsResponse.RoundCurves(List.of(), List.of()),
+                profile(normalized, cold.summary(), null), fixed, null,
+                new StatsResponse.RoundCurves(List.of(), List.of(), List.of()),
                 new StatsResponse.Rivals(List.of(), 1, RIVAL_PAGE_SIZE, 0),
                 Map.of("note", "콜드스타트 — 챕터 데이터 없음", "cold_start_reason", cold.reason().name()));
     }
@@ -244,11 +264,13 @@ public class StatsService {
         // delta는 계산 가능한 매치(APM > 0, PPS ≥ 0.1)가 하나도 없으면 null — 그때 플레이스타일·공격·수비는 생략
         StatsResponse.DeltaMetrics deltaMetrics = new StatsResponse.DeltaMetrics(
                 highlight.trTrendDelta(),
+                trTrendBasis(fixed.trTrend(), highlight.trTrendDelta(), trTrendRatio),
                 delta == null ? null : new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
                         delta.deltaStride(), delta.deltaInfDs()),
                 delta == null ? null : new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp()),
                 delta == null ? null : new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex()),
                 highlight.strengthSplit(),
+                strengthQuintiles(highlight),
                 highlight.comebackRate(),
                 highlight.comebackRateAgainst(),
                 highlight.deltaComeback(),
@@ -272,7 +294,8 @@ public class StatsService {
                 "note", "8챕터 차트 데이터 세부 스키마는 [협의 필요]");
 
         return new StatsResponse(normalized, false, meta.analyzedMatches(), Instant.now(),
-                profile(normalized, analyzed.summary()), fixed, deltaMetrics,
+                profile(normalized, analyzed.summary(),
+                        windowDelta(r.profileWindowDelta(), meta.analyzedMatches(), trTrendRatio)), fixed, deltaMetrics,
                 roundCurves(series),
                 new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
                 chapters);
@@ -293,6 +316,37 @@ public class StatsService {
         return series.trSeries().stream().map(MatchSeriesStats.TrPoint::tr).toList();
     }
 
+    /** 분위별 승률 Q1 → Q5 — calc가 빈 목록(TR 있는 매치 5판 미만)을 주면 strength_split처럼 생략 */
+    static List<StatsResponse.StrengthQuintile> strengthQuintiles(HighlightStats highlight) {
+        if (highlight.strengthQuintiles().isEmpty()) {
+            return null;
+        }
+        return highlight.strengthQuintiles().stream()
+                .map(q -> new StatsResponse.StrengthQuintile(q.quintile(), q.matches(), q.wins(), q.winRate()))
+                .toList();
+    }
+
+    /**
+     * tr_trend_delta의 근거 값 — 프론트가 "최근 N판 평균 / 전체 평균 / 차이"를 calc와 같은 N으로 보여주게 한다(모듈 요청 10/7).
+     * tr_trend는 calc가 tr_trend_delta를 낸 것과 같은 경기(매치 당시 TR이 있는 경기)라 길이가 곧 calc의 판수다.
+     * 최근 평균은 전체 평균 + tr_trend_delta로 내서 화면의 차이 값이 tr_trend_delta와 정확히 같게 한다.
+     */
+    static StatsResponse.TrTrendBasis trTrendBasis(List<Double> trTrend, Double trTrendDelta, double ratio) {
+        if (trTrend == null || trTrend.isEmpty() || trTrendDelta == null) {
+            return null;
+        }
+        int total = trTrend.size();
+        double overall = trTrend.stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+        return new StatsResponse.TrTrendBasis(trTrendN(total, ratio), total, overall + trTrendDelta, overall);
+    }
+
+    /** N = clamp(ceil(판수 × ratio), 3, 30), 판수보다 클 수 없다 — calc HighlightStatCalculator.trTrendN과 같은 식 */
+    static int trTrendN(int matchesWithTr, double ratio) {
+        int n = (int) Math.ceil(matchesWithTr * ratio);
+        n = Math.max(TR_TREND_MIN_N, Math.min(TR_TREND_MAX_N, n));
+        return Math.min(n, matchesWithTr);
+    }
+
     /**
      * 라운드 순서별 평균 PPS·VS — 배열 index 0이 1라운드.
      * PPS가 없는 라운드가 하나라도 있으면 pps는 빈 배열로 둔다 — 프론트는 pps 길이가 vs와 다르면 PPS 선을
@@ -300,22 +354,21 @@ public class StatsService {
      */
     static StatsResponse.RoundCurves roundCurves(MatchSeriesStats series) {
         if (series == null) {
-            return new StatsResponse.RoundCurves(List.of(), List.of());
+            return new StatsResponse.RoundCurves(List.of(), List.of(), List.of());
         }
         List<MatchSeriesStats.RoundPoint> curve = series.roundCurve();
         List<Double> vs = curve.stream().map(MatchSeriesStats.RoundPoint::avgVs).toList();
         boolean ppsComplete = curve.stream().allMatch(p -> p.avgPps() != null);
         List<Double> pps = ppsComplete ? curve.stream().map(MatchSeriesStats.RoundPoint::avgPps).toList() : List.of();
-        return new StatsResponse.RoundCurves(pps, vs);
+        List<Integer> samples = curve.stream().map(MatchSeriesStats.RoundPoint::samples).toList();
+        return new StatsResponse.RoundCurves(pps, vs, samples);
     }
 
     /**
      * 랭크·TR·APM·PPS·VS는 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
-     * 백엔드가 /users/{username}을 직접 불러 채운다.
-     * TODO(data-eng 협의): /users/{username} 호출을 calc 모듈로 옮기면 백엔드 TetrioClient를 걷어낼 수 있다
-     *  (지금은 레이트리미터가 calc와 따로라 두 모듈 호출이 겹치면 초당 1회를 잠깐 넘길 수 있음).
+     * 백엔드가 /users/{username}을 직접 불러 채운다(calc와 같은 RateLimiter 사용). windowDelta는 콜드스타트면 null.
      */
-    private StatsResponse.Profile profile(String normalized, UserSummary summary) {
+    private StatsResponse.Profile profile(String normalized, UserSummary summary, StatsResponse.WindowDelta windowDelta) {
         TetrioClient.UserInfo user;
         try {
             user = tetrioClient.fetchUserInfo(normalized, TetrioClient.newSessionId());
@@ -326,7 +379,21 @@ public class StatsService {
         return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
                 summary.apm(), summary.pps(), summary.vs(),
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
-                user.gametime(), user.friendCount());
+                user.gametime(), user.friendCount(), windowDelta);
+    }
+
+    /**
+     * 프로필 배지 5칸 — calc ProfileWindowDeltaStats를 그대로 옮기고, 화면 문구("최근 N판 대비")용 N을 붙인다.
+     * N은 calc ProfileWindowDeltaCalculator.recentN과 같은 식(분석 판수 기준 — tr_trend_basis의 TR 있는 판수 기준과 다를 수 있음).
+     */
+    static StatsResponse.WindowDelta windowDelta(ProfileWindowDeltaStats stats, int analyzedMatches, double ratio) {
+        if (stats == null || !stats.isAvailable()) {
+            return null;
+        }
+        int n = (int) Math.ceil(analyzedMatches * ratio);
+        n = Math.max(TR_TREND_MIN_N, Math.min(TR_TREND_MAX_N, n));
+        return new StatsResponse.WindowDelta(n, stats.trDeltaPct(), stats.wrDeltaPct(), stats.apmDeltaPct(),
+                stats.ppsDeltaPct(), stats.vsDeltaPct());
     }
 
     /** TETR.IO 프로필 사진 주소 — 사진을 올린 적 없는 유저는 avatar_revision이 없어 null(응답에서 생략). */

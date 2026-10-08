@@ -27,7 +27,17 @@ public record StatsResponse(
     public record Profile(String rank, double tr, double glicko, double rd,
                           Double apm, Double pps, Double vs,
                           String avatarUrl, Double xp, String country, Instant joinedAt,
-                          Double playTimeSeconds, Integer friendCount) {
+                          Double playTimeSeconds, Integer friendCount,
+                          WindowDelta windowDelta) {
+    }
+
+    /**
+     * 프로필 패널 5칸(TR·WR·APM·PPS·VS) 배지 — 최근 N판 vs 나머지 판의 변화율 %(9.4 = +9.4%) (calc ProfileWindowDeltaStats, 모듈 요청 10/8).
+     * recentMatches = clamp(ceil(match_count × tr-trend-ratio), 3, 30). wrDeltaPct도 승률 차(%p)가 아니라 변화율(%)이다.
+     * 비교할 나머지 판이 없거나 콜드스타트면 windowDelta 자체를 생략하고, trDeltaPct는 한쪽 구간에 TR이 없으면 단독 생략.
+     */
+    public record WindowDelta(int recentMatches, Double trDeltaPct, Double wrDeltaPct, Double apmDeltaPct,
+                              Double ppsDeltaPct, Double vsDeltaPct) {
     }
 
     // recentForm: 최근 최대 40경기 승패("W"/"L"), matches[0]이 최신이므로 index 0이 가장 최근 경기
@@ -37,10 +47,12 @@ public record StatsResponse(
 
     public record DeltaMetrics(
             Double trTrendDelta,
+            TrTrendBasis trTrendBasis, // tr_trend_delta의 근거 값 — TR이 있는 경기가 없으면 null
             PlaystyleRelative playstyleRelative,
             Attack attack,
             Defense defense,
             Double strengthSplit, // 매치 당시 TR이 있는 매치가 5판 미만이면 null (필드 자체 제외에 해당)
+            List<StrengthQuintile> strengthQuintiles, // strength_split의 분위별 승률 Q1 → Q5, strength_split이 없으면 null
             Double comebackRate,
             Double comebackRateAgainst, // 2판 이상 앞서다 역전당한 비율 (API 명세서 4.1 표)
             // comeback_rate − comeback_rate_against (calc HighlightStats) — 라이트 하이라이트 후보 키.
@@ -49,6 +61,22 @@ public record StatsResponse(
             ComebackSamples comebackSamples,
             Double sessionVsSlope
     ) {
+    }
+
+    /**
+     * TR 추이 카드·heavy 01장의 근거 값 — calc tr_trend_delta와 같은 N으로 계산 (모듈 요청 10/7).
+     * recentMatches = clamp(ceil(totalMatches × tr-trend-ratio), 3, 30)이고 totalMatches보다 클 수 없다.
+     * totalMatches는 매치 당시 TR이 있는 경기 수(= fixed_metrics.tr_trend 길이)라 match_count와 다를 수 있다.
+     * recentAvgTr − overallAvgTr = tr_trend_delta.
+     */
+    public record TrTrendBasis(int recentMatches, int totalMatches, double recentAvgTr, double overallAvgTr) {
+    }
+
+    /**
+     * heavy "상대 강도별 승률" 차트의 막대 하나 (calc HighlightStats.StrengthQuintile, 모듈 요청 10/8).
+     * quintile 1 = 가장 약한 상대 구간, 5 = 가장 강한 상대 구간. winRate = wins ÷ matches (0~1).
+     */
+    public record StrengthQuintile(int quintile, int matches, int wins, double winRate) {
     }
 
     /**
@@ -69,7 +97,8 @@ public record StatsResponse(
     public record Defense(double deltaVsApm, double deltaCheeseIndex) {
     }
 
-    public record RoundCurves(List<Double> pps, List<Double> vs) {
+    // samples: 그 라운드 순서의 라운드 수 — vs와 같은 길이, 값이 작을수록 평균이 흔들린다 (calc RoundPoint.samples)
+    public record RoundCurves(List<Double> pps, List<Double> vs, List<Integer> samples) {
     }
 
     public record Rivals(List<RivalItem> items, int page, int pageSize, int total) {

@@ -4,6 +4,7 @@ import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
@@ -112,7 +113,13 @@ class StatsServiceMappingTest {
                         new MatchSeriesStats.TrPoint(Instant.parse("2026-10-02T00:00:00Z"), 21010.5)),
                 List.of(new MatchSeriesStats.RoundPoint(1, 2.4, 2.1, 30),
                         new MatchSeriesStats.RoundPoint(2, 2.38, 2.0, 25)));
-        HighlightStats highlight = new HighlightStats(12.0, -0.2, 10, 4, 0.4, 8, 2, 0.25, 0.15, 0.5, true, List.of());
+        List<HighlightStats.StrengthQuintile> quintiles = List.of(
+                new HighlightStats.StrengthQuintile(1, 6, 5, 5 / 6.0),
+                new HighlightStats.StrengthQuintile(2, 6, 4, 4 / 6.0),
+                new HighlightStats.StrengthQuintile(3, 6, 3, 0.5),
+                new HighlightStats.StrengthQuintile(4, 6, 3, 0.5),
+                new HighlightStats.StrengthQuintile(5, 6, 2, 2 / 6.0));
+        HighlightStats highlight = new HighlightStats(12.0, -0.2, 10, 4, 0.4, 8, 2, 0.25, 0.15, 0.5, true, quintiles);
         StatResult result = new StatResult(null, null, highlight, winLoss(WIN, WIN, LOSE), null,
                 RivalryStats.empty(), series);
 
@@ -124,10 +131,90 @@ class StatsServiceMappingTest {
                 .doesNotContainKey("previous_matches");
         assertThat(r.roundCurves().pps()).containsExactly(2.4, 2.38);
         assertThat(r.roundCurves().vs()).containsExactly(2.1, 2.0);
+        assertThat(r.roundCurves().samples()).containsExactly(30, 25);
+        // 분위별 승률은 Q1 → Q5 순서 그대로
+        assertThat(r.deltaMetrics().strengthQuintiles()).extracting(StatsResponse.StrengthQuintile::quintile)
+                .containsExactly(1, 2, 3, 4, 5);
+        assertThat(r.deltaMetrics().strengthQuintiles().get(4).wins()).isEqualTo(2);
+        assertThat(r.deltaMetrics().strengthQuintiles().get(4).matches()).isEqualTo(6);
         assertThat(r.deltaMetrics().attack()).isNull(); // 계산 가능한 매치가 없어 delta가 null
         assertThat(r.deltaMetrics().comebackRate()).isEqualTo(0.4);
         assertThat(r.deltaMetrics().deltaComeback()).isEqualTo(0.15); // calc 값 그대로 — 프론트 하이라이트 근거 값
         assertThat(r.deltaMetrics().comebackSamples().comebackOpportunities()).isEqualTo(10);
+        // TR 있는 경기 2판 — N은 하한 3이지만 판수를 넘을 수 없어 2
+        StatsResponse.TrTrendBasis basis = r.deltaMetrics().trTrendBasis();
+        assertThat(basis.recentMatches()).isEqualTo(2);
+        assertThat(basis.totalMatches()).isEqualTo(2);
+        assertThat(basis.overallAvgTr()).isEqualTo(20955.25);
+        assertThat(basis.recentAvgTr()).isEqualTo(20967.25); // 전체 평균 + tr_trend_delta(12.0)
+    }
+
+    @Test
+    void TR_추이_N은_calc와_같은_식() {
+        assertThat(StatsService.trTrendN(10, 0.3)).isEqualTo(3);   // ceil(3.0)
+        assertThat(StatsService.trTrendN(9, 0.3)).isEqualTo(3);    // ceil(2.7)
+        assertThat(StatsService.trTrendN(16, 0.3)).isEqualTo(5);   // ceil(4.8)
+        assertThat(StatsService.trTrendN(100, 0.3)).isEqualTo(30); // 상한
+        assertThat(StatsService.trTrendN(300, 0.3)).isEqualTo(30);
+        assertThat(StatsService.trTrendN(2, 0.3)).isEqualTo(2);    // 판수보다 클 수 없음
+        assertThat(StatsService.trTrendN(40, 0.5)).isEqualTo(20);  // 비율 설정을 따름
+    }
+
+    @Test
+    void TR_추이_근거_값은_최근_N판_평균과_전체_평균() {
+        // 16판(오래된 → 최근): N = 5 → 최근 5판 평균 1130, 전체 평균 1075, 차이 55 (calc 테스트와 같은 예)
+        List<Double> tr = List.of(1000.0, 1010.0, 1020.0, 1030.0, 1040.0, 1050.0, 1060.0, 1070.0,
+                1080.0, 1090.0, 1100.0, 1110.0, 1120.0, 1130.0, 1140.0, 1150.0);
+        double overall = tr.stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+        double recent = tr.subList(11, 16).stream().mapToDouble(Double::doubleValue).average().orElseThrow();
+
+        StatsResponse.TrTrendBasis basis = StatsService.trTrendBasis(tr, recent - overall, 0.3);
+
+        assertThat(basis.recentMatches()).isEqualTo(5);
+        assertThat(basis.totalMatches()).isEqualTo(16);
+        assertThat(basis.overallAvgTr()).isEqualTo(1075.0);
+        assertThat(basis.recentAvgTr()).isCloseTo(1130.0, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    void 프로필_배지_5칸은_calc_변화율_그대로_N과_함께() {
+        StatResult result = new StatResult(null, null,
+                new HighlightStats(null, null, 0, 0, null, 0, 0, null, null, 0.0, false, List.of()),
+                winLoss(WIN, LOSE, WIN), new ProfileWindowDeltaStats(9.4, -3.2, 1.5, null, 0.0),
+                RivalryStats.empty(), null);
+
+        StatsResponse r = stats(new AnalysisOutcome.Analyzed(SUMMARY, result,
+                new AnalysisMeta(86, 0, false, 0, 0, 0, 0)));
+
+        StatsResponse.WindowDelta d = r.profile().windowDelta();
+        assertThat(d.recentMatches()).isEqualTo(26); // ceil(86 × 0.3)
+        assertThat(d.trDeltaPct()).isEqualTo(9.4);
+        assertThat(d.wrDeltaPct()).isEqualTo(-3.2);
+        assertThat(d.apmDeltaPct()).isEqualTo(1.5);
+        assertThat(d.ppsDeltaPct()).isNull();
+        assertThat(d.vsDeltaPct()).isEqualTo(0.0);
+    }
+
+    @Test
+    void 비교할_나머지_판이_없거나_콜드스타트면_배지는_생략() {
+        assertThat(StatsService.windowDelta(ProfileWindowDeltaStats.unavailable(), 3, 0.3)).isNull();
+        assertThat(StatsService.windowDelta(null, 30, 0.3)).isNull();
+
+        StatsResponse cold = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 5,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_IN_YEAR, winLoss(WIN, LOSE, WIN, WIN, LOSE)));
+        assertThat(cold.profile().windowDelta()).isNull();
+    }
+
+    @Test
+    void 분위가_없으면_strength_quintiles는_생략() {
+        HighlightStats highlight = new HighlightStats(null, null, 0, 0, null, 0, 0, null, null, 0.0, false, List.of());
+        assertThat(StatsService.strengthQuintiles(highlight)).isNull();
+    }
+
+    @Test
+    void TR_있는_경기가_없으면_근거_값은_생략() {
+        assertThat(StatsService.trTrendBasis(List.of(), null, 0.3)).isNull();
+        assertThat(StatsService.trTrendBasis(List.of(21000.0), null, 0.3)).isNull();
     }
 
     @Test
