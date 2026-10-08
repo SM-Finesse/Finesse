@@ -220,7 +220,7 @@ describe('ReportPage — 헤비 뷰', () => {
 
   it('역전승 칸의 ? 버튼은 값이 뭔지 펼쳐 보이고, 다시 누르거나 Esc로 닫힌다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
-    const { user } = setup()
+    const { user, onBack } = setup()
     await ready()
 
     const cb = chapter('역전승 퍼포먼스')
@@ -245,6 +245,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(lead).getByRole('row', { name: '7선승 4판+' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     expect(within(cb).queryByRole('note')).not.toBeInTheDocument()
+    /* Esc는 카드만 닫고 리포트를 떠나지 않는다 — 다음 Esc부터 '처음으로' */
+    expect(onBack).not.toHaveBeenCalled()
+    expect(chapter('역전승 퍼포먼스')).toBeInTheDocument()
   })
 
   it('자주 만난 상대 — 조우 횟수순 순위표, 우세·천적 타일. 반복 조우가 적어도 표본 안내를 따로 띄우지 않는다 (기능 명세 3.6절)', async () => {

@@ -40,7 +40,10 @@ export function StatBox({ k, v, s, color, info }: { k: string; v: string; s?: st
   )
 }
 
-/** 열린 설명 카드를 Esc · 바깥 클릭으로 닫는다 */
+/**
+ * 열린 설명 카드를 Esc · 바깥 클릭으로 닫는다.
+ * Esc는 리포트의 '처음으로' 단축키이기도 해서, 카드가 열려 있으면 먼저(캡처 단계) 받아 카드만 닫고 더 퍼지지 않게 한다.
+ */
 function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!open) return
@@ -48,13 +51,15 @@ function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLE
       if (!ref.current?.contains(e.target as Node)) close()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close()
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      close()
     }
     document.addEventListener('pointerdown', onDown)
-    document.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       document.removeEventListener('pointerdown', onDown)
-      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [open, close, ref])
 }
