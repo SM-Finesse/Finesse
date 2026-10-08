@@ -1,0 +1,183 @@
+@import 'tailwindcss';
+
+/* 전역 토큰 — 프로토타입(7차) 팔레트. Recharts도 var(--color-piece-*) · var(--color-delta-*)를 그대로 쓴다 */
+@theme {
+  --color-primary: #67c1f5;
+  --color-primary-bright: #66c0f4;
+  --color-primary-deep: #417a9b;
+  --color-frame: #3aa9ee;
+
+  --color-canvas: #101d29;
+  --color-deep: #0a1620;
+  --color-surface: #12212e;
+  --color-surface-2: #1e2f40;
+  --color-cell: #16283a;
+  --color-line: #2a475e;
+  --color-line-soft: #223749;
+
+  --color-ink: #c7d5e0;
+  --color-head: #ffffff;
+  --color-muted: #8f98a0;
+  --color-faint: #66757f;
+  --color-ink-out: #333a42;
+
+  --color-win: #a0f2df;
+  --color-loss: #ff7a72;
+  --color-signal: #d3be55;
+
+  --color-delta-up: #8fc93a;
+  --color-delta-down: #d9524c;
+  --color-delta-even: #8f98a0;
+
+  --color-piece-i: #4fc3d9;
+  --color-piece-o: #d3be55;
+  --color-piece-t: #b76ad0;
+  --color-piece-s: #8fc93a;
+  --color-piece-z: #d9524c;
+  --color-piece-j: #5a87ce;
+  --color-piece-l: #34b79c;
+
+  --font-display: 'Oxanium', 'Do Hyeon', 'Pretendard', 'IBM Plex Sans KR', sans-serif;
+  --font-body: 'Pretendard', 'IBM Plex Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Share Tech Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-num: 'Oxanium', 'Share Tech Mono', ui-monospace, monospace;
+
+  --ease-arcade: cubic-bezier(0.22, 0.8, 0.3, 1);
+
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  @keyframes shimmer {
+    from {
+      background-position: -200px 0;
+    }
+    to {
+      background-position: 400px 0;
+    }
+  }
+
+  --animate-blip: blip 1s steps(2) infinite;
+  @keyframes blip {
+    50% {
+      opacity: 0.25;
+    }
+  }
+
+  --animate-info-in: info-in 0.2s var(--ease-arcade) both;
+  @keyframes info-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  body {
+    margin: 0;
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    background-color: var(--color-canvas);
+    background-image:
+      linear-gradient(rgba(102, 192, 244, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(102, 192, 244, 0.03) 1px, transparent 1px),
+      linear-gradient(180deg, #1c3548 0, var(--color-canvas) 1100px);
+    background-size: 24px 24px, 24px 24px, 100% 1100px;
+    background-repeat: repeat, repeat, no-repeat;
+  }
+  h1, h2, h3, p, span, button, div, dt, dd {
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+  button {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-primary-bright);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+
+/* 아케이드 패널 — 굵은 컬러 테두리 + 안쪽 흰 선 + 아래로 떨어지는 두께 */
+@utility panel {
+  border: 3px solid var(--color-frame);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.1),
+    0 5px 0 rgba(0, 0, 0, 0.4),
+    0 16px 28px -14px rgba(0, 0, 0, 0.72);
+}
+
+/* 입력칸 모서리 컷 — 게임 HUD 패널 형태 */
+@utility cut-corner {
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+/* 헤더 아래 7색 띠 — 양 끝은 흐리게 */
+@utility piece-stripe {
+  height: 6px;
+  opacity: 0.9;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-piece-i) 0 26px, transparent 26px 28px,
+    var(--color-piece-o) 28px 46px, transparent 46px 48px,
+    var(--color-piece-t) 48px 74px, transparent 74px 76px,
+    var(--color-piece-s) 76px 94px, transparent 94px 96px,
+    var(--color-piece-z) 96px 122px, transparent 122px 124px,
+    var(--color-piece-j) 124px 150px, transparent 150px 152px,
+    var(--color-piece-l) 152px 170px, transparent 170px 172px
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+@utility text-outline {
+  text-shadow: 0 3px 0 var(--color-ink-out), 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* HUD 숫자 — 검은 외곽선 + 아래 그림자, 고정폭 숫자 */
+@utility num-hud {
+  font-family: var(--font-num);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 0 var(--color-ink-out), 0 3px 6px rgba(0, 0, 0, 0.35);
+}
+
+/* 로딩 자리 — 실제 콘텐츠와 같은 크기로 두어 도착 시 화면이 튀지 않게 한다 */
+@utility skeleton {
+  border-radius: 2px;
+  background-image: linear-gradient(90deg, #1e2f40 0%, #2a475e 50%, #1e2f40 100%);
+  background-size: 400px 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* HP 게이지 — 칸으로 끊긴 채움 */
+@utility hp-track {
+  position: relative;
+  overflow: hidden;
+  height: 26px;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  background: var(--color-deep);
+  padding: 2px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 4px;
+    background: repeating-linear-gradient(90deg, transparent 0 17px, rgba(0, 0, 0, 0.3) 17px 18px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
