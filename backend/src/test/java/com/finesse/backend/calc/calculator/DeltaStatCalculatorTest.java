@@ -110,4 +110,46 @@ class DeltaStatCalculatorTest {
         assertThat(mostlyBroken.deltaInfDs()).isNull();
         assertThat(mostlyFine.deltaOpener()).isCloseTo(0.457591 - 0.473086, within(TOL6)); // 계산 가능한 2판만 평균
     }
+
+    @Test
+    void 본인과_상대의_평균을_함께_반환한다() {
+        // 본인 (60, 1.0, 120) → APP 1.0, VS/APM 2.0, Cheese −20.0, wAPP 0.8545
+        // 상대 (30, 1.0, 60)  → APP 0.5, VS/APM 2.0, Cheese  27.5, wAPP 0.4927
+        DeltaStats s = calc(delta(60, 1.0, 120, 30, 1.0, 60));
+
+        assertThat(s.mine().apm()).isCloseTo(60.0, within(TOL));
+        assertThat(s.mine().app()).isCloseTo(1.0, within(TOL));
+        assertThat(s.mine().vsApm()).isCloseTo(2.0, within(TOL));
+        assertThat(s.mine().cheeseIndex()).isCloseTo(-20.0, within(TOL));
+        assertThat(s.mine().weightedApp()).isCloseTo(0.8545, within(TOL4));
+        assertThat(s.opp().apm()).isCloseTo(30.0, within(TOL));
+        assertThat(s.opp().app()).isCloseTo(0.5, within(TOL));
+        assertThat(s.opp().cheeseIndex()).isCloseTo(27.5, within(TOL));
+        assertThat(s.opp().weightedApp()).isCloseTo(0.4927, within(TOL4));
+    }
+
+    @Test
+    void 본인_평균에서_상대_평균을_빼면_Delta와_같다() {
+        // 같은 매치 집합에서 계산하므로 여러 매치에서도 mine − opp = Δ (7.4절)
+        DeltaStats s = calc(delta(60, 1.0, 120, 30, 1.0, 60), delta(90, 1.5, 150, 90, 1.0, 150),
+                delta(120, 2.0, 250, 100, 1.8, 200));
+
+        assertThat(s.mine().pps() - s.opp().pps()).isCloseTo(s.deltaPps(), within(TOL));
+        assertThat(s.mine().apm() - s.opp().apm()).isCloseTo(s.deltaApm(), within(TOL));
+        assertThat(s.mine().vs() - s.opp().vs()).isCloseTo(s.deltaVs(), within(TOL));
+        assertThat(s.mine().app() - s.opp().app()).isCloseTo(s.deltaApp(), within(TOL));
+        assertThat(s.mine().weightedApp() - s.opp().weightedApp()).isCloseTo(s.deltaWeightedApp(), within(TOL));
+        assertThat(s.mine().vsApm() - s.opp().vsApm()).isCloseTo(s.deltaVsApm(), within(TOL));
+        assertThat(s.mine().cheeseIndex() - s.opp().cheeseIndex()).isCloseTo(s.deltaCheeseIndex(), within(TOL));
+    }
+
+    @Test
+    void 평균은_Delta와_같은_매치만_쓴다() {
+        // 상대 APM 0인 매치는 Δ와 평균 모두에서 빠진다
+        DeltaStats s = calc(delta(60, 1.0, 120, 30, 1.0, 60), delta(100, 1.0, 120, 0, 1.0, 10));
+
+        assertThat(s.sampleCount()).isEqualTo(1);
+        assertThat(s.mine().apm()).isCloseTo(60.0, within(TOL));
+        assertThat(s.opp().apm()).isCloseTo(30.0, within(TOL));
+    }
 }
