@@ -6,7 +6,7 @@ package com.finesse.backend.calc.domain;
  * LLM 하이라이트 후보: deltaApp·deltaWeightedApp(attack), deltaVsApm·deltaCheeseIndex(defense), 플레이스타일 4종.
  * deltaPps·deltaApm·deltaVs는 후보가 아닌 차트용 원시값이다.
  * 플레이스타일 Δ(Opener·Plonk·Stride·Inf DS)는 계산 가능한 매치가 50% 미만이면 null이다(8장).
- * mine·opp는 Δ와 같은 매치 집합(sampleCount판)에서 낸 본인·상대 평균이다. 각 지표는 mine − opp = Δ다 (7.4절, v3.11).
+ * mine·opp는 Δ와 같은 매치 집합(sampleCount판)에서 낸 본인·상대 평균이다. 각 지표는 mine − opp = Δ다 (7.4절, v4.0).
  */
 public record DeltaStats(
         int sampleCount,
@@ -25,7 +25,7 @@ public record DeltaStats(
         StatAverages opp
 ) {
     /**
-     * 한 선수(본인 또는 상대)의 매치 평균 (7.4절, v3.11) — 공격 효율·수비 챕터의 “나 vs 상대 평균” 표시용.
+     * 한 선수(본인 또는 상대)의 매치 평균 (7.4절, v4.0) — 공격 효율·수비 챕터의 “나 vs 상대 평균” 표시용.
      *
      * @param apm         평균 APM
      * @param pps         평균 PPS

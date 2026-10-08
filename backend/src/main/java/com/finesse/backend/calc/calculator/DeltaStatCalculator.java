@@ -15,7 +15,7 @@ import java.util.function.ToDoubleFunction;
  * 하이라이트 후보는 ΔAPP·ΔWeighted APP·ΔVS/APM·ΔCheese Index이며, ΔPPS·ΔAPM·ΔVS는 차트용 원시값이다.
  * 플레이스타일 Δ(8장)는 매치마다 본인·상대 플레이스타일을 공식으로 계산해 차이를 평균한다.
  * 플레이스타일을 계산할 수 있는 매치가 전체의 50% 미만이면 4개 모두 null이다.
- *  * 공격·수비 챕터의 “나 vs 상대 평균” 표시를 위해 같은 매치 집합의 본인·상대 평균(mine·opp)도 함께 반환한다(7.4절, v3.11).
+ * 공격·수비 챕터의 “나 vs 상대 평균” 표시를 위해 같은 매치 집합의 본인·상대 평균(mine·opp)도 함께 반환한다(7.4절, v4.0).
  */
 @Component
 public class DeltaStatCalculator implements AnalyticsCalculator<DeltaStats> {
@@ -104,7 +104,7 @@ public class DeltaStatCalculator implements AnalyticsCalculator<DeltaStats> {
     }
 
     /**
-     * 본인(mine = true) 또는 상대의 매치 평균 (7.4절, v3.11). Δ와 같은 매치 집합을 쓰므로 mine − opp = Δ다.
+     * 본인(mine = true) 또는 상대의 매치 평균 (7.4절, v4.0). Δ와 같은 매치 집합을 쓰므로 mine − opp = Δ다.
      */
     static StatAverages averages(List<MatchHistory> matches, boolean mine) {
         double apm = 0, pps = 0, vs = 0, app = 0, wApp = 0, vsApm = 0, cheese = 0;
