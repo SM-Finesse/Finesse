@@ -1,6 +1,7 @@
 package com.finesse.backend.service;
 
 import com.finesse.backend.calc.collector.UserSummary;
+import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
@@ -203,6 +204,24 @@ class StatsServiceMappingTest {
         StatsResponse cold = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 5,
                 AnalysisOutcome.ColdStartReason.FEW_GAMES_IN_YEAR, winLoss(WIN, LOSE, WIN, WIN, LOSE)));
         assertThat(cold.profile().windowDelta()).isNull();
+    }
+
+    @Test
+    void 공격_수비에_본인_상대_평균을_함께_넣는다() {
+        DeltaStats.StatAverages mine = new DeltaStats.StatAverages(100, 2.5, 220, 0.667, 1.20, 2.20, 30.0);
+        DeltaStats.StatAverages opp = new DeltaStats.StatAverages(95, 2.4, 230, 0.660, 1.25, 2.42, 28.5);
+        DeltaStats delta = new DeltaStats(40, 0.1, 5, -10, 0.007, -0.05, -0.22, 1.5,
+                null, null, null, null, mine, opp);
+
+        StatsResponse.Attack attack = StatsService.attack(delta);
+        StatsResponse.Defense defense = StatsService.defense(delta);
+
+        assertThat(attack.deltaApp()).isEqualTo(0.007); // 기존 Δ 키는 그대로
+        assertThat(attack.myAvg()).isEqualTo(new StatsResponse.AttackAvg(0.667, 1.20));
+        assertThat(attack.oppAvg()).isEqualTo(new StatsResponse.AttackAvg(0.660, 1.25));
+        assertThat(defense.deltaCheeseIndex()).isEqualTo(1.5);
+        assertThat(defense.myAvg()).isEqualTo(new StatsResponse.DefenseAvg(2.20, 30.0));
+        assertThat(defense.oppAvg()).isEqualTo(new StatsResponse.DefenseAvg(2.42, 28.5));
     }
 
     @Test

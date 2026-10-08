@@ -55,8 +55,8 @@ class HeavyChapterDataTest {
         StatsResponse.DeltaMetrics delta = new StatsResponse.DeltaMetrics(
                 12.5, null,
                 new StatsResponse.PlaystyleRelative(0.1, -0.22, null, -0.17),
-                new StatsResponse.Attack(-0.05, -1.34),
-                new StatsResponse.Defense(-0.07, -2.56),
+                new StatsResponse.Attack(-0.05, -1.34, new StatsResponse.AttackAvg(0.70, 1.10), new StatsResponse.AttackAvg(0.75, 2.44)), // 평균은 화면용 — LLM엔 안 감
+                new StatsResponse.Defense(-0.07, -2.56, new StatsResponse.DefenseAvg(2.10, 30.0), new StatsResponse.DefenseAvg(2.17, 32.56)),
                 strengthSplit, null, 0.31, 0.29, 0.02, new StatsResponse.ComebackSamples(41, 13, 24, 7), 0.55);
         List<StatsResponse.RivalItem> items = IntStream.range(0, rivalCount)
                 .mapToObj(i -> new StatsResponse.RivalItem("pla***_" + i, 20 - i, 10, 10 - i, null))
@@ -76,6 +76,9 @@ class HeavyChapterDataTest {
         assertThat(data.get("strength_split").isEmpty()).isTrue(); // null이라 키째 빠짐
         assertThat(data.get("playstyle").has("delta_stride")).isFalse();
         assertThat(data.get("session_vs_slope").get("session_vs_slope").asDouble()).isEqualTo(0.55);
+        // my_avg·opp_avg는 화면 막대용 — LLM 서버는 모르는 키를 거절하므로 Δ 두 개만
+        assertThat(Set.copyOf(data.get("attack").propertyNames())).containsExactlyInAnyOrder("delta_app", "delta_weighted_app");
+        assertThat(Set.copyOf(data.get("defense").propertyNames())).containsExactlyInAnyOrder("delta_vs_apm", "delta_cheese_index");
     }
 
     @Test

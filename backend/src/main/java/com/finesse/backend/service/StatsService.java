@@ -267,8 +267,8 @@ public class StatsService {
                 trTrendBasis(fixed.trTrend(), highlight.trTrendDelta(), trTrendRatio),
                 delta == null ? null : new StatsResponse.PlaystyleRelative(delta.deltaOpener(), delta.deltaPlonk(),
                         delta.deltaStride(), delta.deltaInfDs()),
-                delta == null ? null : new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp()),
-                delta == null ? null : new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex()),
+                delta == null ? null : attack(delta),
+                delta == null ? null : defense(delta),
                 highlight.strengthSplit(),
                 strengthQuintiles(highlight),
                 highlight.comebackRate(),
@@ -314,6 +314,24 @@ public class StatsService {
             return List.of();
         }
         return series.trSeries().stream().map(MatchSeriesStats.TrPoint::tr).toList();
+    }
+
+    /** 03장 — Δ와 같은 매치 집합의 본인·상대 평균(calc mine·opp)을 막대 그래프용으로 함께 */
+    static StatsResponse.Attack attack(DeltaStats delta) {
+        DeltaStats.StatAverages mine = delta.mine();
+        DeltaStats.StatAverages opp = delta.opp();
+        return new StatsResponse.Attack(delta.deltaApp(), delta.deltaWeightedApp(),
+                mine == null ? null : new StatsResponse.AttackAvg(mine.app(), mine.weightedApp()),
+                opp == null ? null : new StatsResponse.AttackAvg(opp.app(), opp.weightedApp()));
+    }
+
+    /** 04장 — attack과 같은 규칙 */
+    static StatsResponse.Defense defense(DeltaStats delta) {
+        DeltaStats.StatAverages mine = delta.mine();
+        DeltaStats.StatAverages opp = delta.opp();
+        return new StatsResponse.Defense(delta.deltaVsApm(), delta.deltaCheeseIndex(),
+                mine == null ? null : new StatsResponse.DefenseAvg(mine.vsApm(), mine.cheeseIndex()),
+                opp == null ? null : new StatsResponse.DefenseAvg(opp.vsApm(), opp.cheeseIndex()));
     }
 
     /** 분위별 승률 Q1 → Q5 — calc가 빈 목록(TR 있는 매치 5판 미만)을 주면 strength_split처럼 생략 */

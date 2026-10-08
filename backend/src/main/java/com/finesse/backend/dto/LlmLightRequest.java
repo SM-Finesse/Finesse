@@ -74,7 +74,10 @@ public record LlmLightRequest(FixedMetrics fixedMetrics, DeltaMetrics deltaMetri
         StatsResponse.DeltaMetrics d = stats.deltaMetrics();
         return new LlmLightRequest(
                 new FixedMetrics(f.winRate(), f.trTrend()),
-                new DeltaMetrics(d.playstyleRelative(), d.attack(), d.defense(), d.strengthSplit(),
-                        d.deltaComeback(), d.sessionVsSlope()));
+                // attack·defense의 my_avg·opp_avg(화면 막대용)는 v1.2 입력이 아니라 빼고 보낸다
+                new DeltaMetrics(d.playstyleRelative(),
+                        d.attack() == null ? null : d.attack().withoutAverages(),
+                        d.defense() == null ? null : d.defense().withoutAverages(),
+                        d.strengthSplit(), d.deltaComeback(), d.sessionVsSlope()));
     }
 }

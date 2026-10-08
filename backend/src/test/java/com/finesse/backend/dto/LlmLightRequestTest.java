@@ -30,8 +30,8 @@ class LlmLightRequestTest {
         StatsResponse.DeltaMetrics delta = new StatsResponse.DeltaMetrics(
                 12.5, null,
                 new StatsResponse.PlaystyleRelative(0.1, -0.22, -0.08, -0.17),
-                new StatsResponse.Attack(-0.05, -1.34),
-                new StatsResponse.Defense(-0.07, -2.56),
+                new StatsResponse.Attack(-0.05, -1.34, new StatsResponse.AttackAvg(0.70, 1.10), new StatsResponse.AttackAvg(0.75, 2.44)), // 평균은 화면용 — LLM엔 안 감
+                new StatsResponse.Defense(-0.07, -2.56, new StatsResponse.DefenseAvg(2.10, 30.0), new StatsResponse.DefenseAvg(2.17, 32.56)),
                 strengthSplit, null, comebackRate, comebackRateAgainst,
                 // calc HighlightStats.deltaComeback과 같은 정의 — 둘 중 하나라도 없으면 null
                 comebackRate == null || comebackRateAgainst == null ? null : comebackRate - comebackRateAgainst,

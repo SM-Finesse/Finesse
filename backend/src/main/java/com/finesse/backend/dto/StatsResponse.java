@@ -91,10 +91,37 @@ public record StatsResponse(
     public record PlaystyleRelative(Double deltaOpener, Double deltaPlonk, Double deltaStride, Double deltaInfDs) {
     }
 
-    public record Attack(double deltaApp, double deltaWeightedApp) {
+    /**
+     * 03장 공격 효율. myAvg·oppAvg는 heavy "나 vs 상대 평균" 막대용으로, Δ와 같은 매치 집합의 평균이라
+     * myAvg − oppAvg = Δ다 (calc DeltaStats.mine·opp, 모듈 요청 10/8). LLM 입력에는 넣지 않는다(withoutAverages).
+     */
+    public record Attack(double deltaApp, double deltaWeightedApp, AttackAvg myAvg, AttackAvg oppAvg) {
+        public Attack(double deltaApp, double deltaWeightedApp) {
+            this(deltaApp, deltaWeightedApp, null, null);
+        }
+
+        /** LLM/AI 파트 설계 v1.2 스키마 그대로 — Δ 두 개만 */
+        public Attack withoutAverages() {
+            return new Attack(deltaApp, deltaWeightedApp);
+        }
     }
 
-    public record Defense(double deltaVsApm, double deltaCheeseIndex) {
+    public record AttackAvg(double app, double weightedApp) {
+    }
+
+    /** 04장 수비·가비지. myAvg·oppAvg는 Attack과 같은 규칙 */
+    public record Defense(double deltaVsApm, double deltaCheeseIndex, DefenseAvg myAvg, DefenseAvg oppAvg) {
+        public Defense(double deltaVsApm, double deltaCheeseIndex) {
+            this(deltaVsApm, deltaCheeseIndex, null, null);
+        }
+
+        /** LLM/AI 파트 설계 v1.2 스키마 그대로 — Δ 두 개만 */
+        public Defense withoutAverages() {
+            return new Defense(deltaVsApm, deltaCheeseIndex);
+        }
+    }
+
+    public record DefenseAvg(double vsApm, double cheeseIndex) {
     }
 
     // samples: 그 라운드 순서의 라운드 수 — vs와 같은 길이, 값이 작을수록 평균이 흔들린다 (calc RoundPoint.samples)

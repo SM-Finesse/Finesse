@@ -376,8 +376,8 @@ public class CommentService {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("tr_trend", fields("tr_trend_delta", d.trTrendDelta()));
         map.put("playstyle", d.playstyleRelative() != null ? d.playstyleRelative() : Map.of());
-        map.put("attack", d.attack() != null ? d.attack() : Map.of());
-        map.put("defense", d.defense() != null ? d.defense() : Map.of());
+        map.put("attack", d.attack() != null ? d.attack().withoutAverages() : Map.of()); // my_avg·opp_avg는 화면용 — LLM 입력엔 Δ만
+        map.put("defense", d.defense() != null ? d.defense().withoutAverages() : Map.of());
         map.put("strength_split", fields("strength_split", d.strengthSplit()));
         Map<String, Object> comeback = fields("comeback_rate", d.comebackRate(),
                 "comeback_rate_against", d.comebackRateAgainst());
