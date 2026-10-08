@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeltaMetrics } from '../api/types'
-import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, numOrDash, rankLabel, signed, timeAgo, trendOf } from './stats'
+import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, numOrDash, rankLabel, readable, signed, timeAgo, trendOf } from './stats'
 
 const DELTA: DeltaMetrics = {
   tr_trend_delta: 12.34,
@@ -113,5 +113,21 @@ describe('하이라이트 근거 (FR-05)', () => {
       { ...DELTA, comeback_rate_against: 0.25 },
     )
     expect(items.map((i) => i.ev.stat)).toEqual(['delta_vs_apm'])
+  })
+})
+
+describe('readable — AI 문장 속 내부 키 이름 (QA BUG-04)', () => {
+  it('밑줄 있는 키는 화면 이름으로 바꾼다', () => {
+    expect(readable('delta_opener는 opener의 성향, delta_inf_ds는 inf_ds의 성향입니다.', 'ko')).toBe('ΔOpener는 Opener의 성향, ΔInf DS는 Inf DS의 성향입니다.')
+    expect(readable('Your delta_comeback and session_vs_slope are high.', 'en')).toBe('Your ΔComeback and VS Slope are high.')
+  })
+
+  it('밑줄 없는 낱말은 한국어 문장에서만 바꾼다 — 영어에서는 평범한 단어일 수 있다', () => {
+    expect(readable('plonk와 comeback이 강합니다.', 'ko')).toBe('Plonk와 Comeback이 강합니다.')
+    expect(readable('A strong comeback in the opener.', 'en')).toBe('A strong comeback in the opener.')
+  })
+
+  it('모르는 단어나 대문자로 쓴 이름은 그대로 둔다', () => {
+    expect(readable('APM과 PPS가 높고 hello_world는 그대로.', 'ko')).toBe('APM과 PPS가 높고 hello_world는 그대로.')
   })
 })

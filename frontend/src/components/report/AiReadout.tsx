@@ -1,12 +1,13 @@
 import type { CommentState } from '../../hooks/useLightComment'
 import { useI18n } from '../../i18n/context'
 import { retryWait } from '../../lib/retry'
+import { readable } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
 import { Caption, PanelTag } from './parts'
 
 /** AI 총평 — stats가 먼저 그려진 뒤 도착한다(FR-04). 오는 동안은 같은 크기의 자리를 잡아 둔다 */
 export function AiReadout({ comment, onRetry }: { comment: CommentState; onRetry: () => void }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const a = t.report.ai
   if (comment.status === 'idle') return null
 
@@ -39,7 +40,7 @@ export function AiReadout({ comment, onRetry }: { comment: CommentState; onRetry
     body = (
       <>
         <PanelTag accent>AI READOUT</PanelTag>
-        <p className="m-0 min-w-0 flex-1 text-base leading-[1.6] font-medium text-head">{comment.data.light_summary}</p>
+        <p className="m-0 min-w-0 flex-1 text-base leading-[1.6] font-medium text-head">{readable(comment.data.light_summary, lang)}</p>
         <Caption className="flex-none max-md:hidden">{a.hint}</Caption>
       </>
     )

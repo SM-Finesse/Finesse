@@ -1,15 +1,14 @@
 import { useId } from 'react'
 import { Area, AreaChart, CartesianGrid, Tooltip, XAxis, YAxis } from 'recharts'
-import { AXIS_TICK } from '../../lib/chart'
+import { AXIS_TICK, gameTicks, niceScale } from '../../lib/chart'
 import { num } from '../../lib/stats'
 
 /** TR 추이 영역 차트 — series는 과거→현재, 경기 단위. 값이 2개 이상일 때만 부른다 */
 export function TrChart({ series, height }: { series: number[]; height: number }) {
   const fill = `trFill${useId().replace(/[^\w-]/g, '')}`
   const points = series.map((v, i) => ({ game: i + 1, tr: v }))
-  const hi = Math.max(...series)
-  const lo = Math.min(...series)
-  const pad = (hi - lo) * 0.18 || 1
+  const y = niceScale(Math.min(...series), Math.max(...series))
+  const xTicks = gameTicks(series.length)
 
   return (
     <div data-testid="tr-chart">
@@ -21,16 +20,18 @@ export function TrChart({ series, height }: { series: number[]; height: number }
           </linearGradient>
         </defs>
         <CartesianGrid vertical={false} stroke="#223749" />
-        <XAxis dataKey="game" tick={AXIS_TICK} tickLine={false} axisLine={{ stroke: '#2A475E' }} minTickGap={28} />
-        <YAxis
-          domain={[lo - pad, hi + pad]}
+        {/* 눈금은 직접 정한다 — 맡겨 두면 폭·폰트 로딩에 따라 그릴 때마다 바뀌고 끝 눈금이 빠진다 */}
+        <XAxis
+          dataKey="game"
+          type="number"
+          domain={[1, series.length]}
+          ticks={xTicks}
+          interval={0}
           tick={AXIS_TICK}
           tickLine={false}
-          axisLine={false}
-          width={52}
-          tickCount={5}
-          tickFormatter={(v: number) => num(v)}
+          axisLine={{ stroke: '#2A475E' }}
         />
+        <YAxis domain={y.domain} ticks={y.ticks} interval={0} tick={AXIS_TICK} tickLine={false} axisLine={false} width={52} tickFormatter={(v: number) => num(v)} />
         <Tooltip
           isAnimationActive={false}
           cursor={{ stroke: '#66C0F4', strokeDasharray: '3 3' }}

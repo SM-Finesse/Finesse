@@ -4,7 +4,7 @@ import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
 import type { StatInfo } from '../../../i18n/strings'
 import { cx } from '../../../lib/cx'
-import { TREND_MARK, type Trend } from '../../../lib/stats'
+import { readable, TREND_MARK, type Trend } from '../../../lib/stats'
 import { BigNum } from '../parts'
 
 /** 근거 칩 한 개 — 이름과 값 */
@@ -223,7 +223,7 @@ export function Strip({ children }: { children: ReactNode }) {
 const HAIRLINE = 'before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.14)_12%,rgba(255,255,255,.14)_88%,transparent)]'
 
 function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state: FootState; chips: Chip[] }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const f = t.report.heavy.foot
   const aiTag = (
     <span className="inline-grid h-6 flex-none place-items-center rounded bg-frame px-[11px] font-display text-[11px] font-extrabold tracking-[.14em] text-[#06131C] shadow-[0_2px_0_rgba(0,0,0,.32),inset_0_1px_0_rgba(255,255,255,.22)]">
@@ -243,7 +243,7 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
           </span>
         ) : (
           <p className={cx('m-0 text-[15.5px] leading-[1.72] font-medium tracking-[-.004em]', state === 'ok' ? 'text-head' : 'text-muted')}>
-            {state === 'ok' ? result?.footnote : state === 'timeout' ? f.timeout : f.failed}
+            {state === 'ok' ? readable(result?.footnote ?? '', lang) : state === 'timeout' ? f.timeout : f.failed}
           </p>
         )}
       </div>

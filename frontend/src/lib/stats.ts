@@ -122,7 +122,7 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     pick: (d) => d.playstyle_relative?.delta_opener,
   },
   delta_plonk: {
-    code: 'ΔPlonk', label: { ko: '효율 중시', en: 'Plonk' }, kind: 'delta', decimals: 2,
+    code: 'ΔPlonk', label: { ko: '순간화력', en: 'Plonk' }, kind: 'delta', decimals: 2,
     pick: (d) => d.playstyle_relative?.delta_plonk,
   },
   delta_stride: {
@@ -169,6 +169,34 @@ export const STAT_META: Record<StatKey, StatMeta> = {
     code: 'VS Slope', label: { ko: '경기 내 컨디션', en: 'In-game condition' }, kind: 'delta', decimals: 2, unit: '/R',
     pick: (d) => d.session_vs_slope,
   },
+}
+
+/*
+ * AI 문장에 섞여 나온 내부 키 이름 → 화면 이름. LLM이 고쳐야 할 문제지만(QA BUG-04) 화면에 delta_opener 같은
+ * 코드명이 그대로 보이지 않게 프론트에서도 한 번 거른다.
+ * 밑줄 있는 키(delta_opener, inf_ds …)는 어느 언어에서나 바꾸고, 밑줄 없는 낱말(opener, comeback …)은
+ * 영어 문장에서는 평범한 단어일 수 있어 한국어 문장에서만 바꾼다.
+ */
+const RAW_NAMES: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(STAT_META).map(([k, m]) => [k, m.code])),
+  opener: 'Opener',
+  plonk: 'Plonk',
+  stride: 'Stride',
+  inf_ds: 'Inf DS',
+  app: 'APP',
+  weighted_app: 'Weighted APP',
+  vs_apm: 'VS/APM',
+  cheese_index: 'Cheese Index',
+  comeback: 'Comeback',
+  vs_slope: 'VS Slope',
+}
+
+export function readable(text: string, lang: Lang): string {
+  return text.replace(/\b[a-z]+(?:_[a-z]+)*\b/g, (w) => {
+    const name = RAW_NAMES[w]
+    if (!name) return w
+    return w.includes('_') || lang === 'ko' ? name : w
+  })
 }
 
 export interface Evidence {

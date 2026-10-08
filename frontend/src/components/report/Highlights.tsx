@@ -3,7 +3,7 @@ import type { StatsResponse } from '../../api/types'
 import type { CommentState } from '../../hooks/useLightComment'
 import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
-import { mapHighlights, TREND_MARK, type HighlightItem } from '../../lib/stats'
+import { mapHighlights, readable, TREND_MARK, type HighlightItem } from '../../lib/stats'
 import { BigNum, Notice } from './parts'
 
 const CARD_COLORS = ['var(--color-piece-s)', 'var(--color-piece-l)', 'var(--color-piece-t)']
@@ -45,7 +45,7 @@ function Card({ item, index, on, dim, onHover, onToggle }: {
         <BigNum value={ev.text} />
         {ev.trend && <span className="ml-1.5 text-[.5em]">{TREND_MARK[ev.trend]}</span>}
       </span>
-      <span className="mt-2.5 block min-h-12 text-[15px] leading-[1.72] text-[#B7C6D2]">{sentence}</span>
+      <span className="mt-2.5 block min-h-12 text-[15px] leading-[1.72] text-[#B7C6D2]">{readable(sentence, lang)}</span>
       <span className="relative mt-3 flex items-baseline justify-between gap-2.5 pt-3 before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.14)_12%,rgba(255,255,255,.14)_88%,transparent)]">
         <span className="text-[13px] text-faint">{t.report.hl.evidence}</span>
         <span className="font-mono text-sm text-ink">
