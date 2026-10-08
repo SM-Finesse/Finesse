@@ -16,7 +16,7 @@ class FancyMathCalculatorTest {
     private final FancyMathCalculator calculator = new FancyMathCalculator();
 
     private FancyStats calc(MatchHistory... matches) {
-        return calculator.calculate(new AnalyticsContext(List.of(matches), null));
+        return calculator.calculate(new AnalyticsContext(List.of(matches)));
     }
 
     @Test
@@ -83,8 +83,8 @@ class FancyMathCalculatorTest {
     @Test
     void 같은_입력은_항상_같은_결과를_낸다() {
         List<MatchHistory> input = List.of(match(60, 1.0, 120), match(90, 1.5, 150));
-        FancyStats first = calculator.calculate(new AnalyticsContext(input, null));
-        FancyStats second = calculator.calculate(new AnalyticsContext(input, null));
+        FancyStats first = calculator.calculate(new AnalyticsContext(input));
+        FancyStats second = calculator.calculate(new AnalyticsContext(input));
 
         assertThat(first).isEqualTo(second);
     }

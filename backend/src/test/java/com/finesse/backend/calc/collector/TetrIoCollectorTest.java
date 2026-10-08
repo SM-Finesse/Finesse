@@ -16,7 +16,7 @@ class TetrIoCollectorTest {
 
     private static final Instant NOW = Instant.parse("2027-01-01T00:00:00Z");
 
-    /** 페이지 3개 × 2판 = 구간당 6판, 부분 수집 최소 3판 */
+    /** 페이지 3개 × 2판 = 최대 6판(실제 설정의 300판에 해당), 부분 수집 최소 3판 */
     private static final CollectorProperties PROPS = new CollectorProperties(
             "http://unused", Duration.ZERO, 3, 2, 365, 3, 3, Duration.ofSeconds(3), Duration.ofSeconds(5));
 
@@ -54,22 +54,20 @@ class TetrIoCollectorTest {
     }
 
     @Test
-    void 현재_구간과_이전_구간을_최대_페이지_수까지_나눠_받는다() {
+    void 최대_판수까지_최대_페이지_수만큼_받는다() {
         CollectionResult r = collect(fakeApi(20, 1, 0));
 
         assertThat(r.matches()).hasSize(6);
-        assertThat(r.previousWindowMatches()).hasSize(6);
         assertThat(r.matches().get(0).matchId()).isEqualTo("m0");   // 최신순
-        assertThat(r.requestedPages()).isEqualTo(6);
+        assertThat(r.requestedPages()).isEqualTo(3);
         assertThat(r.status()).isEqualTo(CollectionStatus.COMPLETE);
     }
 
     @Test
-    void 매치가_적으면_있는_만큼만_받고_이전_구간은_비어_있다() {
+    void 매치가_적으면_있는_만큼만_받는다() {
         CollectionResult r = collect(fakeApi(5, 1, 0));
 
         assertThat(r.matches()).hasSize(5);
-        assertThat(r.previousWindowMatches()).isEmpty();
         assertThat(r.status()).isEqualTo(CollectionStatus.COMPLETE);
     }
 
@@ -99,13 +97,14 @@ class TetrIoCollectorTest {
     }
 
     @Test
-    void 현재_구간을_채운_뒤_이전_구간에서만_실패하면_COMPLETE다() {
-        CollectionResult r = collect(fakeApi(20, 1, 5));
+    void 최대_판수를_채우면_다음_페이지를_호출하지_않는다() {
+        // 4번째 호출에서 실패하도록 했지만, 6판(3페이지)을 채우면 더 부르지 않으므로 실패가 일어나지 않는다 (3.4절, v3.10)
+        CollectionResult r = collect(fakeApi(20, 1, 4));
 
         assertThat(r.status()).isEqualTo(CollectionStatus.COMPLETE);
         assertThat(r.matches()).hasSize(6);
-        assertThat(r.previousWindowMatches()).hasSize(2);
-        assertThat(r.failedPages()).isEqualTo(1);
+        assertThat(r.requestedPages()).isEqualTo(3);
+        assertThat(r.failedPages()).isZero();
     }
 
     @Test

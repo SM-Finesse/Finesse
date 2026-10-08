@@ -112,7 +112,7 @@ class StatsServiceMappingTest {
                         new MatchSeriesStats.TrPoint(Instant.parse("2026-10-02T00:00:00Z"), 21010.5)),
                 List.of(new MatchSeriesStats.RoundPoint(1, 2.4, 2.1, 30),
                         new MatchSeriesStats.RoundPoint(2, 2.38, 2.0, 25)));
-        HighlightStats highlight = new HighlightStats(12.0, -0.2, 10, 4, 0.4, 8, 2, 0.25, 0.15, 0.5, true);
+        HighlightStats highlight = new HighlightStats(12.0, -0.2, 10, 4, 0.4, 8, 2, 0.25, 0.15, 0.5, true, List.of());
         StatResult result = new StatResult(null, null, highlight, winLoss(WIN, WIN, LOSE), null,
                 RivalryStats.empty(), series);
 

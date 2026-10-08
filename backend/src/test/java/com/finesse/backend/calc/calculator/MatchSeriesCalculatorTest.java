@@ -22,7 +22,7 @@ class MatchSeriesCalculatorTest {
     private final MatchSeriesCalculator calculator = new MatchSeriesCalculator();
 
     private MatchSeriesStats calc(List<MatchHistory> matches) {
-        return calculator.calculate(new AnalyticsContext(matches, null));
+        return calculator.calculate(new AnalyticsContext(matches));
     }
 
     @Test

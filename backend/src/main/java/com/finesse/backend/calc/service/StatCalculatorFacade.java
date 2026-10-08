@@ -121,10 +121,9 @@ public class StatCalculatorFacade {
             return new AnalysisOutcome.ColdStartBypass(summary, current.matches().size(),
                     ColdStartReason.TOO_MANY_INVALID, winLoss(current.matches()));
         }
-        List<MatchHistory> previous = preprocessPreviousWindow(collection.previousWindowMatches());
 
         // 4. 계산 (19.4절)
-        AnalyticsContext context = new AnalyticsContext(current.matches(), previous);
+        AnalyticsContext context = new AnalyticsContext(current.matches());
         StatResult result = new StatResult(
                 calculate(CalculatorKey.FANCY, context),
                 calculate(CalculatorKey.DELTA, context),
@@ -136,7 +135,7 @@ public class StatCalculatorFacade {
         );
 
         AnalysisMeta meta = new AnalysisMeta(
-                current.matches().size(), previous.size(), collection.partial(),
+                current.matches().size(), 0, collection.partial(),   // previousMatches는 v3.10부터 항상 0 (@Deprecated)
                 current.excludedCount(), collection.droppedRecords(),
                 (int) current.matches().stream().filter(MatchHistory::endedEarly).count(),
                 (int) current.matches().stream().filter(m -> m.firstTo() == null).count());
@@ -170,7 +169,7 @@ public class StatCalculatorFacade {
     }
 
     private RecentWinLossStats winLoss(List<MatchHistory> matches) {
-        return matches.isEmpty() ? null : calculate(CalculatorKey.WIN_LOSS, new AnalyticsContext(matches, List.of()));
+        return matches.isEmpty() ? null : calculate(CalculatorKey.WIN_LOSS, new AnalyticsContext(matches));
     }
 
     /** Calculator 실행 시간을 계산기별로 기록한다 (설계서 27.3절). */
@@ -178,14 +177,7 @@ public class StatCalculatorFacade {
         return metrics.timeCalculation(key, () -> registry.<T>calculate(key, context));
     }
 
-    /** 이전 구간은 구간 비교(11.11절)에만 쓰므로, 전부 제외되면 빈 목록으로 둔다. */
-    private List<MatchHistory> preprocessPreviousWindow(List<RawMatch> previousRaw) {
-        try {
-            return preprocessor.preprocess(previousRaw).matches();
-        } catch (AllMatchesExcludedException e) {
-            return List.of();
-        }
-    }
+
 
     /** 마스킹 닉네임만 붙여 외부 노출용으로 바꾼다 — 원본 닉네임·유저 ID는 나가지 않는다 (11.12절). */
     private RivalryStats toRivalryStats(RivalryAggregate aggregate, PseudonymScope scope) {

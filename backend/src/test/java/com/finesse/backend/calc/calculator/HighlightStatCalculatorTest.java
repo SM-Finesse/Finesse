@@ -23,7 +23,7 @@ class HighlightStatCalculatorTest {
     private final HighlightStatCalculator calculator = new HighlightStatCalculator();
 
     private HighlightStats calc(List<MatchHistory> matches) {
-        return calculator.calculate(new AnalyticsContext(matches, null));
+        return calculator.calculate(new AnalyticsContext(matches));
     }
 
     // ── TR Trend Delta (11.1) ─────────────────────────────
@@ -68,7 +68,7 @@ class HighlightStatCalculatorTest {
         for (int s = 0; s < 40; s++) matches.add(tr(s, 1000 + 10 * s, 1000, WIN));
         var halfRatio = new HighlightStatCalculator(new AnalyticsProperties(10, 300, 40, 0.5));
 
-        assertThat(halfRatio.calculate(new AnalyticsContext(matches, null)).trTrendDelta())
+        assertThat(halfRatio.calculate(new AnalyticsContext(matches)).trTrendDelta())
                 .isCloseTo(100.0, within(TOL));
     }
 
@@ -97,6 +97,35 @@ class HighlightStatCalculatorTest {
 
         assertThat(calc(matches).strengthSplit()).isCloseTo(-1.0, within(TOL));
         assertThat(calc(reversed)).isEqualTo(calc(matches));
+    }
+
+    @Test
+    void 분위별_판수_승수_승률을_약한_상대부터_반환하고_양끝_차이가_strength_split이다() {
+        // 앞 테스트와 같은 10판: Q1(약한 상대) = L, W / Q5(강한 상대) = L, L
+        MatchResult[] results = {LOSE, LOSE, LOSE, WIN, WIN, LOSE, WIN, WIN, WIN, LOSE};
+        List<MatchHistory> matches = new ArrayList<>();
+        for (int i = 0; i < 10; i++) matches.add(tr(i, 1000, 1000 + (100 - 10 * i), results[i]));
+
+        HighlightStats s = calc(matches);
+
+        assertThat(s.strengthQuintiles()).extracting(HighlightStats.StrengthQuintile::quintile)
+                .containsExactly(1, 2, 3, 4, 5);
+        assertThat(s.strengthQuintiles()).extracting(HighlightStats.StrengthQuintile::matches)
+                .containsExactly(2, 2, 2, 2, 2);
+        assertThat(s.strengthQuintiles()).extracting(HighlightStats.StrengthQuintile::wins)
+                .containsExactly(1, 2, 1, 1, 0);
+        assertThat(s.strengthQuintiles().get(0).winRate()).isCloseTo(0.5, within(TOL));
+        double q5MinusQ1 = s.strengthQuintiles().get(4).winRate() - s.strengthQuintiles().get(0).winRate();
+        assertThat(q5MinusQ1).isCloseTo(s.strengthSplit(), within(TOL));
+    }
+
+    @Test
+    void TR_있는_매치가_5판_미만이면_분위별_승률은_빈_목록이다() {
+        List<MatchHistory> matches = new ArrayList<>();
+        for (int i = 0; i < 4; i++) matches.add(tr(i, 1000, 1100, WIN));
+
+        assertThat(calc(matches).strengthQuintiles()).isEmpty();
+        assertThat(calc(matches).strengthSplit()).isNull();
     }
 
     @Test
@@ -156,13 +185,19 @@ class HighlightStatCalculatorTest {
     }
 
     @Test
-    void 역전_허용_기회는_경기_형식과_무관하게_2판_이상_우세다() {
-        // 7선승 매치에서 2:0으로 앞섰다가 짐 → 역전 허용 기회(점수 차 2 그대로)
-        HighlightStats s = calc(List.of(roundsWithFormat(7, false, LOSE,
-                true, true, false, false, false, false, false, false, false)));
+    void 역전_허용_기회도_경기_형식별_점수_차를_쓴다() {
+        // v3.9 대칭화: 7선승은 4점 이상 앞서야 역전 허용 기회
+        // A: 2:0으로 앞섰다가 짐 → 7선승 기준 4점 미만 → 기회 아님
+        // B: 4:0으로 앞섰다가 짐 → 기회, 역전당함
+        // C: 3선승 2:0으로 앞섰다가 짐 → 3선승은 2점 → 기회, 역전당함
+        HighlightStats s = calc(List.of(
+                roundsWithFormat(7, false, LOSE, true, true, false, false, false, false, false, false, false),
+                roundsWithFormat(7, false, LOSE, true, true, true, true,
+                        false, false, false, false, false, false, false),
+                roundsWithFormat(3, false, LOSE, true, true, false, false, false)));
 
-        assertThat(s.comebackAgainstOpportunities()).isEqualTo(1);
-        assertThat(s.comebackAgainstAllowed()).isEqualTo(1);
+        assertThat(s.comebackAgainstOpportunities()).isEqualTo(2);
+        assertThat(s.comebackAgainstAllowed()).isEqualTo(2);
     }
 
     @Test

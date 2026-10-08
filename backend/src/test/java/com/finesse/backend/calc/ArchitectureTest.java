@@ -101,9 +101,7 @@ class ArchitectureTest {
                         StatResult.class, FancyStats.class, DeltaStats.class, HighlightStats.class,
                         RecentWinLossStats.class, ProfileWindowDeltaStats.class, MatchSeriesStats.class,
                         RivalryStats.class, RivalOpponentStats.class, RivalBadge.class, MatchResult.class,
-                        UserSummary.class, CollectionStatus.class,
-                        // 백엔드의 /users 호출도 같은 리미터로 서버 전체 TETR.IO 호출 간격을 지킨다(10/7, backend 요청)
-                        RateLimiter.class))))
+                        UserSummary.class, CollectionStatus.class, RateLimiter.class))))
                 .allowEmptyShould(true)
                 .check(classes);
     }

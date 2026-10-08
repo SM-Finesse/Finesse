@@ -18,7 +18,7 @@ class DeltaStatCalculatorTest {
     private final DeltaStatCalculator calculator = new DeltaStatCalculator();
 
     private DeltaStats calc(MatchHistory... matches) {
-        return calculator.calculate(new AnalyticsContext(List.of(matches), null));
+        return calculator.calculate(new AnalyticsContext(List.of(matches)));
     }
 
     @Test
