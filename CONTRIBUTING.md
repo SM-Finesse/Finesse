@@ -11,6 +11,15 @@
 - **병합은 며칠 단위로 자주** 하세요. 오래 안 합칠수록 충돌이 커집니다. 특히 `backend` / `data-eng`는 같은 `/backend` 폴더를 다루므로 더 자주.
 - 병합 후 **브랜치를 삭제하지 마세요** (상시 브랜치입니다).
 
+## 2-1. `collect` 브랜치 — main 병합 금지 (중요)
+- `collect`는 **데이터 수집용 백엔드 서버** 전용 브랜치입니다. 담당: 정한비 (`collect` 팀).
+- **`collect`는 절대 `main`에 병합하지 않습니다.** 다른 브랜치(`backend` 등)에 `collect`를 merge하는 것도 금지 — 그 브랜치가 main으로 갈 때 같이 딸려 들어갑니다.
+- CI의 `collect-guard`가 아래 두 경우 `ci-ok`를 실패시켜 병합 버튼을 막습니다.
+  - `collect` → `main` PR
+  - `collect` 커밋이 섞인 다른 브랜치의 PR (우회 병합)
+- 반대 방향(`main` → `collect` 동기화)은 자유입니다: `git switch collect` → `git pull origin main`.
+- `collect`에서 만든 코드를 main에 넣고 싶으면 merge하지 말고, 해당 파일을 자기 담당 브랜치에서 새로 커밋해 PR로 올리세요(리뷰어가 확인).
+
 ## 3. main → 내 브랜치 동기화
 다른 담당 브랜치가 main에 병합된 뒤에는, 내 브랜치에서도 며칠 단위로 main을 받아옵니다.
 
@@ -33,7 +42,7 @@ git push origin <내 브랜치>
 | 담당 | 입력할 명령 |
 |---|---|
 | 호준수 | `git switch frontend` |
-| 정한비 | `git switch backend` |
+| 정한비 | `git switch backend` (데이터 수집 서버: `git switch collect`) |
 | 위성훈 | `git switch data-eng` |
 | 윤세연 | `git switch llm` |
 | 박덕현 | `git switch infra` |
