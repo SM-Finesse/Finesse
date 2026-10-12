@@ -46,3 +46,12 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// collect 브랜치: 수집한 JSON → light.csv·heavy.csv (학습 데이터 수집 서버 작업지시서 3.5절 — 수집기와 따로 실행)
+// ./gradlew exportTrainingCsv --args="--data-dir=<수집 폴더> [--out-dir=<출력 폴더>]"
+tasks.register('exportTrainingCsv', JavaExec) {
+	group = 'collector'
+	description = '수집한 학습 데이터 JSON을 light.csv·heavy.csv로 합친다'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.finesse.backend.trainingdata.export.TrainingCsvExporter'
+}

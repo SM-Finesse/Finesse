@@ -250,7 +250,8 @@ public class StatsService {
                 Map.of("note", "콜드스타트 — 챕터 데이터 없음", "cold_start_reason", cold.reason().name()));
     }
 
-    private StatsResponse analyzedResponse(String normalized, AnalysisOutcome.Analyzed analyzed) {
+    // collect 브랜치: 학습 데이터 수집기(TrainingPayloadBuilder)가 서비스와 같은 매핑을 쓰도록 package-private
+    StatsResponse analyzedResponse(String normalized, AnalysisOutcome.Analyzed analyzed) {
         StatResult r = analyzed.result();
         AnalysisMeta meta = analyzed.meta();
         RecentWinLossStats winLoss = r.recentWinLoss();
