@@ -46,12 +46,48 @@ class ApiErrorMappingTest {
     @Test
     void EventSource처럼_Accept가_이벤트_스트림이어도_잘못된_유저명은_JSON_400() throws Exception {
         CommentService service = mock(CommentService.class);
-        when(service.getHeavyStream(anyString())).thenThrow(new IllegalArgumentException("유저명 형식 오류"));
+        when(service.getHeavyStream(anyString())).thenThrow(new InvalidUsernameException());
 
         mvc(service).perform(get("/api/v1/comment/a b").param("scope", "heavy")
                         .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(org.springframework.http.MediaType.APPLICATION_JSON))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("INVALID_USERNAME")));
+    }
+
+    @Test
+    void 잘못된_유저명은_INVALID_USERNAME이고_메시지에_입력값을_넣지_않는다() throws Exception {
+        // 실제 검사(Usernames.normalize)를 거치게 — 2자·17자·특수문자 (QA 검수요청서 R-03의 세 입력)
+        StatsService stats = new StatsService(null, null, new ConcurrentMapCacheManager(), null,
+                new com.finesse.backend.config.StatsLoadProperties(2, 5), null);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new StatsController(stats))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+        for (String name : new String[]{"ab", "abcdefghijklmnopq", "ab@cd"}) {
+            // 독립 MockMvc는 앱의 SNAKE_CASE 설정을 쓰지 않아 키 이름 대신 값으로 확인한다
+            mvc.perform(get("/api/v1/stats/" + name))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().string(org.hamcrest.Matchers.containsString("\"INVALID_USERNAME\"")))
+                    .andExpect(content().string(org.hamcrest.Matchers.containsString(InvalidUsernameException.MESSAGE)))
+                    .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(name))));
+        }
+    }
+
+    @Test
+    void 없는_유저_404_메시지에도_유저명을_넣지_않는다() throws Exception {
+        CommentService service = mock(CommentService.class);
+        when(service.getLight(anyString())).thenThrow(new UserNotFoundException("ghostuser"));
+
+        mvc(service).perform(get("/api/v1/comment/ghostuser").param("scope", "light"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString(GlobalExceptionHandler.USER_NOT_FOUND_MESSAGE)))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("ghostuser"))));
+    }
+
+    @Test
+    void 잘못된_scope는_기존처럼_BAD_REQUEST() throws Exception {
+        mvc(mock(CommentService.class)).perform(get("/api/v1/comment/icly").param("scope", "medium"))
+                .andExpect(status().isBadRequest())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("BAD_REQUEST")));
     }
 

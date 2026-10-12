@@ -1,5 +1,7 @@
 package com.finesse.backend.service;
 
+import com.finesse.backend.exception.InvalidUsernameException;
+
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -22,7 +24,7 @@ final class Usernames {
     static String normalize(String raw) {
         String value = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
         if (!VALID.matcher(value).matches()) {
-            throw new IllegalArgumentException("유저명은 3~16자의 영문·숫자·_·-만 쓸 수 있습니다: " + raw);
+            throw new InvalidUsernameException(); // 400 INVALID_USERNAME — 메시지에 입력값을 넣지 않는다(QA R-03)
         }
         return value;
     }

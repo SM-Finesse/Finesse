@@ -194,14 +194,15 @@ public class LlmClient {
                 continue; // 호출 1회 타임아웃 등 응답 자체가 없음 — 재요청
             }
             attempt++;
+            int retries = attempt - 1; // attempt_count = 사용한 재요청 횟수(heavy와 같은 기준, QA R-01)
             List<LightCommentResponse.Highlight> valid = validHighlights(resp, available);
             if (valid.size() >= 3) {
                 // 3개 초과 — 응답 순서 그대로 앞 3개만 사용 (재시도 아님, LLM 전담 원칙 유지)
-                return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)));
+                return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)), retries);
             }
             if (target < 3 && valid.size() >= target && hasSummary(resp)) {
                 // 후보가 3개 미만 — 받을 수 있는 최대치를 받았으니 재요청해도 나아질 게 없다
-                return new LightCommentResponse(resp.lightSummary(), valid);
+                return new LightCommentResponse(resp.lightSummary(), valid, retries);
             }
             if (hasSummary(resp) && (best == null || valid.size() > best.highlights().size())) {
                 best = new LightCommentResponse(resp.lightSummary(), valid);
@@ -209,7 +210,8 @@ public class LlmClient {
             // 형식 오류·유효 하이라이트 3개 미만 — 재요청
         }
         if (best != null) {
-            return best; // 하이라이트가 모자라도 총평이 정상이면 응답 전체를 실패로 돌리지 않는다
+            // 하이라이트가 모자라도 총평이 정상이면 응답 전체를 실패로 돌리지 않는다 — 재요청은 쓴 만큼 전부
+            return new LightCommentResponse(best.lightSummary(), best.highlights(), Math.max(0, attempt - 1));
         }
         if (allExcluded) {
             throw new LlmUnavailableException("모든 LLM 서버가 일시 제외 상태 (" + attempt + "회 시도 후)", lastFailure);

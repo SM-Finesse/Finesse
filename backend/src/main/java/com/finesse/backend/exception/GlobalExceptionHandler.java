@@ -27,6 +27,8 @@ public class GlobalExceptionHandler {
     // 사용자에게 보이는 문구 — heavy SSE의 event: error도 같은 문구를 쓴다(CommentService). 내부 메시지는 로그에만.
     public static final String TETRIO_UNAVAILABLE_MESSAGE = "일시적으로 조회할 수 없습니다, 잠시 후 다시 시도";
     public static final String SERVER_BUSY_MESSAGE = "사용자가 많습니다, 잠시 후 다시 시도";
+    // 유저명을 넣지 않는다 — API 명세서 3절(message에 유저명 등 내부 정보 금지), QA 검수요청서 R-03과 같은 이유(10/12)
+    public static final String USER_NOT_FOUND_MESSAGE = "존재하지 않는 TETR.IO 유저입니다";
 
     /**
      * 오류 본문은 항상 JSON으로 못박는다 — heavy는 브라우저 EventSource가 Accept: text/event-stream만 보내서,
@@ -40,7 +42,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleUserNotFound(UserNotFoundException ex) {
         return json(HttpStatus.NOT_FOUND)
-                .body(new ApiErrorResponse("USER_NOT_FOUND", ex.getMessage()));
+                .body(new ApiErrorResponse("USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE));
     }
 
     @ExceptionHandler(TetrioApiException.class)
@@ -103,6 +105,13 @@ public class GlobalExceptionHandler {
         log.error("처리되지 않은 오류", ex);
         return json(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiErrorResponse("INTERNAL_ERROR", "일시적인 오류가 발생했습니다, 잠시 후 다시 시도"));
+    }
+
+    /** 유저명 형식 오류 — 일반 400과 구분, 고정 문구(입력값 미포함). QA 검수요청서 R-03 */
+    @ExceptionHandler(InvalidUsernameException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidUsername(InvalidUsernameException ex) {
+        return json(HttpStatus.BAD_REQUEST)
+                .body(new ApiErrorResponse("INVALID_USERNAME", InvalidUsernameException.MESSAGE));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

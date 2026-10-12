@@ -115,6 +115,7 @@ class LlmClientTest {
         assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
                 .containsExactly("delta_plonk", "delta_comeback", "session_vs_slope");
         assertThat(hits.get()).isEqualTo(1);
+        assertThat(r.attemptCount()).as("최초 시도로 성공 — 재요청 0회").isZero();
     }
 
     @Test
@@ -129,6 +130,7 @@ class LlmClientTest {
         assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
                 .containsExactly("delta_vs_apm", "delta_plonk", "delta_app");
         assertThat(hits.get()).isEqualTo(2);
+        assertThat(r.attemptCount()).as("재요청 1회").isEqualTo(1);
     }
 
     @Test
@@ -146,6 +148,7 @@ class LlmClientTest {
         assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
                 .containsExactly("delta_plonk", "delta_app"); // 빈자리를 채우지 않는다
         assertThat(hits.get()).isEqualTo(4);
+        assertThat(r.attemptCount()).as("재요청 3회를 다 씀").isEqualTo(3);
     }
 
     @Test
@@ -284,6 +287,7 @@ class LlmClientTest {
 
         assertThat(r.highlights()).hasSize(3);
         assertThat(hits.get()).isEqualTo(1);
+        assertThat(r.attemptCount()).as("연결 실패는 세지 않는다").isZero();
     }
 
     @Test
