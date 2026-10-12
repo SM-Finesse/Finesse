@@ -22,11 +22,12 @@ ENV
 rm -rf state logs
 
 fail=0
+passed=()
 run() {  # run <기대 종료코드> <설명> [deploy.ps1 인자]
   local want=$1 desc=$2; shift 2
   echo; echo "=================== $desc"
   pwsh -NoProfile -File ./deploy.ps1 "$@"; local rc=$?
-  if [ "$rc" = "$want" ]; then echo "  ✔ 종료코드 $rc"; else echo "::error::$desc — 종료코드 $rc (기대 $want)"; fail=1; fi
+  if [ "$rc" = "$want" ]; then echo "  ✔ 종료코드 $rc"; passed+=("${desc%% *}"); else echo "::error::$desc — 종료코드 $rc (기대 $want)"; fail=1; fi
 }
 expect_state() {  # expect_state <파일> <기대값>
   local got; got=$(tr -d '[:space:]' < "state/$1" 2>/dev/null || true)
@@ -57,6 +58,9 @@ unset DEPLOY_TEST_FAIL_TAG; expect_state current_tag $A; expect_state failed_tag
 run 0 "⑥ 새 태그 정상 교체 (-Force)" -Force;   expect_state current_tag $B; expect_state previous_tag $A; expect_running $B
 
 echo; echo "=================== logs/deploy.log"; cat logs/deploy.log
+# 로그 파일은 API로 못 받으므로 결과 요약을 주석(annotation)으로 남김 — "초록불 = 실제로 실행됨" 확인용
+summary=$(grep -E '배포 시작|\[성공\]|\[실패\]|\[롤백' logs/deploy.log | sed 's/^[0-9-]* [0-9:]* //' | tr '\n' ' / ')
+echo "::notice title=배포 시나리오 ${#passed[@]}/6 종료코드 일치 (상태·실행 이미지 검사 실패 ${fail})::${summary}"
 docker compose --project-directory . -f docker-compose.yml down -v >/dev/null 2>&1 || true
 rm -f .env
 exit $fail
