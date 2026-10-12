@@ -87,7 +87,6 @@ class TrainingPayloadBuilderTest {
                 "tr_trend", "playstyle", "attack", "defense", "strength_split", "comeback_rate", "session_vs_slope");
         p.heavy().forEach((id, req) -> assertThat(MAPPER.writeValueAsString(req))
                 .isEqualTo(MAPPER.writeValueAsString(new LlmHeavyChapterRequest(id, chapterData.get(id)))));
-        assertThat(p.recentForm()).containsExactly("W", "W", "L");
         assertThat(p.matchCount()).isEqualTo(30);
     }
 

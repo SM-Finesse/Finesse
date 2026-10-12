@@ -18,7 +18,9 @@ import java.util.Map;
 
 /**
  * 수집한 JSON → light.csv · heavy.csv (학습 데이터 수집 서버 작업지시서 3.5절 — 수집기와 따로 실행).
- * 열 구조는 「학습 데이터 CSV 구조 지시서」 5·6절이 정본: light 30열, heavy 24열.
+ * 열 구조는 「학습 데이터 CSV 구조 지시서」 5·6절 기준에, PM 결정(10/12 "현재 1번 서버 형태를 따른다")을 반영한다:
+ * 1번 서버가 LLM에 실제로 보내는 값만 담는다 — light는 recent_form_json 열을 빼서 29열(1번 light 요청에 없음),
+ * heavy는 역전 챕터 표본 수 4열을 더해 28열(1번 heavy 역전 챕터 data에 있음).
  * 칸 값 규칙(5.2절): 요청에 필드가 없으면 빈 칸, null 값이면 문자 null, 숫자는 그대로(0.0도 값).
  * 사람이 채울 열은 비워 두고 work_status만 todo. split은 users.csv에서 가져온다(PM이 채운 뒤 다시 돌리면 된다).
  *
@@ -28,7 +30,7 @@ public final class TrainingCsvExporter {
 
     public static final List<String> LIGHT_COLUMNS = List.of(
             "sample_id", "user_key", "collected_at", "calc_commit", "split",
-            "win_rate", "tr_trend_json", "recent_form_json",
+            "win_rate", "tr_trend_json",
             "delta_opener", "delta_plonk", "delta_stride", "delta_inf_ds",
             "delta_app", "delta_weighted_app", "delta_vs_apm", "delta_cheese_index",
             "strength_split", "delta_comeback", "session_vs_slope",
@@ -39,10 +41,16 @@ public final class TrainingCsvExporter {
             "sample_id", "user_key", "chapter_id", "collected_at", "calc_commit", "split",
             "tr_trend_delta", "delta_opener", "delta_plonk", "delta_stride", "delta_inf_ds",
             "delta_app", "delta_weighted_app", "delta_vs_apm", "delta_cheese_index",
-            "strength_split", "comeback_rate", "comeback_rate_against", "session_vs_slope",
+            "strength_split", "comeback_rate", "comeback_rate_against",
+            "comeback_opportunities", "comeback_won", "comeback_against_opportunities", "comeback_against_allowed",
+            "session_vs_slope",
             "footnote", "author", "reviewer", "work_status", "note");
 
-    /** heavy 챕터별로 채우는 지표 열 (CSV 구조 지시서 6.1절 B) — 이 밖의 data 필드는 CSV에 넣지 않는다 */
+    /** heavy 지표 열 — 메타 6열 뒤부터 footnote 앞까지 */
+    private static final List<String> HEAVY_METRIC_COLUMNS =
+            HEAVY_COLUMNS.subList(6, HEAVY_COLUMNS.indexOf("footnote"));
+
+    /** heavy 챕터별로 채우는 지표 열 (CSV 구조 지시서 6.1절 B + 역전 표본 수) — 1번 서버 챕터 data와 같은 키 */
     static final Map<String, List<String>> CHAPTER_METRICS = chapterMetrics();
 
     private static final String TODO = "todo";
@@ -112,7 +120,7 @@ public final class TrainingCsvExporter {
         JsonNode defense = delta.path("defense");
         List<String> row = new ArrayList<>(List.of(
                 sampleId, text(file, "user_key"), text(file, "collected_at"), text(file, "calc_commit"), split,
-                cell(fixed, "win_rate"), json(fixed, "tr_trend"), json(file.path("reference"), "recent_form"),
+                cell(fixed, "win_rate"), json(fixed, "tr_trend"),
                 cell(playstyle, "delta_opener"), cell(playstyle, "delta_plonk"),
                 cell(playstyle, "delta_stride"), cell(playstyle, "delta_inf_ds"),
                 cell(attack, "delta_app"), cell(attack, "delta_weighted_app"),
@@ -128,7 +136,7 @@ public final class TrainingCsvExporter {
         List<String> metrics = CHAPTER_METRICS.get(chapter);
         List<String> row = new ArrayList<>(List.of(sampleId, text(file, "user_key"), chapter,
                 text(file, "collected_at"), text(file, "calc_commit"), split));
-        for (String column : HEAVY_COLUMNS.subList(6, 19)) {
+        for (String column : HEAVY_METRIC_COLUMNS) {
             row.add(metrics.contains(column) ? cell(data, column) : "");
         }
         row.addAll(List.of("", "", "", TODO, ""));
@@ -222,7 +230,9 @@ public final class TrainingCsvExporter {
         m.put("attack", List.of("delta_app", "delta_weighted_app"));
         m.put("defense", List.of("delta_vs_apm", "delta_cheese_index"));
         m.put("strength_split", List.of("strength_split"));
-        m.put("comeback_rate", List.of("comeback_rate", "comeback_rate_against"));
+        // 역전 챕터는 비율 2개 + 표본 수 4개 — 1번 서버 CommentService.buildChapterData와 같은 키(10/7 결정, PM 10/12)
+        m.put("comeback_rate", List.of("comeback_rate", "comeback_rate_against",
+                "comeback_opportunities", "comeback_won", "comeback_against_opportunities", "comeback_against_allowed"));
         m.put("session_vs_slope", List.of("session_vs_slope"));
         return m;
     }

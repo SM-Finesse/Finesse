@@ -59,7 +59,12 @@ powershell -ExecutionPolicy Bypass -File collector\run-collector.ps1 -DataDir D:
 .\gradlew.bat exportTrainingCsv --args="--data-dir=D:\finesse-collector"
 ```
 
-`DataDir\export\light.csv`(30열) · `heavy.csv`(24열, 유저당 7행). UTF-8 BOM. 요청에 없는 필드는 빈 칸, `null` 값은 문자 `null`, 0은 값.
+`DataDir\export\light.csv`(29열) · `heavy.csv`(28열, 유저당 7행). UTF-8 BOM. 요청에 없는 필드는 빈 칸, `null` 값은 문자 `null`, 0은 값.
+
+**학습 데이터는 1번 서버가 LLM에 실제로 보내는 값만 담는다** (PM 10/12: "현재 모듈 설계를 토대로, 충돌을 줄이게 1번 서버 형태를 활용").
+CSV 구조 지시서(19번)와 다른 점 — 학습 입력과 실제 서비스 입력이 같아야 해서다.
+- `light.csv`: `recent_form_json` 열 없음(지시서 30열 → 29열). 1번 서버 light 요청에 `recent_form`이 없다.
+- `heavy.csv`: 역전 챕터 표본 수 4열 추가(지시서 24열 → 28열) — `comeback_opportunities`·`comeback_won`·`comeback_against_opportunities`·`comeback_against_allowed`. 1번 서버 역전 챕터 data에 들어 있다.
 `split`을 채운 뒤 다시 돌리면 반영된다.
 
 ## 알아둘 것

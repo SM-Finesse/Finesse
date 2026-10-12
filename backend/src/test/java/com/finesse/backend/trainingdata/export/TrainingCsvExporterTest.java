@@ -53,25 +53,28 @@ class TrainingCsvExporterTest {
     }
 
     @Test
-    void light는_30열_heavy는_24열이고_머리글이_지시서와_같다() throws IOException {
+    void light는_29열_heavy는_28열이고_1번_서버_요청과_같은_값만_담는다() throws IOException {
         collect();
         new TrainingCsvExporter().export(dir, dir.resolve("export"));
 
         String lightText = Files.readString(dir.resolve("export/light.csv"), StandardCharsets.UTF_8);
         String heavyText = Files.readString(dir.resolve("export/heavy.csv"), StandardCharsets.UTF_8);
+        // light: 지시서 30열에서 recent_form_json을 뺐다 — 1번 서버 light 요청에 없는 값(PM 10/12)
         assertThat(lightText).startsWith(CsvFiles.BOM + "sample_id,user_key,collected_at,calc_commit,split,win_rate,"
-                + "tr_trend_json,recent_form_json,delta_opener,delta_plonk,delta_stride,delta_inf_ds,delta_app,"
+                + "tr_trend_json,delta_opener,delta_plonk,delta_stride,delta_inf_ds,delta_app,"
                 + "delta_weighted_app,delta_vs_apm,delta_cheese_index,strength_split,delta_comeback,session_vs_slope,"
                 + "pick1_stat,pick1_sentence,pick2_stat,pick2_sentence,pick3_stat,pick3_sentence,light_summary,"
                 + "author,reviewer,work_status,note\n");
+        // heavy: 지시서 24열에 역전 챕터 표본 수 4열을 더했다 — 1번 서버 역전 챕터 data에 있는 값
         assertThat(heavyText).startsWith(CsvFiles.BOM + "sample_id,user_key,chapter_id,collected_at,calc_commit,split,"
                 + "tr_trend_delta,delta_opener,delta_plonk,delta_stride,delta_inf_ds,delta_app,delta_weighted_app,"
-                + "delta_vs_apm,delta_cheese_index,strength_split,comeback_rate,comeback_rate_against,session_vs_slope,"
-                + "footnote,author,reviewer,work_status,note\n");
+                + "delta_vs_apm,delta_cheese_index,strength_split,comeback_rate,comeback_rate_against,"
+                + "comeback_opportunities,comeback_won,comeback_against_opportunities,comeback_against_allowed,"
+                + "session_vs_slope,footnote,author,reviewer,work_status,note\n");
         List<List<String>> light = CsvFiles.parse(lightText);
         List<List<String>> heavy = CsvFiles.parse(heavyText);
-        assertThat(light).hasSize(2).allSatisfy(r -> assertThat(r).hasSize(30));
-        assertThat(heavy).hasSize(8).allSatisfy(r -> assertThat(r).hasSize(24)); // not_found 유저는 행이 없다
+        assertThat(light).hasSize(2).allSatisfy(r -> assertThat(r).hasSize(29));
+        assertThat(heavy).hasSize(8).allSatisfy(r -> assertThat(r).hasSize(28)); // not_found 유저는 행이 없다
     }
 
     @Test
@@ -84,7 +87,7 @@ class TrainingCsvExporterTest {
         assertThat(l).containsEntry("sample_id", "L0001").containsEntry("user_key", "u0001")
                 .containsEntry("collected_at", "2026-10-10T18:03:00+09:00").containsEntry("calc_commit", "abc1234")
                 .containsEntry("win_rate", "0.62").containsEntry("tr_trend_json", "[21100.0,21250.0]")
-                .containsEntry("recent_form_json", "[\"W\",\"L\"]")
+                .doesNotContainKey("recent_form_json")
                 .containsEntry("delta_opener", "-0.05").containsEntry("delta_cheese_index", "-2.1")
                 .containsEntry("strength_split", "-0.08")
                 .containsEntry("delta_comeback", "")        // null 후보 — 서비스가 필드째 뺀다
@@ -98,9 +101,12 @@ class TrainingCsvExporterTest {
         assertThat(tr).containsEntry("sample_id", "H0001").containsEntry("chapter_id", "tr_trend")
                 .containsEntry("tr_trend_delta", "128.4").containsEntry("delta_opener", "");
         assertThat(split).containsEntry("chapter_id", "strength_split").containsEntry("strength_split", "");
-        // 표본 수(comeback_opportunities 등)는 열이 없어 CSV에 들어가지 않는다 — JSON에는 남아 있다
+        // 역전 챕터는 비율 2개 + 표본 수 4개, 다른 챕터에는 표본 수 열이 비어 있다
         assertThat(comeback).containsEntry("comeback_rate", "0.33").containsEntry("comeback_rate_against", "0.28")
+                .containsEntry("comeback_opportunities", "41").containsEntry("comeback_won", "13")
+                .containsEntry("comeback_against_opportunities", "24").containsEntry("comeback_against_allowed", "7")
                 .containsEntry("tr_trend_delta", "");
+        assertThat(tr).containsEntry("comeback_opportunities", "").containsEntry("comeback_won", "");
     }
 
     @Test

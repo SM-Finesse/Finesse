@@ -66,6 +66,9 @@ public class TrainingDataCollectorTest {
         comeback.put("comeback_rate", 0.33);
         comeback.put("comeback_rate_against", 0.28);
         comeback.put("comeback_opportunities", 41);
+        comeback.put("comeback_won", 13);
+        comeback.put("comeback_against_opportunities", 24);
+        comeback.put("comeback_against_allowed", 7);
         Map<String, LlmHeavyChapterRequest> heavy = new LinkedHashMap<>();
         heavy.put("tr_trend", new LlmHeavyChapterRequest("tr_trend", Map.of("tr_trend_delta", 128.4)));
         heavy.put("playstyle", new LlmHeavyChapterRequest("playstyle", new StatsResponse.PlaystyleRelative(-0.05, 0.18, -0.09, 0.12)));
@@ -74,7 +77,7 @@ public class TrainingDataCollectorTest {
         heavy.put("strength_split", new LlmHeavyChapterRequest("strength_split", Map.of()));
         heavy.put("comeback_rate", new LlmHeavyChapterRequest("comeback_rate", comeback));
         heavy.put("session_vs_slope", new LlmHeavyChapterRequest("session_vs_slope", Map.of("session_vs_slope", 0.0)));
-        return new TrainingPayloadBuilder.Payloads(light, heavy, List.of("W", "L"), 183);
+        return new TrainingPayloadBuilder.Payloads(light, heavy, 183);
     }
 
     private TrainingDataCollector collector() {
@@ -147,7 +150,7 @@ public class TrainingDataCollectorTest {
         // WebClient가 LLM에 보내는 본문(같은 JsonMapper 직렬화)과 같아야 한다 — null 후보는 키째 빠진다
         assertThat(light.path("payload")).isEqualTo(MAPPER.readTree(MAPPER.writeValueAsString(payloads.light())));
         assertThat(light.path("payload").path("delta_metrics").has("delta_comeback")).isFalse();
-        assertThat(light.path("reference").path("recent_form").toString()).isEqualTo("[\"W\",\"L\"]");
+        assertThat(light.has("reference")).as("1번 서버 요청 밖의 값은 저장하지 않는다").isFalse();
 
         JsonNode defense = MAPPER.readTree(Files.readString(dir.resolve("collected/u0001_heavy_defense.json")));
         assertThat(defense.path("chapter_id").asString()).isEqualTo("defense");

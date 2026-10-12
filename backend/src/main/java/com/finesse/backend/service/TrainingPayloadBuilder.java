@@ -51,14 +51,15 @@ public class TrainingPayloadBuilder {
         for (String chapterId : HEAVY_CHAPTERS) {
             heavy.put(chapterId, new LlmHeavyChapterRequest(chapterId, chapterData.get(chapterId)));
         }
-        return new Payloads(LlmLightRequest.from(stats), heavy, stats.fixedMetrics().recentForm(), stats.matchCount());
+        return new Payloads(LlmLightRequest.from(stats), heavy, stats.matchCount());
     }
 
     /**
-     * @param recentForm light.csv recent_form_json 열(참고용) — LLM light 요청(v1.2)에는 들어가지 않는 값이라 따로 둔다
-     * @param matchCount 정제 후 유효 매치 수
+     * 1번 서버가 LLM에 보내는 요청 그대로 — 그 밖의 값(recent_form 등)은 담지 않는다
+     * (PM 10/12: 학습 데이터는 현재 1번 서버 형태를 따른다).
+     *
+     * @param matchCount 정제 후 유효 매치 수(메타)
      */
-    public record Payloads(LlmLightRequest light, Map<String, LlmHeavyChapterRequest> heavy,
-                           List<String> recentForm, int matchCount) {
+    public record Payloads(LlmLightRequest light, Map<String, LlmHeavyChapterRequest> heavy, int matchCount) {
     }
 }

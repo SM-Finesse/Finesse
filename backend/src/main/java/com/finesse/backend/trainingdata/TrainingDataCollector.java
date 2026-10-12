@@ -185,7 +185,6 @@ public class TrainingDataCollector {
                                TrainingPayloadBuilder.Payloads payloads, Path collected) throws IOException {
         ObjectNode light = meta(key, collectedAt, calcCommit, payloads.matchCount(), "light");
         light.set("payload", mapper.valueToTree(payloads.light()));
-        light.putObject("reference").set("recent_form", mapper.valueToTree(payloads.recentForm()));
         write(collected.resolve(key + "_light.json"), light);
 
         for (Map.Entry<String, LlmHeavyChapterRequest> e : payloads.heavy().entrySet()) {
