@@ -47,3 +47,13 @@ llm-server/models/
 llm-server/checkpoints/
 *.safetensors
 *.gguf
+
+# collect 브랜치 — 학습 데이터 수집 (🔴 레포가 Public: 닉네임이 든 파일은 절대 커밋하지 않는다)
+targets.csv
+user_map.csv
+users.csv
+light.csv
+heavy.csv
+collected/
+finesse-collector/
+collector.lock
