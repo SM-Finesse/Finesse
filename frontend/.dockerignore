@@ -1,0 +1,11 @@
+# 이미지 빌드 컨텍스트에서 제외
+node_modules
+dist
+coverage
+.env
+.env.*
+.vscode
+.idea
+*.log
+Dockerfile
+.dockerignore

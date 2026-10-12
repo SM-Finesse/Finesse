@@ -1,0 +1,17 @@
+# 이미지 빌드 컨텍스트에서 제외 (빌드 속도·이미지 오염 방지)
+.gradle
+build
+bin
+out
+.idea
+*.iml
+.vscode
+.settings
+.classpath
+.project
+docs
+tools
+HELP.md
+README.md
+Dockerfile
+.dockerignore

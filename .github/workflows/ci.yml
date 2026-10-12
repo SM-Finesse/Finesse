@@ -3,8 +3,8 @@
 # 위치: .github/workflows/ci.yml
 #
 # 하는 일: PR/main push 시 "바뀐 폴더만" 빌드·테스트
-#   backend    : Gradle 또는 Maven build/test (Spring Boot)
-#   frontend   : npm ci → lint → build (React + Vite)
+#   backend    : Gradle 또는 Maven build/test (Spring Boot) + Docker 이미지 빌드 확인
+#   frontend   : npm ci → lint → build → test (React + Vite) + Docker 이미지 빌드·nginx -t
 #   llm-server : ruff lint + pytest (GPU 없이)
 #   infra      : docker compose 문법 검증 + Dockerfile lint + Mock 서버 기동 확인
 #
@@ -94,6 +94,11 @@ jobs:
         if: steps.detect.outputs.tool == 'maven'
         run: mvn -B verify
 
+      # 2단계(이미지): Dockerfile이 있으면 이미지가 실제로 만들어지는지만 확인 (push 없음)
+      - name: Docker 이미지 빌드 확인 (push 없음)
+        if: hashFiles('backend/Dockerfile') != ''
+        run: docker build -t finesse-backend:ci .
+
   # ------------------------------------------------------------------
   # 3) frontend — React + Vite
   # ------------------------------------------------------------------
@@ -135,6 +140,14 @@ jobs:
       - name: Test (스크립트가 있을 때만)
         if: steps.exists.outputs.ok == 'true'
         run: npm test --if-present
+
+      # 2단계(이미지): 이미지 빌드 + Nginx 설정 문법 검사 (push 없음)
+      # nginx -t 는 upstream 호스트 이름을 확인하므로 기본값의 "backend" 를 임시로 127.0.0.1 로 연결
+      - name: Docker 이미지 빌드 확인 (push 없음)
+        if: steps.exists.outputs.ok == 'true' && hashFiles('frontend/Dockerfile') != ''
+        run: |
+          docker build -t finesse-frontend:ci .
+          docker run --rm --add-host backend:127.0.0.1 finesse-frontend:ci nginx -t
 
   # ------------------------------------------------------------------
   # 4) llm-server — Python (코드 검증만, 배포 X / GPU X)
