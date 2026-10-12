@@ -62,9 +62,8 @@ class MockGenerator:
         return GenerationResult(text=text, finish_reason="stop")
 
     def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
-        output = {"chapter_id": req.chapter_id, "footnote": f"[Mock] {req.chapter_id} 챕터 각주입니다."}
-        text = json.dumps(output, ensure_ascii=False, separators=(",", ":"))
-        return GenerationResult(text=text, finish_reason="stop")
+        # heavy-draft-v2: 모델은 각주 문장만 쓴다 (JSON 은 서버가 만든다)
+        return GenerationResult(text="[Mock] 실제 모델이 만든 각주가 아닙니다.", finish_reason="stop")
 
 
 def light_response_schema(available: list[str]) -> dict:
@@ -132,11 +131,11 @@ class LlamaGenerator:
         return self._complete("light", messages, LIGHT_DECODING, schema)
 
     def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
-        schema = heavy_response_schema(req.chapter_id) if self.json_mode == "schema" else None
-        return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, schema)
+        # heavy-draft-v2 는 문장만 쓰므로 JSON 모드(json/schema)를 적용하지 않는다
+        return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, None, text_only=True)
 
     def _complete(self, label: str, messages: list[dict[str, str]], decoding: dict,
-                  schema: dict | None) -> GenerationResult:
+                  schema: dict | None, text_only: bool = False) -> GenerationResult:
         kwargs = dict(decoding)
         # 요청마다 다른 seed. 지정하지 않으면 서버를 켤 때마다 같은 순서의 출력이 나와서,
         # 같은 시점에 켠 11번·13번이 똑같은 출력을 낸다 (10/8 두 서버 로그의 gen 토큰 수가 순서대로 일치).
@@ -144,7 +143,9 @@ class LlamaGenerator:
         kwargs["seed"] = random.randrange(2**31)
         if self.repeat_penalty is not None:
             kwargs["repeat_penalty"] = self.repeat_penalty
-        if self.json_mode == "json":
+        if text_only:
+            pass
+        elif self.json_mode == "json":
             kwargs["response_format"] = {"type": "json_object"}
         elif self.json_mode == "schema":
             kwargs["response_format"] = {"type": "json_object", "schema": schema}

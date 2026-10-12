@@ -1,0 +1,20 @@
+{
+  "_설명": "테스트용 가짜 값 (방향 반대·섞임 버전). heavy_chapters.json 이 대부분 음수라서 양수·혼합 방향을 확인하는 용도. 닉네임은 가짜 마스킹 값.",
+  "tr_trend": { "tr_trend_delta": 85.3 },
+  "playstyle": { "delta_opener": -0.05, "delta_plonk": 0.18, "delta_stride": 0.12, "delta_inf_ds": -0.09 },
+  "attack": { "delta_app": 0.06, "delta_weighted_app": -0.8 },
+  "defense": { "delta_vs_apm": 0.11, "delta_cheese_index": 1.9 },
+  "strength_split": { "strength_split": 0.08 },
+  "comeback_rate": {
+    "comeback_rate": 0.45, "comeback_rate_against": 0.2,
+    "comeback_opportunities": 11, "comeback_won": 5,
+    "comeback_against_opportunities": 10, "comeback_against_allowed": 2
+  },
+  "session_vs_slope": { "session_vs_slope": -0.4 },
+  "rivals": {
+    "rivals": [
+      { "nickname_masked": "zz**k", "matches": 10, "wins": 7, "losses": 3 },
+      { "nickname_masked": "mo***_3", "matches": 6, "wins": 3, "losses": 3 }
+    ]
+  }
+}

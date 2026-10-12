@@ -7,13 +7,21 @@
 오류 응답 (10/7 백엔드와 합의)
   502 LLM 출력 형식 오류  → 백엔드가 재요청
   413 LLM 입력 길이 초과  → 재요청하지 않음 (light 는 502 LLM_FORMAT_ERROR 로 종료, heavy 는 그 챕터 failed)
+
+heavy 대체 문장 (v3.4, 10/12)
+  LLM_HEAVY_ATTEMPTS (기본 2): 한 요청 안에서 LLM 으로 시도하는 횟수
+  LLM_HEAVY_FALLBACK (기본 on): on 이면 모두 실패했을 때 서버가 만든 대체 문장으로 200, off 면 예전처럼 502
+  LLM_HEAVY_TEMPLATE_CHAPTERS (기본 rivals, v3.5): LLM 을 부르지 않고 바로 서버 문장을 쓰는 챕터 (쉼표 구분,
+      빈 값이면 모든 챕터에 LLM 사용). 10/12 실측에서 rivals 는 프롬프트를 바꿔도 2/10 이라 서버 문장으로 둔다.
 """
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.fallback import build_fallback
 from app.generator import ContextOverflowError, build_generator
 from app.prompt import build_heavy_messages, build_light_messages
 from app.schemas import HeavyRequest, LightRequest
@@ -21,7 +29,7 @@ from app.validation import (
     HeavyResponse,
     LightResponse,
     OutputFormatError,
-    parse_heavy_output,
+    process_heavy_output,
     process_light_output,
 )
 
@@ -77,17 +85,29 @@ def comment_light(req: LightRequest):
 @app.post("/v1/comment/heavy-chapter", response_model=HeavyResponse)
 def comment_heavy_chapter(req: HeavyRequest):
     # ① 요청 검증: chapter_id 가 8개 중 하나가 아니거나 data 가 객체가 아니면 422
-    # ② 프롬프트 조립
+    # ② 프롬프트 조립 (챕터별 용어·해석 + 입력 방향에 맞는 예시)
+    template_chapters = {c.strip() for c in os.getenv("LLM_HEAVY_TEMPLATE_CHAPTERS", "rivals").split(",") if c.strip()}
+    if req.chapter_id in template_chapters:
+        logger.info("heavy 서버 문장 사용 chapter=%s (LLM_HEAVY_TEMPLATE_CHAPTERS)", req.chapter_id)
+        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data))
     messages = build_heavy_messages(req)
-    # ③ 생성
-    result = _generate(generator.generate_heavy, req, messages)
-    # ④ 응답 검증 (v1.2 5.3절 형식 오류 4가지 → 502, 백엔드가 그 챕터만 재요청)
-    try:
-        return parse_heavy_output(result.text, req.chapter_id)
-    except OutputFormatError as e:
-        logger.warning("heavy 형식 오류 chapter=%s generator=%s finish=%s: %s",
-                       req.chapter_id, generator.name, result.finish_reason, e)
-        raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from e
+    attempts = max(1, int(os.getenv("LLM_HEAVY_ATTEMPTS", "2")))
+    fallback = os.getenv("LLM_HEAVY_FALLBACK", "on").lower() != "off"
+    last_error: OutputFormatError | None = None
+    for attempt in range(1, attempts + 1):
+        # ③ 생성 → ④ 문장 다듬기·검사 (형식·숫자·방향·베낌)
+        result = _generate(generator.generate_heavy, req, messages)
+        try:
+            return process_heavy_output(result.text, req.chapter_id, req.data)
+        except OutputFormatError as e:
+            last_error = e
+            logger.warning("heavy 검사 실패 %d/%d chapter=%s generator=%s finish=%s: %s",
+                           attempt, attempts, req.chapter_id, generator.name, result.finish_reason, e)
+    if fallback:
+        # ⑤ 모두 실패 → 서버 대체 문장 (각주가 비지 않게). 파인튜닝 전후 비교용으로 로그를 남긴다.
+        logger.warning("heavy 대체 문장 사용 chapter=%s", req.chapter_id)
+        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data))
+    raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from last_error
 
 
 def _generate(generate, req, messages):
