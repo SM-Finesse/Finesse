@@ -253,7 +253,9 @@ try {
     $from = $current; if (-not $from) { $from = '(없음)' }
     Write-Log ("배포 시작: {0} → {1}  (프로필: {2})" -f $from, $desired, ($Profiles -join ','))
 
-    $code = Invoke-Compose -ComposeArgs @('pull') -Tag $desired
+    Write-Log '  이미지 받는 중… (처음엔 1~3분)'
+    # --quiet: 레이어별 진행 줄(수백 줄)을 로그에 남기지 않음 — 실패하면 오류 메시지는 그대로 나옴
+    $code = Invoke-Compose -ComposeArgs @('pull', '--quiet') -Tag $desired
     if ($code -ne 0) {
         Write-Log ("[실패] 이미지 받기 실패 ({0}) — 기존 버전 그대로 유지" -f $desired)
         Write-State 'failed_tag' $desired
