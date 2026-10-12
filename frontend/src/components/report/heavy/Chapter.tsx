@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { HeavyChapterResult } from '../../../api/types'
+import { useDismiss } from '../../../hooks/useDismiss'
 import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
 import type { StatInfo } from '../../../i18n/strings'
@@ -38,30 +39,6 @@ export function StatBox({ k, v, s, color, info }: { k: string; v: string; s?: st
       {s && <div className="mt-[3px] text-[13px] text-muted">{s}</div>}
     </div>
   )
-}
-
-/**
- * 열린 설명 카드를 Esc · 바깥 클릭으로 닫는다.
- * Esc는 리포트의 '처음으로' 단축키이기도 해서, 카드가 열려 있으면 먼저(캡처 단계) 받아 카드만 닫고 더 퍼지지 않게 한다.
- */
-function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      close()
-    }
-    document.addEventListener('pointerdown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [open, close, ref])
 }
 
 const CARD = 'z-10 rounded-md border-2 border-frame bg-[#0E1E2B] px-3.5 py-3 text-left text-[13px] leading-[1.6] font-normal text-ink shadow-[0_10px_24px_rgba(0,0,0,.55)]'
@@ -223,7 +200,7 @@ export function Strip({ children }: { children: ReactNode }) {
 const HAIRLINE = 'before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.14)_12%,rgba(255,255,255,.14)_88%,transparent)]'
 
 function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state: FootState; chips: Chip[] }) {
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
   const f = t.report.heavy.foot
   const aiTag = (
     <span className="inline-grid h-6 flex-none place-items-center rounded bg-frame px-[11px] font-display text-[11px] font-extrabold tracking-[.14em] text-[#06131C] shadow-[0_2px_0_rgba(0,0,0,.32),inset_0_1px_0_rgba(255,255,255,.22)]">
@@ -243,7 +220,7 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
           </span>
         ) : (
           <p className={cx('m-0 text-[15.5px] leading-[1.72] font-medium tracking-[-.004em]', state === 'ok' ? 'text-head' : 'text-muted')}>
-            {state === 'ok' ? readable(result?.footnote ?? '', lang) : state === 'timeout' ? f.timeout : f.failed}
+            {state === 'ok' ? readable(result?.footnote ?? '') : state === 'timeout' ? f.timeout : f.failed}
           </p>
         )}
       </div>

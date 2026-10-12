@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import type { ApiError } from '../api/client'
 import { FloorArt, SkyArt } from '../components/BackgroundArt'
 import { Kbd, KeyHint } from '../components/Kbd'
@@ -56,8 +56,18 @@ export function ReportPage({ username, view, onViewChange, onBack, onFound }: Pr
   }, [foundName])
   /* 콜드스타트는 LLM을 부르지 않는다. 갱신 중에는 새 stats가 올 때까지 기다린다 */
   const analyzable = data !== null && !data.cold_start
-  const comment = useLightComment(username, analyzable && view === 'light' ? stats.dataKey : null)
-  const heavy = useHeavyComment(username, analyzable && view === 'heavy' ? stats.dataKey : null)
+  /*
+   * 코멘트는 그 뷰를 처음 연 순간부터 받는다. 받는 도중에 다른 뷰로 넘어가도 끊지 않는다 —
+   * 끊고 돌아와 다시 부르면 LLM이 새로 만들어 하이라이트 내용이 바뀌고(QA BUG-02), 같은 유저에 LLM 호출이 겹친다.
+   */
+  const [lightFor, setLightFor] = useState<string | null>(null)
+  const [heavyFor, setHeavyFor] = useState<string | null>(null)
+  if (analyzable && stats.dataKey) {
+    if (view === 'light' && lightFor !== stats.dataKey) setLightFor(stats.dataKey)
+    if (view === 'heavy' && heavyFor !== stats.dataKey) setHeavyFor(stats.dataKey)
+  }
+  const comment = useLightComment(username, analyzable && (view === 'light' || lightFor === stats.dataKey) ? stats.dataKey : null)
+  const heavy = useHeavyComment(username, analyzable && (view === 'heavy' || heavyFor === stats.dataKey) ? stats.dataKey : null)
   const [hit, flash] = useKeyFlash()
   const canRefresh = data !== null && !stats.refreshing
 

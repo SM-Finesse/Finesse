@@ -1,6 +1,7 @@
 import type { StatsResponse } from '../../api/types'
 import { useI18n } from '../../i18n/context'
-import { num, numOrDash, signed, trendOf } from '../../lib/stats'
+import { evidenceOf, num, numOrDash, signed } from '../../lib/stats'
+import { PillInfo } from './heavy/Chapter'
 import { BigNum, Caption, DeltaPill, Notice, PanelHead } from './parts'
 import { TrChart } from './TrChart'
 
@@ -17,14 +18,24 @@ function Stat({ k, v }: { k: string; v: string }) {
 
 /** TR 추이 — fixed_metrics.tr_trend(과거→현재, 경기 단위)를 그대로 그린다 */
 export function TrTrendCard({ data }: { data: StatsResponse }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const tr = t.report.tr
   const series = data.fixed_metrics.tr_trend
-  const delta = data.delta_metrics?.tr_trend_delta
+  /* ΔTR 알약 — 헤비 01장과 같은 값·같은 설명 카드. 누르면 최근 N판 · 전체 판수 기준이 펼쳐진다 */
+  const ev = evidenceOf('tr_trend_delta', data.delta_metrics)
+  const basis = data.delta_metrics?.tr_trend_basis
   const right = (
     <>
       <Caption>{tr.games(series.length || data.match_count)}</Caption>
-      {typeof delta === 'number' && <DeltaPill text={signed(delta, 1)} trend={trendOf(delta, 1)} />}
+      {ev?.trend && (
+        <PillInfo
+          name={`${ev.meta.code} ${ev.text}`}
+          info={t.report.heavy.trend.deltaInfo(basis?.recent_matches, basis?.total_matches)}
+          head={{ code: ev.meta.code, label: ev.meta.label[lang], value: ev.text, trend: ev.trend }}
+        >
+          <DeltaPill text={ev.text} trend={ev.trend} />
+        </PillInfo>
+      )}
     </>
   )
 

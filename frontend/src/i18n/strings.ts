@@ -88,7 +88,17 @@ export interface ReportStrings {
     /** 5칸 증감 배지가 무엇인지 — 최근 N판 vs 그 이전 판 */
     note: (recent: number) => string
   }
-  ai: { loading: string; failed: string; unavailable: string; hint: string }
+  ai: {
+    loading: string
+    failed: string
+    unavailable: string
+    hint: string
+    /** 총평 구절을 눌러 뜬 지표 창 이름 */
+    linkTo: (label: string) => string
+    /** 총평 아래 GAMES 줄 — 수집했지만 분석에서 뺀 경기 */
+    skipped: (collected: number, skipped: number) => string
+    skippedWhy: string
+  }
   win: {
     title: string
     recent: (n: number) => string
@@ -130,6 +140,7 @@ export interface ReportStrings {
     noneTitle: string
     noneBody: string
     failed: string
+    failedHint: string
   }
   heavy: {
     streamFailed: string
@@ -347,7 +358,10 @@ const ko: Strings = {
       loading: '코멘트 생성 중… 통계는 이미 표시됨',
       failed: '코멘트를 불러오지 못했습니다.',
       unavailable: '일시적으로 코멘트를 생성할 수 없습니다.',
-      hint: '카드에 마우스를 올리면 근거가 켜집니다',
+      hint: '밑줄 친 말을 누르면 근거 지표가 뜹니다',
+      linkTo: (label) => `${label} 근거 지표`,
+      skipped: (c, s) => `수집 ${c}판 중 ${s}판 제외`,
+      skippedWhy: '최근 1년 · 최대 300판을 수집해, 실격·무효 처리된 경기와 기록이 깨진 경기를 분석에서 뺍니다.',
     },
     win: {
       title: '승패 분포',
@@ -387,6 +401,7 @@ const ko: Strings = {
       noneTitle: '하이라이트를 생성하지 못했습니다.',
       noneBody: 'AI가 고른 지표를 이번 전적의 수치와 이을 수 없어 AI 총평만 보여드립니다.',
       failed: '하이라이트를 불러오지 못했습니다.',
+      failedHint: '위 AI READOUT 칸의 [다시 시도]를 누르면 코멘트와 하이라이트를 다시 불러옵니다.',
     },
     heavy: {
       streamFailed: '챕터 코멘트 연결이 끊겼습니다. 받은 챕터는 그대로 둡니다.',
@@ -760,7 +775,10 @@ const en: Strings = {
       loading: 'Generating comment… stats are already shown',
       failed: 'Could not load the comment.',
       unavailable: 'Comments are temporarily unavailable.',
-      hint: 'Hover a card to light up its evidence',
+      hint: 'Click an underlined phrase to see its evidence',
+      linkTo: (label) => `${label} evidence`,
+      skipped: (c, s) => `${s} of ${c} collected excluded`,
+      skippedWhy: 'Up to 300 games from the past year are collected; disqualified, no-contest and broken records are left out of the analysis.',
     },
     win: {
       title: 'Win / loss',
@@ -800,6 +818,7 @@ const en: Strings = {
       noneTitle: 'Could not generate highlights.',
       noneBody: 'The metrics the AI picked could not be tied to numbers in this record, so only the AI summary is shown.',
       failed: 'Could not load the highlights.',
+      failedHint: 'Press [Try again] in the AI READOUT bar above to reload the comment and highlights.',
     },
     heavy: {
       streamFailed: 'The chapter comment stream dropped. Chapters already received stay as they are.',
