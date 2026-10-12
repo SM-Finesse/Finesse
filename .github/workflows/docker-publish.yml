@@ -10,6 +10,10 @@
 #
 # 보안: pull_request 이벤트에서는 실행하지 않음 → 외부 fork PR이 Secrets에 접근 불가
 # llm-server는 계획대로 이미지 대상에서 제외 (모델 파일·GPU 문제, 배포는 스크립트로 수동)
+#
+# [3단계 CD, 2026-10-12] main 푸시가 둘 다 성공하면 deploy 브랜치 target.env 에 TAG=<커밋 7자리> 기록
+#   → 학교 서버 PC의 infra/deploy/deploy.ps1 이 이 파일을 2분마다 읽어 그 태그로 교체 (GitOps pull)
+#   → deploy 브랜치 커밋 이력 = 배포 이력, 롤백 = target.env 의 TAG 를 이전 값으로 수정
 # =====================================================================
 name: Docker Publish
 
@@ -103,3 +107,34 @@ jobs:
       - name: 로그아웃
         if: always()
         run: docker logout || true
+
+  # ------------------------------------------------------------------
+  # 3단계 CD: 배포할 태그를 deploy 브랜치에 기록 (main 에서만, backend·frontend 푸시 모두 성공 시)
+  # ------------------------------------------------------------------
+  record-deploy:
+    needs: publish
+    if: github.ref == 'refs/heads/main' && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write           # deploy 브랜치에 커밋 (main Ruleset 과 무관한 브랜치)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: deploy
+
+      - name: target.env 갱신
+        run: |
+          tag="${GITHUB_SHA::7}"
+          {
+            echo "# Finesse 배포 목표 — 학교 서버 PC의 infra/deploy/deploy.ps1 이 2분마다 읽음"
+            echo "# 자동 기록: docker-publish.yml (main ${GITHUB_SHA}, run ${GITHUB_RUN_ID})"
+            echo "# 롤백: 아래 TAG 를 이전 커밋 7자리로 수정 (다음 main 병합 때 다시 덮어써짐)"
+            echo "TAG=${tag}"
+          } > target.env
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add target.env
+          if git diff --cached --quiet; then echo "변경 없음 (이미 ${tag})"; exit 0; fi
+          git commit -m "deploy: ${tag} (main ${GITHUB_SHA::7}, run ${GITHUB_RUN_ID})"
+          git push origin HEAD:deploy
+          echo "::notice::배포 목표 기록 — TAG=${tag} (서버 PC가 2~5분 안에 반영)"
