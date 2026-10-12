@@ -136,7 +136,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
           <BigNum value={numOrDash(pr.vs, 2)} />
         </Cell>
       </div>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-3">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-1.5 leading-tight">
         <Strip k="GLICKO" v={numOrDash(pr.glicko, 1)} unit={pr.rd >= 0 ? p.rd(num(pr.rd, 1)) : undefined} />
         {wd && <Caption className="text-xs lg:ml-auto">{p.note(wd.recent_matches)}</Caption>}
       </div>

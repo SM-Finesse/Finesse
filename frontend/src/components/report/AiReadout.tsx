@@ -65,7 +65,7 @@ export function AiReadout({ comment, onRetry, data, focus }: { comment: CommentS
       <>
         <PanelTag accent>AI READOUT</PanelTag>
         {linkable && focus ? (
-          <LinkedSummary text={summary} items={items} focus={focus} below={<><Caption className="flex-none max-md:hidden">{a.hint}</Caption>{games}</>} />
+          <LinkedSummary text={summary} items={items} focus={focus} aside={<Caption className="flex-none max-md:hidden">{a.hint}</Caption>} footer={games} />
         ) : (
           <>
             <p className="m-0 min-w-0 flex-1 text-base leading-[1.6] font-medium text-head">{summary}</p>
@@ -94,7 +94,8 @@ const sentencesOf = (items: HighlightItem[]) => Object.fromEntries(items.map((i)
  * (지표 이름 · 근거 수치 · AI 문장). 아래 같은 카드도 함께 켜진다. 다시 누르거나 Esc · 바깥 클릭이면 닫힌다.
  * 문장에서 가리키는 말을 못 찾은 하이라이트는 클릭할 곳을 따로 만들지 않는다 — 아래 카드로 본다.
  */
-function LinkedSummary({ text, items, focus, below }: { text: string; items: HighlightItem[]; focus: HighlightFocus; below?: ReactNode }) {
+/** aside — 총평 오른쪽 안내, footer — 맨 아래 GAMES 줄. 지표 창은 그 둘 사이(총평 바로 아래)에 뜬다 */
+function LinkedSummary({ text, items, focus, aside, footer }: { text: string; items: HighlightItem[]; focus: HighlightFocus; aside?: ReactNode; footer?: ReactNode }) {
   const { t, lang } = useI18n()
   const [open, setOpen] = useState<StatKey | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -141,7 +142,7 @@ function LinkedSummary({ text, items, focus, below }: { text: string; items: Hig
       <p className="m-0 min-w-0 flex-1 text-base leading-[1.75] font-medium text-head">
         {parts.map((p, i) => (p.stat ? link(p.stat, p.text, `p${i}`) : <span key={`p${i}`}>{p.text}</span>))}
       </p>
-      {below}
+      {aside}
       {shown && (
         <div
           id={panelId}
@@ -170,6 +171,7 @@ function LinkedSummary({ text, items, focus, below }: { text: string; items: Hig
           </div>
         </div>
       )}
+      {footer}
     </div>
   )
 }
