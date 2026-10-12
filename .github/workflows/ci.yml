@@ -7,6 +7,7 @@
 #   frontend   : npm ci → lint → build → test (React + Vite) + Docker 이미지 빌드·nginx -t
 #   llm-server : ruff lint + pytest (GPU 없이)
 #   infra      : docker compose 문법 검증 + Dockerfile lint + Mock 서버 기동 확인
+#   cd-deploy  : 학교 PC 배포 스크립트(infra/deploy) 시나리오 시험 + Windows PS 5.1 문법 검사
 #
 # 보안: GitHub 호스팅 러너(ubuntu-latest)만 사용. self-hosted runner 없음
 #       → Public 레포에서 fork PR이 와도 학교 PC에 영향 없음.
@@ -43,6 +44,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       llm: ${{ steps.filter.outputs.llm }}
       infra: ${{ steps.filter.outputs.infra }}
+      deploy: ${{ steps.filter.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -59,6 +61,9 @@ jobs:
               - 'infra/**'
               - '**/Dockerfile'
               - '.github/workflows/**'
+            deploy:
+              - 'infra/deploy/**'
+              - '.github/workflows/ci.yml'
 
   # ------------------------------------------------------------------
   # 2) backend — Spring Boot (Gradle wrapper 기준)
@@ -247,6 +252,53 @@ jobs:
         run: docker compose -f "${{ steps.compose.outputs.file }}" down -v
 
   # ------------------------------------------------------------------
+  # 5-1) cd-deploy — 3단계 CD 배포 스크립트(infra/deploy) 시험 (2026-10-12)
+  #      실제 DockerHub 이미지로 첫 배포·변경 없음·pull 실패·롤백·교체를 리눅스 pwsh 로 확인
+  #      + 학교 PC와 같은 Windows PowerShell 5.1 로 문법 검사
+  # ------------------------------------------------------------------
+  cd-deploy:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: compose 문법 (PC별 프로필)
+        working-directory: infra/deploy
+        run: |
+          for p in backend frontend backend,frontend; do
+            TAG=ci COMPOSE_PROFILES=$p docker compose config -q && echo "$p OK"
+          done
+
+      - name: deploy 브랜치 target.env 읽기 (서버 PC와 같은 주소)
+        shell: pwsh
+        run: |
+          $t = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/SM-Finesse/Finesse/deploy/target.env')
+          $t
+          if ($t -notmatch '(?m)^TAG=[A-Za-z0-9._-]+') { Write-Output '::error::target.env 에 TAG 없음'; exit 1 }
+
+      - name: 배포 시나리오 시험 (실제 이미지)
+        run: bash infra/deploy/tests/ci-deploy-test.sh
+
+  cd-deploy-windows:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell 5.1 문법 검사 (학교 PC 기본 PowerShell)
+        shell: powershell
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem infra/deploy -Filter *.ps1) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+            if ($errs) { foreach ($e in $errs) { Write-Output "::error file=infra/deploy/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)" }; $bad++ }
+            else { Write-Output "$($f.Name) OK ($($PSVersionTable.PSVersion))" }
+          }
+          if ($bad) { exit 1 }
+
+  # ------------------------------------------------------------------
   # 6) collect-guard — collect 브랜치는 절대 main에 병합되면 안 됨 (2026-10-09)
   #    ① PR 출발 브랜치가 collect 면 실패
   #    ② 다른 브랜치가 collect 를 merge 해서 우회해도, PR에 collect 전용 커밋이
@@ -285,7 +337,7 @@ jobs:
   #    (건너뛴 job은 통과, 실패/취소가 하나라도 있으면 실패)
   # ------------------------------------------------------------------
   ci-ok:
-    needs: [changes, backend, frontend, llm-server, infra, collect-guard]
+    needs: [changes, backend, frontend, llm-server, infra, cd-deploy, cd-deploy-windows, collect-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:
