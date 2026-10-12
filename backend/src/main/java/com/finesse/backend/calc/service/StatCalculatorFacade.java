@@ -16,6 +16,7 @@ import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
 import com.finesse.backend.calc.exception.AllMatchesExcludedException;
 import com.finesse.backend.calc.exception.TetrIoApiException;
+import com.finesse.backend.calc.exception.TetrIoRateLimitedException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
 import com.finesse.backend.calc.metrics.AnalyticsMetrics;
 import com.finesse.backend.calc.preprocessing.MatchPreprocessor;
@@ -92,7 +93,9 @@ public class StatCalculatorFacade {
         } catch (TetrIoUserNotFoundException e) {
             return new AnalysisOutcome.UserNotFound(user);
         } catch (TetrIoApiException e) {
-            return new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED);
+            // collect 브랜치: 429면 RATE_LIMITED로 구분
+            return new AnalysisOutcome.CollectionFailed(e instanceof TetrIoRateLimitedException
+                    ? CollectionStatus.RATE_LIMITED : CollectionStatus.FAILED);
         }
         if (summary.gamesPlayed() < threshold) {
             return new AnalysisOutcome.ColdStartBypass(summary, summary.gamesPlayed(), ColdStartReason.FEW_GAMES_TOTAL,

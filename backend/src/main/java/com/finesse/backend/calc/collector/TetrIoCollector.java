@@ -2,6 +2,7 @@ package com.finesse.backend.calc.collector;
 
 import com.finesse.backend.calc.config.CollectorProperties;
 import com.finesse.backend.calc.exception.TetrIoApiException;
+import com.finesse.backend.calc.exception.TetrIoRateLimitedException;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -61,6 +62,7 @@ public class TetrIoCollector {
         int failed = 0;
         int dropped = 0;
         boolean reachedCutoff = false;
+        boolean rateLimited = false;
         String cursor = null;
 
         while (requested < maxPageCalls && collected.size() < maxMatches) {
@@ -70,6 +72,7 @@ public class TetrIoCollector {
                 page = api.fetchRecentRecords(username, sessionId, cursor, properties.maxMatchesPerPage());
             } catch (TetrIoApiException e) {
                 failed++;
+                rateLimited = e instanceof TetrIoRateLimitedException;
                 break; // 커서가 끊기므로 다음 페이지를 이어 받을 수 없다
             }
             successful++;
@@ -94,9 +97,12 @@ public class TetrIoCollector {
         List<RawMatch> all = new ArrayList<>(collected.values());
         List<RawMatch> current = all.subList(0, Math.min(windowSize, all.size()));
 
-        return new CollectionResult(current,
-                status(successful, failed, current.size(), windowSize),
-                requested, successful, failed, dropped, reachedCutoff);
+        CollectionStatus status = status(successful, failed, current.size(), windowSize);
+        // collect 브랜치: 분석할 수 없는 실패(FAILED·INSUFFICIENT)의 원인이 429면 RATE_LIMITED. PARTIAL은 그대로 분석한다
+        if (rateLimited && (status == CollectionStatus.FAILED || status == CollectionStatus.INSUFFICIENT)) {
+            status = CollectionStatus.RATE_LIMITED;
+        }
+        return new CollectionResult(current, status, requested, successful, failed, dropped, reachedCutoff);
     }
 
     /** 3.7절 판정 순서. 300판을 다 채웠다면 실패가 있었어도 COMPLETE로 본다. */

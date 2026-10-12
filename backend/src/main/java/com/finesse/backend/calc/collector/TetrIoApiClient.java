@@ -2,6 +2,7 @@ package com.finesse.backend.calc.collector;
 
 import com.finesse.backend.calc.config.CollectorProperties;
 import com.finesse.backend.calc.exception.TetrIoApiException;
+import com.finesse.backend.calc.exception.TetrIoRateLimitedException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
 import com.finesse.backend.calc.metrics.AnalyticsMetrics;
 import org.springframework.http.HttpHeaders;
@@ -121,6 +122,8 @@ public class TetrIoApiClient implements TetrIoApi {
                     .body(JsonNode.class);
         } catch (HttpClientErrorException.NotFound e) {
             throw new TetrIoUserNotFoundException(username);
+        } catch (HttpClientErrorException.TooManyRequests e) {
+            throw new TetrIoRateLimitedException(e);   // collect 브랜치: 429를 따로 알린다(재시도 안 함은 그대로)
         } catch (HttpServerErrorException e) {
             throw new TetrIoApiException("TETR.IO 서버 오류 " + e.getStatusCode(), e, true);
         } catch (ResourceAccessException e) {
