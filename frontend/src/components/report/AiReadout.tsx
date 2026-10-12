@@ -19,7 +19,7 @@ export function AiReadout({ comment, onRetry, data, focus }: { comment: CommentS
   /* 코멘트 바로 아래 GAMES 줄 — 분석한 경기 수 · 수집했지만 뺀 경기 수(헤더·프로필에서 옮겨 옴) */
   const skipped = data ? skippedOf(data) : null
   const games = data && (
-    <p className="m-0 flex basis-full flex-wrap items-baseline gap-x-2 border-t border-line-soft pt-2.5" title={skipped === null ? undefined : a.skippedWhy}>
+    <p className="m-0 flex basis-full flex-wrap items-baseline gap-x-2 border-t border-line-soft pt-1.5 leading-tight" title={skipped === null ? undefined : a.skippedWhy}>
       <span className="font-display text-[11px] font-bold tracking-[.18em] text-faint">GAMES</span>
       <span className="font-num text-[18px] font-bold text-head tabular-nums">{num(data.match_count)}</span>
       <span className="text-[13px] text-muted">
@@ -79,7 +79,7 @@ export function AiReadout({ comment, onRetry, data, focus }: { comment: CommentS
   return (
     <section className="panel grid grid-cols-[4px_minmax(0,1fr)] overflow-hidden bg-surface" aria-label="AI READOUT">
       <div className="bg-primary-bright/70" />
-      <div className="flex flex-wrap items-center gap-3.5 px-[22px] py-[15px]">{body}</div>
+      <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1.5 px-[22px] pt-3 pb-2">{body}</div>
     </section>
   )
 }
