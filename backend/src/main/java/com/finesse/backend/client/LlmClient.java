@@ -7,6 +7,7 @@ import com.finesse.backend.dto.LlmHeavyChapterRequest;
 import com.finesse.backend.dto.LlmHeavyChapterResponse;
 import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.exception.LlmFormatException;
+import com.finesse.backend.exception.LlmTimeoutException;
 import com.finesse.backend.exception.LlmUnavailableException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -163,6 +164,7 @@ public class LlmClient {
         Exception lastFailure = null;
         LightCommentResponse best = null; // 3개를 못 채웠을 때 돌려줄, 총평 있는 응답 중 유효 하이라이트가 가장 많은 것
         boolean allExcluded = false;
+        boolean inputTooLarge = false;
         Set<String> available = request.availableStats();
         int target = Math.min(3, available.size());
         int totalAttempts = props.maxRetries() + 1; // 최초 시도 1회 + 재요청 maxRetries회
@@ -184,6 +186,7 @@ public class LlmClient {
                 attempt++;
                 lastFailure = e;
                 if (isInputTooLarge(e)) {
+                    inputTooLarge = true;
                     break; // 413 입력 길이 초과 — 같은 요청은 다시 보내도 결과가 같으므로 재요청하지 않는다
                 }
                 continue; // 서버가 오류 상태로 응답(추론 서버는 형식 오류를 502로 줌) — 응답은 받았으니 형식 오류로 세고 재요청
@@ -220,7 +223,12 @@ public class LlmClient {
             throw new LlmUnavailableException(
                     "light 코멘트 서버가 응답하지 않음 (" + attempt + "회 시도)", lastFailure);
         }
-        throw new LlmFormatException("light 코멘트 형식 오류가 " + attempt + "회 시도 후에도 지속됨 (또는 엔드포인트 잔여시간 부족)");
+        // 재요청을 다 쓰기 전에 엔드포인트 마감이 가까워 멈췄으면 504 — 형식 오류(502)와 원인을 구분한다(QA 2차 제안, 10/12)
+        if (!inputTooLarge && attempt < totalAttempts
+                && !canStartNewAttempt(endpointDeadlineNanos, props.lightMinRemainingSeconds())) {
+            throw new LlmTimeoutException("light 코멘트 엔드포인트 마감 — " + attempt + "회 시도 후 남은 시간 부족");
+        }
+        throw new LlmFormatException("light 코멘트 형식 오류가 " + attempt + "회 시도 후에도 지속됨");
     }
 
     /**

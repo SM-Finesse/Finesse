@@ -85,6 +85,20 @@ class ApiErrorMappingTest {
     }
 
     @Test
+    void light_마감_초과는_504_LLM_TIMEOUT_형식_오류는_502이고_둘_다_내부_메시지를_내보내지_않는다() {
+        var timeout = new GlobalExceptionHandler().handleLlmTimeout(new LlmTimeoutException("내부: 2회 시도 후 남은 시간 부족"));
+        org.assertj.core.api.Assertions.assertThat(timeout.getStatusCode().value()).isEqualTo(504);
+        org.assertj.core.api.Assertions.assertThat(timeout.getBody().errorCode()).isEqualTo("LLM_TIMEOUT");
+        org.assertj.core.api.Assertions.assertThat(timeout.getBody().message()).doesNotContain("내부");
+
+        var format = new GlobalExceptionHandler().handleLlmFormatError(new LlmFormatException("내부: 4회 시도 후에도 지속"));
+        org.assertj.core.api.Assertions.assertThat(format.getStatusCode().value()).isEqualTo(502);
+        org.assertj.core.api.Assertions.assertThat(format.getBody().errorCode()).isEqualTo("LLM_FORMAT_ERROR");
+        org.assertj.core.api.Assertions.assertThat(format.getBody().message())
+                .isEqualTo(GlobalExceptionHandler.LLM_FORMAT_ERROR_MESSAGE).doesNotContain("내부");
+    }
+
+    @Test
     void 잘못된_scope는_기존처럼_BAD_REQUEST() throws Exception {
         mvc(mock(CommentService.class)).perform(get("/api/v1/comment/icly").param("scope", "medium"))
                 .andExpect(status().isBadRequest())

@@ -89,6 +89,16 @@ class StatsServiceMappingTest {
     }
 
     @Test
+    void 누적_판수는_있어도_1년_안_경기가_0판이면_match_count는_0() {
+        // QA 2차 BUG-06 — abc(누적 3판, 전부 2024년): 누적 3을 보내면 화면이 "7판 남음"이 된다
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 3,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
+
+        assertThat(r.matchCount()).isZero();
+        assertThat(r.fixedMetrics().winRate()).isNull();
+    }
+
+    @Test
     void 콜드스타트_0판이면_승률은_생략() {
         StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 0,
                 AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
