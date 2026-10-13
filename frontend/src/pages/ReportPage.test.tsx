@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +10,9 @@ import { ReportPage } from './ReportPage'
 afterEach(() => {
   vi.unstubAllGlobals()
 })
+
+/* 총평은 구절 버튼으로 쪼개져 그려진다 — 문단 전체 글자로 찾는다 */
+const findSummary = () => screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === COMMENT.light_summary)
 
 function setup(initialView: View = 'light') {
   const onBack = vi.fn()
@@ -46,7 +49,7 @@ describe('ReportPage — 라이트 뷰', () => {
     routeFetch({ stats: [() => json(STATS)], comment: [() => json(COMMENT)] })
     setup()
 
-    expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(await findSummary()).toBeInTheDocument()
     const cards = screen.getAllByRole('button', { pressed: false }).filter((b) => b.textContent?.includes('근거'))
     expect(cards).toHaveLength(2)
     expect(cards[0]).toHaveTextContent('ΔAPP +0.092')
@@ -54,6 +57,51 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(cards[1]).toHaveTextContent('ΔVS/APM −0.055')
     expect(cards[1]).toHaveTextContent('▼')
     expect(screen.queryByText('계산되지 않은 지표를 가리키는 문장')).not.toBeInTheDocument()
+  })
+
+  it('총평 속 지표 구절을 누르면 그 하이라이트 지표 창이 뜨고, 아래 카드도 켜진다 — 다시 누르거나 Esc면 닫힌다', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [() => json(COMMENT)] })
+    const { user, onBack } = setup()
+    await findSummary()
+    const readout = screen.getByRole('region', { name: 'AI READOUT' })
+    /* "공격은 앞서고 수비는 밀립니다." — 공격 → ΔAPP, 수비 → ΔVS/APM. 나머지 말은 클릭할 수 없다 */
+    const atk = within(readout).getByRole('button', { name: '공격은 앞서고' })
+    const def = within(readout).getByRole('button', { name: '수비는 밀립니다' })
+    expect(within(readout).getAllByRole('button')).toHaveLength(2)
+    const card = (code: string) => screen.getAllByRole('button').find((b) => b.id.startsWith('hl-') && b.textContent?.includes(code))!
+
+    /* 마우스만 올려서는 아무것도 뜨지 않는다 */
+    await user.hover(atk)
+    expect(within(readout).queryByRole('region')).not.toBeInTheDocument()
+
+    await user.click(atk)
+    const panel = within(readout).getByRole('region', { name: '공격 효율 근거 지표' })
+    expect(panel).toHaveTextContent('ΔAPP +0.092')
+    expect(panel).toHaveTextContent('같은 블록 수로 상대보다 공격을 더 만듭니다.')
+    expect(atk).toHaveAttribute('aria-expanded', 'true')
+    expect(card('ΔAPP')).toHaveAttribute('aria-pressed', 'true')
+    expect(card('ΔVS/APM')).toHaveClass('opacity-50')
+
+    /* 다른 구절을 누르면 그 지표로 바뀐다 */
+    await user.click(def)
+    expect(within(readout).getByRole('region', { name: '공격 대비 방어 비율 근거 지표' })).toHaveTextContent('ΔVS/APM −0.055')
+    await user.click(def)
+    expect(within(readout).queryByRole('region')).not.toBeInTheDocument()
+
+    await user.click(atk)
+    await user.keyboard('{Escape}')
+    expect(within(readout).queryByRole('region')).not.toBeInTheDocument()
+    expect(card('ΔAPP')).toHaveAttribute('aria-pressed', 'false')
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it('총평에 지표를 가리키는 말이 없으면 클릭할 곳 없이 평문으로 둔다', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [() => json({ ...COMMENT, light_summary: 'TETR.IO 게임에서 한국어로 코멘트를 작성합니다.' })] })
+    setup()
+    expect(await screen.findByText('TETR.IO 게임에서 한국어로 코멘트를 작성합니다.')).toBeInTheDocument()
+    const readout = screen.getByRole('region', { name: 'AI READOUT' })
+    expect(within(readout).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(readout).queryByText('밑줄 친 말을 누르면 근거 지표가 뜹니다')).not.toBeInTheDocument()
   })
 
   it('프로필 사진 · 레벨 · 국가 · 가입일 · APM/PPS/VS를 보여주고, 사진을 못 불러오면 블록 아바타로 바꾼다', async () => {
@@ -72,7 +120,8 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(container.querySelector('[data-rank]')).toBeNull()
     expect(screen.getByText(/^37\d\d$/)).toHaveAttribute('title', expect.stringMatching(/^다음 레벨까지 \d+%$/))
     await waitFor(() => expect(screen.getByRole('img', { name: '말레이시아' }).getAttribute('src')).toMatch(/svg/))
-    expect(screen.getByText(/가입 \d+년 전 · 플레이 1,804시간 · 최근 120경기/)).toBeInTheDocument()
+    /* 분석한 경기 수는 헤더에서 빠지고 AI READOUT 아래 GAMES 줄로 */
+    expect(screen.getByText(/^가입 \d+년 전 · 플레이 1,804시간 · /)).not.toHaveTextContent('경기')
     expect(within(profile).getByText('237')).toBeInTheDocument()
     /* 5칸 증감 배지 — 최근 N판 vs 그 이전 판 변화율 %. WR도 %p가 아니라 % */
     expect(within(profile).getByText('+0.5%')).toBeInTheDocument()
@@ -84,6 +133,25 @@ describe('ReportPage — 라이트 뷰', () => {
 
     fireEvent.error(img)
     expect(photo()).toBeNull()
+  })
+
+  it('GAMES 줄은 AI 총평 아래 — 분석한 경기 수와 수집했지만 뺀 경기 수(정제 제외 + 버린 기록). 헤더·프로필에서는 지운다', async () => {
+    routeFetch({ stats: [() => json({ ...STATS, chapters: { excluded_matches: 5, dropped_records: 1 } })], comment: [() => json(COMMENT)] })
+    setup()
+    await findSummary()
+    const readout = screen.getByRole('region', { name: 'AI READOUT' })
+    const games = within(readout).getByText('GAMES').parentElement!
+    expect(games).toHaveTextContent('GAMES120분석한 최근 경기 · 수집 126판 중 6판 제외')
+    expect(games).toHaveAttribute('title', expect.stringContaining('실격·무효'))
+    expect(within(screen.getByRole('region', { name: 'PROFILE' })).queryByText('GAMES')).not.toBeInTheDocument()
+    expect(screen.queryByText(/최근 120경기 ·/)).not.toBeInTheDocument()
+    cleanup()
+
+    /* 제외 판수가 안 오면 경기 수만. 코멘트가 오는 중에도 보인다 */
+    routeFetch({ stats: [() => json({ ...STATS, chapters: undefined })], comment: [pending] })
+    setup()
+    const loading = await screen.findByRole('region', { name: 'AI READOUT' })
+    expect(within(loading).getByText('GAMES').parentElement).toHaveTextContent(/^GAMES120분석한 최근 경기$/)
   })
 
   it('유저 정보 값이 빠지면 지어내지 않는다 — 레벨·국가 없음, APM 등은 —', async () => {
@@ -166,6 +234,21 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.getByText('구간 최고')).toBeInTheDocument()
   })
 
+  it('TR 추이의 ΔTR 알약을 누르면 헤비 01장과 같은 설명이 펼쳐지고, Esc로 카드만 닫힌다', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [pending] })
+    const { user, onBack } = setup()
+    const card = await screen.findByRole('region', { name: 'TR 추이' })
+
+    await user.click(within(card).getByRole('button', { name: 'ΔTR +12.4 TR 설명' }))
+    const note = within(card).getByRole('note')
+    expect(note).toHaveTextContent('ΔTR · TR 흐름+12.4 TR ▲')
+    expect(note).toHaveTextContent('최근 평균 TR − 전체 평균 TR')
+
+    await user.keyboard('{Escape}')
+    expect(within(card).queryByRole('note')).not.toBeInTheDocument()
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
   it('경기는 충분한데 TR 추이 값이 안 오면, 표본 부족이 아니라 데이터 누락으로 안내한다', async () => {
     routeFetch({ stats: [() => json({ ...STATS, fixed_metrics: { ...STATS.fixed_metrics, tr_trend: [] } })], comment: [pending] })
     setup()
@@ -241,7 +324,7 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('일시적으로 코멘트를 생성할 수 없습니다.')
     expect(screen.getByRole('region', { name: 'PROFILE' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '다시 시도' }))
-    expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(await findSummary()).toBeInTheDocument()
     expect(urls().filter((u) => u.includes('/comment/'))).toHaveLength(2)
   })
 })
@@ -297,7 +380,8 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     expect(screen.getByText('75승 45패')).toBeInTheDocument()
 
     resolve(new Response(JSON.stringify({ ...STATS, match_count: 200 }), { status: 200 }))
-    expect(await screen.findByText(/최근 200경기/)).toBeInTheDocument()
+    /* 새 결과의 경기 수 — AI READOUT 아래 GAMES 줄 */
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'AI READOUT' })).getByText('GAMES').parentElement).toHaveTextContent('GAMES200'))
     expect(screen.getByRole('button', { name: '전적 갱신' })).toBeEnabled()
   })
 
@@ -331,12 +415,46 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     vi.stubGlobal('EventSource', FakeEventSource)
     const { urls } = routeFetch({ stats: [() => json(STATS)], comment: [() => json(COMMENT)] })
     const { user } = setup()
-    expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(await findSummary()).toBeInTheDocument()
 
     await user.keyboard('h')
     await user.keyboard('l')
-    expect(await screen.findByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(await findSummary()).toBeInTheDocument()
     expect(urls().filter((u) => u.includes('scope=light'))).toHaveLength(1)
+  })
+
+  it('코멘트를 받는 도중에 뷰를 바꿔도 요청을 끊지 않는다 — 돌아와서 다시 부르면 LLM이 새로 만들어 내용이 바뀐다 (QA BUG-02)', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
+    FakeEventSource.all = []
+    let answer: (r: Response) => void = () => {}
+    const { fn, urls } = routeFetch({ stats: [() => json(STATS)], comment: [() => new Promise<Response>((res) => (answer = res))] })
+    const { user } = setup()
+    await screen.findByRole('region', { name: 'PROFILE' })
+
+    /* 라이트 코멘트가 오는 중에 헤비로 — 헤비 스트림이 열린다 */
+    await user.keyboard('h')
+    const lightCall = fn.mock.calls.find(([u]) => String(u).includes('scope=light'))!
+    expect((lightCall[1] as RequestInit).signal!.aborted).toBe(false)
+    const stream = FakeEventSource.last
+
+    /* 헤비 스트림이 도는 중에 라이트로 — 스트림도 끊지 않는다 */
+    await user.keyboard('l')
+    expect(stream.closed).toBe(false)
+    answer(new Response(JSON.stringify(COMMENT), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    expect(await findSummary()).toBeInTheDocument()
+
+    await user.keyboard('h')
+    await user.keyboard('l')
+    expect(urls().filter((u) => u.includes('scope=light'))).toHaveLength(1)
+    expect(FakeEventSource.all.filter((s) => s.url.includes('scope=heavy'))).toHaveLength(1)
+  })
+
+  it('하이라이트를 못 불러오면 위 AI READOUT의 다시 시도 버튼을 가리킨다 (QA 개선-01)', async () => {
+    routeFetch({ stats: [() => json(STATS)], comment: [() => json({ error_code: 'LLM_FORMAT_ERROR', message: 'x' }, 502)] })
+    setup()
+    expect(await screen.findByText('하이라이트를 불러오지 못했습니다.')).toBeInTheDocument()
+    expect(screen.getByText(/AI READOUT 칸의 \[다시 시도\]/)).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '다시 시도' })).toHaveLength(1)
   })
 
   it('이어지는 하이라이트가 하나도 없으면 생성 실패로 안내하고 AI 총평만 남긴다 (기능 명세 3.3절)', async () => {
@@ -345,7 +463,7 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     setup()
 
     expect(await screen.findByText('하이라이트를 생성하지 못했습니다.')).toBeInTheDocument()
-    expect(screen.getByText(COMMENT.light_summary)).toBeInTheDocument()
+    expect(await findSummary()).toBeInTheDocument()
     expect(screen.queryByText('후보가 아님')).not.toBeInTheDocument()
   })
 

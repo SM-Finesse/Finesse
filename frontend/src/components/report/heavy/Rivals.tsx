@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { RivalItem } from '../../../api/types'
 import { useI18n } from '../../../i18n/context'
 import { cx } from '../../../lib/cx'
@@ -143,34 +143,51 @@ function PageBtn({ label, aria, current, disabled, onClick }: { label: string; a
   )
 }
 
-/** 상대 데이터 취급 공지 — 분석이 아니라 읽을거리라 코멘트 아래 꼬리로 둔다 */
+/** 상대 데이터 취급 공지 — 분석이 아니라 읽을거리라 코멘트 아래 꼬리로, 제목만 두고 누르면 펼친다 */
 export function RivalPolicy() {
   const { t } = useI18n()
   const r = t.report.heavy.rivals
+  const [open, setOpen] = useState(false)
+  const id = useId()
   return (
-    <div className="flex items-start gap-3.5 rounded-[10px] border-3 border-signal/40 bg-signal/[.07] px-5 py-[18px] shadow-[inset_0_0_0_2px_rgba(255,255,255,.10),0_5px_0_rgba(0,0,0,.40)]">
-      <span aria-hidden="true" className="grid size-6 flex-none place-items-center rounded-[2px] border border-signal/42 bg-signal/16 text-sm font-bold text-signal">
-        i
-      </span>
-      <div className="min-w-0">
-        <h4 className="m-0 text-[15px] font-semibold text-[#DCCB74]">{r.policyTitle}</h4>
-        {r.policy.map(([b, text], i) => (
-          <p key={b} className={cx('mb-0 text-[13px] text-muted', i === 0 ? 'mt-[7px]' : 'mt-[5px]')}>
-            <b className="text-ink">{b}</b> — {text}
-            {i === 0 && (
-              <>
-                {' '}
-                {r.policyExamples.map((ex, k) => (
-                  <span key={ex}>
-                    {k > 0 && ' · '}
-                    <span className="font-mono text-sm tracking-[.06em]">{ex}</span>
-                  </span>
-                ))}
-              </>
-            )}
-          </p>
-        ))}
-      </div>
+    <div className="rounded-[10px] border-3 border-signal/40 bg-signal/[.07] shadow-[inset_0_0_0_2px_rgba(255,255,255,.10),0_5px_0_rgba(0,0,0,.40)]">
+      <h4 className="m-0">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center gap-3.5 rounded-[7px] px-5 py-3.5 text-left text-[15px] font-semibold text-[#DCCB74] transition-colors hover:bg-signal/[.06]"
+        >
+          <span aria-hidden="true" className="grid size-6 flex-none place-items-center rounded-[2px] border border-signal/42 bg-signal/16 text-sm font-bold text-signal">
+            i
+          </span>
+          {r.policyTitle}
+          <span aria-hidden="true" className={cx('ml-auto text-xs text-signal/80 transition-transform', open && 'rotate-180')}>
+            ▼
+          </span>
+        </button>
+      </h4>
+      {open && (
+        <div id={id} className="pr-5 pb-[18px] pl-[58px]">
+          {r.policy.map(([b, text], i) => (
+            <p key={b} className={cx('mb-0 text-[13px] text-muted', i === 0 ? 'mt-0' : 'mt-[5px]')}>
+              <b className="text-ink">{b}</b> — {text}
+              {i === 0 && (
+                <>
+                  {' '}
+                  {r.policyExamples.map((ex, k) => (
+                    <span key={ex}>
+                      {k > 0 && ' · '}
+                      <span className="font-mono text-sm tracking-[.06em]">{ex}</span>
+                    </span>
+                  ))}
+                </>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -15,8 +15,16 @@ export interface StatsResponse {
   delta_metrics?: DeltaMetrics
   round_curves: RoundCurves
   rivals: Rivals
-  /** 헤비 뷰 8챕터 데이터 — 백엔드 스키마 협의 전이라 자유 구조 */
-  chapters?: Record<string, unknown>
+  /** 수집·정제 메타 + 협의 전 자유 필드. 콜드스타트면 note · cold_start_reason만 온다 */
+  chapters?: ChapterMeta
+}
+
+export interface ChapterMeta {
+  /** 정제 규칙(실격·무효 결과 등)으로 분석에서 뺀 경기 */
+  excluded_matches?: number
+  /** 구조가 깨져 읽지 못하고 버린 기록 */
+  dropped_records?: number
+  [key: string]: unknown
 }
 
 export interface Profile {

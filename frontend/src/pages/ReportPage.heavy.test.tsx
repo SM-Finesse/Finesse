@@ -164,6 +164,24 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(cond).getByText('−0.05')).toBeInTheDocument()
   })
 
+  it('02장 머리 ? 버튼은 네 성향과 Δ 계산을 펼치고, Esc로 카드만 닫힌다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user, onBack } = setup()
+    await ready()
+
+    const ps = chapter('플레이스타일 상대비교')
+    await user.click(within(ps).getByRole('button', { name: '플레이스타일 상대비교 설명' }))
+    const note = within(ps).getByRole('note')
+    expect(note).toHaveTextContent('Opener높은 APM으로 몰아치는')
+    expect(note).toHaveTextContent('Inf DS')
+    expect(note).toHaveTextContent('나 − 상대 성향 점수')
+    expect(note).toHaveTextContent('TETR.IO 공식 지표 아님')
+
+    await user.keyboard('{Escape}')
+    expect(within(ps).queryByRole('note')).not.toBeInTheDocument()
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
   it('03·04·06·07장 머리 증감 알약도 누르면 무슨 값인지 펼친다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     const { user } = setup()
@@ -267,7 +285,24 @@ describe('ReportPage — 헤비 뷰', () => {
     /* 5경기 이상 만난 상대가 5명이 안 되지만, 10판 이상이면 표본 안내를 따로 붙이지 않는다 */
     expect(within(rv).queryByRole('img', { name: '주의' })).not.toBeInTheDocument()
     expect(within(rv).getByText('아직 상성을 말하기 이릅니다.')).toBeInTheDocument()
-    expect(within(rv).getByText('상대 데이터 취급 방식')).toBeInTheDocument()
+  })
+
+  it('상대 데이터 취급 방식은 제목만 보이다가 누르면 펼쳐진다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    const { user } = setup()
+    await ready()
+
+    const rv = chapter('자주 만난 상대')
+    const toggle = within(rv).getByRole('button', { name: '상대 데이터 취급 방식' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(within(rv).queryByText('길이 보존 마스킹')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(within(rv).getByText('길이 보존 마스킹')).toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(within(rv).queryByText('길이 보존 마스킹')).not.toBeInTheDocument()
   })
 
   it('순위표는 20명씩 나눠 보여준다', async () => {

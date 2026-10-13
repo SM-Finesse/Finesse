@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { HeavyChapterResult } from '../../../api/types'
+import { useDismiss } from '../../../hooks/useDismiss'
 import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
 import type { StatInfo } from '../../../i18n/strings'
 import { cx } from '../../../lib/cx'
-import { TREND_MARK, type Trend } from '../../../lib/stats'
+import { readable, TREND_MARK, type Trend } from '../../../lib/stats'
 import { BigNum } from '../parts'
 
 /** 근거 칩 한 개 — 이름과 값 */
@@ -38,30 +39,6 @@ export function StatBox({ k, v, s, color, info }: { k: string; v: string; s?: st
       {s && <div className="mt-[3px] text-[13px] text-muted">{s}</div>}
     </div>
   )
-}
-
-/**
- * 열린 설명 카드를 Esc · 바깥 클릭으로 닫는다.
- * Esc는 리포트의 '처음으로' 단축키이기도 해서, 카드가 열려 있으면 먼저(캡처 단계) 받아 카드만 닫고 더 퍼지지 않게 한다.
- */
-function useDismiss(open: boolean, close: () => void, ref: React.RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      close()
-    }
-    document.addEventListener('pointerdown', onDown)
-    window.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onKey, true)
-    }
-  }, [open, close, ref])
 }
 
 const CARD = 'z-10 rounded-md border-2 border-frame bg-[#0E1E2B] px-3.5 py-3 text-left text-[13px] leading-[1.6] font-normal text-ink shadow-[0_10px_24px_rgba(0,0,0,.55)]'
@@ -137,9 +114,13 @@ function InfoCard({ id, info, className, head }: { id: string; info: StatInfo; c
           </div>
         ))}
       </dl>
+      {info.foot && <p className="m-0 mt-2.5 border-t border-dashed border-[#27485F] pt-2 text-xs leading-[1.55] text-faint">{info.foot}</p>}
     </div>
   )
 }
+
+const TIP_BUTTON =
+  'grid size-[22px] place-items-center rounded-full border-2 border-[#2C5573] bg-[#0E1E2B] font-display text-xs leading-none font-extrabold text-muted transition-colors hover:border-frame hover:text-head aria-expanded:border-frame aria-expanded:bg-[#153046] aria-expanded:text-head'
 
 /** ? 버튼 + 설명 카드. 칸 안쪽 폭에 맞춰 띄워서 챕터 테두리에 잘리지 않는다 — Esc · 바깥 클릭 · 다시 누르면 닫힌다 */
 function InfoTip({ name, info }: { name: string; info: StatInfo }) {
@@ -158,11 +139,30 @@ function InfoTip({ name, info }: { name: string; info: StatInfo }) {
         aria-controls={id}
         aria-label={t.report.heavy.about(name)}
         onClick={() => setOpen((o) => !o)}
-        className="absolute top-2.5 right-2.5 grid size-[22px] place-items-center rounded-full border-2 border-[#2C5573] bg-[#0E1E2B] font-display text-xs leading-none font-extrabold text-muted transition-colors hover:border-frame hover:text-head aria-expanded:border-frame aria-expanded:bg-[#153046] aria-expanded:text-head"
+        className={cx('absolute top-2.5 right-2.5', TIP_BUTTON)}
       >
         ?
       </button>
       {open && <InfoCard id={id} info={info} className="absolute inset-x-2 top-[40px]" />}
+    </div>
+  )
+}
+
+/** 챕터 머리에 붙는 ? 버튼 — 칸 대신 차트 하나로 된 챕터용. 카드는 버튼 오른쪽 끝에 맞춰 아래로 */
+export function HeadTip({ name, info }: { name: string; info: StatInfo }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const id = useId()
+  const close = useCallback(() => setOpen(false), [])
+  useDismiss(open, close, ref)
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" aria-expanded={open} aria-controls={id} aria-label={t.report.heavy.about(name)} onClick={() => setOpen((o) => !o)} className={TIP_BUTTON}>
+        ?
+      </button>
+      {open && <InfoCard id={id} info={info} className="absolute top-[calc(100%+8px)] right-0 w-[min(360px,calc(100vw-48px))]" />}
     </div>
   )
 }
@@ -220,7 +220,7 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
           </span>
         ) : (
           <p className={cx('m-0 text-[15.5px] leading-[1.72] font-medium tracking-[-.004em]', state === 'ok' ? 'text-head' : 'text-muted')}>
-            {state === 'ok' ? result?.footnote : state === 'timeout' ? f.timeout : f.failed}
+            {state === 'ok' ? readable(result?.footnote ?? '') : state === 'timeout' ? f.timeout : f.failed}
           </p>
         )}
       </div>

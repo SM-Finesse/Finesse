@@ -1,5 +1,3 @@
-import type { ReactElement } from 'react'
-
 /* 배경 — 네 칸짜리 조각들이 바닥에 쌓이고, 좌우 여백에 몇 개가 떠 있다 */
 type Kind = 'I' | 'O' | 'T' | 'S' | 'Z' | 'J' | 'L'
 const PIECES: Record<Kind, ReadonlyArray<readonly [number, number]>> = {
@@ -69,49 +67,56 @@ export function SkyArt() {
   )
 }
 
-/* 바닥 — 화면 아래쪽에 꽉 쌓인 블록 더미. 윗줄은 들쭉날쭉하게. 시드 고정이라 매번 같은 모양 */
+/*
+ * 바닥 — 화면 아래쪽에 꽉 쌓인 블록 더미. 윗줄은 들쭉날쭉하게. 시드 고정이라 매번 같은 모양.
+ * 블록 크기는 고정하고 가로로만 이어 붙인다 — 화면 폭에 맞춰 늘리면 넓은 화면(배율 축소)에서 블록이 커져 윗줄이 잘린다.
+ */
 const FLOOR_COLORS = ['#3FD0F0', '#F2CB4A', '#C86FE6', '#6ED845', '#F0524A', '#4A86F0', '#29C4AA']
-const CELL = 26
+const CELL = 28
 const COLS = 58
 const ROWS = 8
+const FLOOR_W = COLS * CELL
+const FLOOR_H = ROWS * CELL
+/* 한 칸을 바닥까지 비워 둔 세로 우물 — I 조각을 기다리는 테트리스 더미처럼 */
+const WELL = 14
 
-function buildFloor(): ReactElement[] {
+function buildFloor(): string {
   let seed = 20260908
   const rnd = () => {
     seed = (seed * 1103515245 + 12345) % 2147483648
     return seed / 2147483648
   }
-  const H = ROWS * CELL
   const s = CELL
-  const out: ReactElement[] = []
+  let out = ''
   let h = 4
   for (let c = 0; c < COLS; c++) {
     h += Math.round((rnd() - 0.46) * 4.6)
     h = Math.min(ROWS, Math.max(2, h))
     for (let r = 0; r < h; r++) {
+      /* 색 난수는 우물 칸에서도 뽑는다 — 건너뛰면 뒤쪽 칸 색이 전부 바뀐다 */
+      const fill = FLOOR_COLORS[Math.floor(rnd() * 7)]
+      if (c === WELL) continue
       const x = c * s
-      const y = H - (r + 1) * s
-      out.push(
-        <g key={`${c}-${r}`}>
-          <rect x={x} y={y} width={s} height={s} fill={FLOOR_COLORS[Math.floor(rnd() * 7)]} />
-          <rect x={x + s * 0.24} y={y + s * 0.24} width={s * 0.52} height={s * 0.52} fill="none" stroke="#FFFFFF" strokeOpacity=".40" strokeWidth={(s * 0.11).toFixed(2)} />
-          <rect x={x} y={y} width={s} height={s * 0.13} fill="#FFFFFF" opacity=".26" />
-          <rect x={x} y={y + s * 0.87} width={s} height={s * 0.13} fill="#000000" opacity=".26" />
-          <rect x={x + 0.5} y={y + 0.5} width={s - 1} height={s - 1} fill="none" stroke="#0A1620" strokeOpacity=".55" />
-        </g>,
-      )
+      const y = FLOOR_H - (r + 1) * s
+      out +=
+        `<rect x="${x}" y="${y}" width="${s}" height="${s}" fill="${fill}"/>` +
+        `<rect x="${x + s * 0.24}" y="${y + s * 0.24}" width="${s * 0.52}" height="${s * 0.52}" fill="none" stroke="#FFFFFF" stroke-opacity=".40" stroke-width="${(s * 0.11).toFixed(2)}"/>` +
+        `<rect x="${x}" y="${y}" width="${s}" height="${s * 0.13}" fill="#FFFFFF" opacity=".26"/>` +
+        `<rect x="${x}" y="${y + s * 0.87}" width="${s}" height="${s * 0.13}" fill="#000000" opacity=".26"/>` +
+        `<rect x="${x + 0.5}" y="${y + 0.5}" width="${s - 1}" height="${s - 1}" fill="none" stroke="#0A1620" stroke-opacity=".55"/>`
     }
   }
-  return out
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${FLOOR_W}" height="${FLOOR_H}" viewBox="0 0 ${FLOOR_W} ${FLOOR_H}">${out}</svg>`
+  return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg).replace(/'/g, '%27')}")`
 }
-const FLOOR = buildFloor()
+const FLOOR_URL = buildFloor()
 
 export function FloorArt() {
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-[230px] opacity-65">
-      <svg viewBox={`0 0 ${COLS * CELL} ${ROWS * CELL}`} preserveAspectRatio="xMidYMax slice" width="100%" height="100%">
-        {FLOOR}
-      </svg>
-    </div>
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 bottom-0 bg-repeat-x opacity-65"
+      style={{ height: FLOOR_H, backgroundImage: FLOOR_URL, backgroundSize: `${FLOOR_W}px ${FLOOR_H}px`, backgroundPosition: 'center bottom' }}
+    />
   )
 }

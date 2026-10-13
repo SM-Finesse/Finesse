@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeltaMetrics } from '../api/types'
-import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, numOrDash, rankLabel, signed, timeAgo, trendOf } from './stats'
+import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, linkSummary, numOrDash, rankLabel, readable, signed, timeAgo, trendOf } from './stats'
 
 const DELTA: DeltaMetrics = {
   tr_trend_delta: 12.34,
@@ -113,5 +113,87 @@ describe('하이라이트 근거 (FR-05)', () => {
       { ...DELTA, comeback_rate_against: 0.25 },
     )
     expect(items.map((i) => i.ev.stat)).toEqual(['delta_vs_apm'])
+  })
+})
+
+describe('readable — AI 문장 속 내부 키 이름 (QA BUG-04)', () => {
+  it('밑줄 있는 키는 화면 이름으로 바꾼다', () => {
+    expect(readable('delta_opener는 opener의 성향, delta_inf_ds는 inf_ds의 성향입니다.')).toBe('ΔOpener는 Opener의 성향, ΔInf DS는 Inf DS의 성향입니다.')
+    expect(readable('Your delta_comeback and session_vs_slope are high.')).toBe('Your ΔComeback and VS Slope are high.')
+  })
+
+  it('밑줄 없는 낱말은 한국어 문장에서만 바꾼다 — 영어에서는 평범한 단어일 수 있다', () => {
+    expect(readable('plonk와 comeback이 강합니다.')).toBe('Plonk와 Comeback이 강합니다.')
+    expect(readable('A strong comeback in the opener.')).toBe('A strong comeback in the opener.')
+  })
+
+  it('모르는 단어나 대문자로 쓴 이름은 그대로 둔다', () => {
+    expect(readable('APM과 PPS가 높고 hello_world는 그대로.')).toBe('APM과 PPS가 높고 hello_world는 그대로.')
+  })
+
+  it('언어는 화면이 아니라 낱말 앞뒤로 — 한국어 화면에 온 영어 문장의 attack · defense는 그대로 (실제 화면 사례)', () => {
+    expect(readable("The player's attack and defense metrics show delta_opener gains.")).toBe("The player's attack and defense metrics show ΔOpener gains.")
+    expect(readable('attack이 강하고 defense는 약합니다.')).toBe('공격이 강하고 수비는 약합니다.')
+  })
+
+  it('헤비 챕터 id · 응답 필드 이름도 화면 이름으로 (QA 2차)', () => {
+    expect(readable('tr_trend 챕터에서 playstyle과 rivals를 보면 round_curves가 오른다.')).toBe('TR 추이 챕터에서 플레이스타일과 자주 만난 상대를 보면 라운드별 곡선가 오른다.')
+    expect(readable('strength_split 챕터와 session_vs_slope')).toBe('Strength Split 챕터와 VS Slope')
+    expect(readable('Your tr_trend and win_rate are up; your attack is fine.')).toBe('Your TR trend and win rate are up; your attack is fine.')
+  })
+})
+describe('linkSummary — 총평 구절 ↔ 하이라이트 카드', () => {
+  const linked = (text: string, stats: Parameters<typeof linkSummary>[1], lang: 'ko' | 'en' = 'ko') =>
+    linkSummary(text, stats, lang).flatMap((p) => (p.stat ? [[p.stat, p.text]] : []))
+  const linked2 = (text: string, stats: Parameters<typeof linkSummary>[1], sentences: Parameters<typeof linkSummary>[3]) =>
+    linkSummary(text, stats, 'ko', sentences).flatMap((p) => (p.stat ? [[p.stat, p.text]] : []))
+
+  it('지표를 가리키는 말부터 구절 끝(…고 / …다)까지 묶고, 문장부호는 뺀다', () => {
+    const text = '공격은 앞서고 수비는 밀립니다. 그런데도 승률이 68%인 건 뒤진 판을 자주 뒤집기 때문입니다.'
+    expect(linked(text, ['delta_app', 'delta_vs_apm', 'delta_comeback'])).toEqual([
+      ['delta_app', '공격은 앞서고'],
+      ['delta_vs_apm', '수비는 밀립니다'],
+      ['delta_comeback', '뒤집기 때문입니다'],
+    ])
+  })
+
+  it('나눈 조각을 이으면 원문 그대로', () => {
+    const text = '초반 전개가 강하고, 라운드가 갈수록 처지는 경향이 있다.'
+    const parts = linkSummary(text, ['delta_opener', 'session_vs_slope', 'delta_cheese_index'], 'ko')
+    expect(parts.map((p) => p.text).join('')).toBe(text)
+    expect(parts.filter((p) => p.stat).map((p) => p.stat)).toEqual(['delta_opener', 'session_vs_slope'])
+  })
+
+  it('긴 표현이 먼저 — 공격 대비 방어는 ΔAPP가 아니라 ΔVS/APM', () => {
+    expect(linked('공격 대비 방어 비율이 높습니다.', ['delta_app', 'delta_vs_apm'])).toEqual([['delta_vs_apm', '공격 대비 방어 비율이 높습니다']])
+  })
+
+  it('가리키는 말이 없으면 구절이 없다 — 화면은 카드 이름 칩으로 대신한다', () => {
+    expect(linked('TETR.IO 게임에서 한국어로 코멘트를 작성합니다.', ['delta_opener', 'delta_cheese_index', 'session_vs_slope'])).toEqual([])
+  })
+
+  it('지표 이름이 안 나와도 카드 문장과 낱말이 겹치는 구절로 잇는다 (실제 화면 사례)', () => {
+    const text = '전적 데이터에 따르면, 테트리스 게임 TETR.IO의 플레이스타일은 상대보다 우위를 보이고 있으며, 라운드 진행될수록 땡기며, 강한 상대에게 무너진 승률이 크다.'
+    const sentences = {
+      delta_opener: '상대보다 우위를 보는 플레이스타일',
+      session_vs_slope: '강해지는 추세',
+      strength_split: '강한 상대에게 무너진 승률이 크다',
+    }
+    expect(linked2(text, ['delta_opener', 'session_vs_slope', 'strength_split'], sentences)).toEqual([
+      ['delta_opener', '플레이스타일은 상대보다 우위를 보이고 있으며'],
+      ['session_vs_slope', '라운드 진행될수록 땡기며'],
+      ['strength_split', '강한 상대에게 무너진 승률이 크다'],
+    ])
+  })
+
+  it('카드 문장과 겹치는 말이 한 개뿐이거나 흔한 말(상대 · 경기)뿐이면 잇지 않는다', () => {
+    expect(linked2('상대보다 경기를 잘 풀어 갑니다.', ['delta_plonk'], { delta_plonk: '상대보다 경기 운영이 느립니다' })).toEqual([])
+  })
+
+  it('영어 — 대소문자 무시', () => {
+    expect(linked('Your Opener is strong, but defense lags.', ['delta_opener', 'delta_vs_apm'], 'en')).toEqual([
+      ['delta_opener', 'Opener is strong'],
+      ['delta_vs_apm', 'defense lags'],
+    ])
   })
 })

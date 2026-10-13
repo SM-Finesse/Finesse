@@ -21,7 +21,7 @@ function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNod
   )
 }
 
-/** 아래 띠의 작은 값 — GLICKO · GAMES */
+/** 아래 띠의 작은 값 — GLICKO (GAMES는 AI READOUT 코멘트 아래로 옮겼다) */
 function Strip({ k, v, unit }: { k: string; v: string; unit?: string }) {
   return (
     <span className="flex items-baseline gap-2">
@@ -136,9 +136,8 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
           <BigNum value={numOrDash(pr.vs, 2)} />
         </Cell>
       </div>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-3">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-t-2 border-deep bg-[#0F1D29] px-[18px] py-1.5 leading-tight">
         <Strip k="GLICKO" v={numOrDash(pr.glicko, 1)} unit={pr.rd >= 0 ? p.rd(num(pr.rd, 1)) : undefined} />
-        <Strip k="GAMES" v={num(data.match_count)} unit={p.gamesSub} />
         {wd && <Caption className="text-xs lg:ml-auto">{p.note(wd.recent_matches)}</Caption>}
       </div>
     </section>

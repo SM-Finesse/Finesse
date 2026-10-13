@@ -1,12 +1,11 @@
-import { useState } from 'react'
 import type { StatsResponse } from '../../api/types'
 import type { CommentState } from '../../hooks/useLightComment'
 import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
-import { mapHighlights, TREND_MARK, type HighlightItem } from '../../lib/stats'
+import { HIGHLIGHT_COLORS, highlightId, mapHighlights, readable, TREND_MARK, type HighlightItem } from '../../lib/stats'
 import { BigNum, Notice } from './parts'
 
-const CARD_COLORS = ['var(--color-piece-s)', 'var(--color-piece-l)', 'var(--color-piece-t)']
+const CARD_COLORS = HIGHLIGHT_COLORS
 const VALUE_COLOR = { up: 'text-delta-up', down: 'text-delta-down', even: 'text-head' } as const
 
 function Card({ item, index, on, dim, onHover, onToggle }: {
@@ -23,6 +22,7 @@ function Card({ item, index, on, dim, onHover, onToggle }: {
   return (
     <button
       type="button"
+      id={highlightId(ev.stat)}
       aria-pressed={on}
       onClick={onToggle}
       onMouseEnter={() => onHover(ev.stat)}
@@ -45,7 +45,7 @@ function Card({ item, index, on, dim, onHover, onToggle }: {
         <BigNum value={ev.text} />
         {ev.trend && <span className="ml-1.5 text-[.5em]">{TREND_MARK[ev.trend]}</span>}
       </span>
-      <span className="mt-2.5 block min-h-12 text-[15px] leading-[1.72] text-[#B7C6D2]">{sentence}</span>
+      <span className="mt-2.5 block min-h-12 text-[15px] leading-[1.72] text-[#B7C6D2]">{readable(sentence)}</span>
       <span className="relative mt-3 flex items-baseline justify-between gap-2.5 pt-3 before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.14)_12%,rgba(255,255,255,.14)_88%,transparent)]">
         <span className="text-[13px] text-faint">{t.report.hl.evidence}</span>
         <span className="font-mono text-sm text-ink">
@@ -56,15 +56,24 @@ function Card({ item, index, on, dim, onHover, onToggle }: {
   )
 }
 
-export function Highlights({ data, comment }: { data: StatsResponse; comment: CommentState }) {
+/** 지금 켜진 카드 — AI READOUT 문장의 구절과 카드가 같은 상태를 나눠 쓴다(LightView) */
+export interface HighlightFocus {
+  /** 지금 켜진 카드 — 마우스를 올린 것이 고정한 것보다 우선 */
+  active: string | null
+  /** 눌러서 고정한 카드 */
+  pinned: string | null
+  hover: (stat: string | null) => void
+  pin: (stat: string | null) => void
+}
+
+export function Highlights({ data, comment, focus }: { data: StatsResponse; comment: CommentState; focus: HighlightFocus }) {
   const { t } = useI18n()
   const hl = t.report.hl
-  const [pinned, setPinned] = useState<string | null>(null)
-  const [hovered, setHovered] = useState<string | null>(null)
-  const active = hovered ?? pinned
+  const { active } = focus
 
   if (data.cold_start) return <Notice title={hl.coldTitle}>{hl.coldBody(data.match_count)}</Notice>
-  if (comment.status === 'error') return <Notice title={hl.failed} />
+  /* 다시 시도 버튼은 위 AI READOUT 칸에 하나만 둔다 — 여기서는 그 버튼을 가리킨다 (QA 개선-01) */
+  if (comment.status === 'error') return <Notice title={hl.failed}>{hl.failedHint}</Notice>
   if (comment.status !== 'success') {
     return (
       <div className="grid gap-5 md:grid-cols-3" aria-busy="true">
@@ -92,8 +101,8 @@ export function Highlights({ data, comment }: { data: StatsResponse; comment: Co
           index={i}
           on={active === item.ev.stat}
           dim={active !== null && active !== item.ev.stat}
-          onHover={setHovered}
-          onToggle={() => setPinned((p) => (p === item.ev.stat ? null : item.ev.stat))}
+          onHover={focus.hover}
+          onToggle={() => focus.pin(focus.pinned === item.ev.stat ? null : item.ev.stat)}
         />
       ))}
     </div>
