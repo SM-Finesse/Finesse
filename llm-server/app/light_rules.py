@@ -151,22 +151,27 @@ def expected_picks(ranked: list[Standing], n: int = 3) -> list[str]:
     return [s.key for s in sorted(picks, key=lambda s: pos[s.key])]   # 5: 두드러진 순서
 
 
-def check_pick(accepted: list[Standing], cand: Standing, ranked: list[Standing]) -> str | None:
+def check_pick(accepted: list[Standing], cand: Standing, ranked: list[Standing], n: int = 3) -> str | None:
     """이미 받아들인 선택(accepted) 다음에 cand 를 고르는 것이 규칙 위반이면 이유, 아니면 None.
 
-    빼는 경우는 분명한 위반 두 가지뿐이다. '더 멀리 벗어난 것 먼저'를 어긴 선택은 빼지 않고
-    측정에서 규칙 정답 일치율로만 본다 (모델이 고를 여지를 남김).
-      - 보통(또는 기준 없음)을 골랐는데 아직 고르지 않은 높은/낮은 편 후보가 있음
-      - 이미 고른 그룹을 또 골랐는데 다른 그룹의 높은/낮은 편 후보가 남아 있음
+    남은 자리 수를 따져서, 규칙대로라면 들어갈 수 없는 선택만 뺀다 (10/13 11번 실측: 보통 3개를 고르자
+    셋 다 빠져 0개가 됨 → 범위 밖 후보가 1개면 그 1자리만 남기고 보통 2개는 받는 것이 규칙과 맞다).
+      - 보통(또는 기준 없음): 이것을 넣으면 아직 고르지 않은 높은/낮은 편 후보가 들어갈 자리가 모자람
+      - 같은 그룹: 다른 그룹의 높은/낮은 편 후보만으로 남은 자리를 채울 수 있음 (규칙 3, 4번)
+    '더 멀리 벗어난 것 먼저'를 어긴 선택은 빼지 않고 측정에서 규칙 정답 일치율로만 본다.
     """
     taken = {s.key for s in accepted} | {cand.key}
     left_outside = [s for s in ranked if s.outside and s.key not in taken]
-    if not cand.outside and left_outside:
-        return "보통인데 높은/낮은 편 후보가 남음"
-    if cand.outside:
-        groups = {s.group for s in accepted}
-        if cand.group in groups and any(s.group not in groups for s in left_outside):
-            return f"같은 그룹({cand.group}) 두 번 — 다른 그룹 후보가 남음"
+    slots_after = n - len(accepted) - 1
+    if not cand.outside:
+        if len(left_outside) > slots_after:
+            return "보통인데 높은/낮은 편 후보가 들어갈 자리가 모자람"
+        return None
+    groups = {s.group for s in accepted}
+    if cand.group in groups:
+        other_groups = {s.group for s in left_outside if s.group not in groups}
+        if len(other_groups) > slots_after:
+            return f"같은 그룹({cand.group}) 두 번 — 다른 그룹 후보로 채울 수 있음"
     return None
 
 
@@ -179,7 +184,7 @@ def apply_rules(keys: list[str], ranked: list[Standing], n: int = 3) -> tuple[li
         if len(accepted) >= n:
             dropped.append(f"{k}: 3개 초과")
             continue
-        if (why := check_pick(accepted, by_key[k], ranked)):
+        if (why := check_pick(accepted, by_key[k], ranked, n)):
             dropped.append(f"{k}: {why}")
             continue
         accepted.append(by_key[k])

@@ -110,6 +110,38 @@ def test_A_규칙_위반_줄은_빼고_문장_오류와_따로_기록():
     assert "같은 그룹" in out.rule_dropped[0] and "방향 반대" in out.sentence_dropped[0]
 
 
+def test_A_줄_앞은_순서번호_문장_안에_후보번호():
+    # 10/13 11번 실측 출력 모양
+    ctx = build_light_a(_req("light_testuser.json"))   # [1] weighted [2] plonk [3] comeback ... [8] vs_apm [9] cheese
+    text = ("번호 | 문장\n"
+            "1 | 후보 8의 VS/APM 차이는 상대보다 수비 비중이 작습니다.\n"
+            "2 | [9] Cheese Index 차이는 상대보다 가비지 처리 성향이 약합니다.\n"
+            "3 | 후보 1의 Weighted APP 차이는 보정 후 상대보다 공격 효율이 낮습니다.\n")
+    out = process_lines(text, ctx, rule_check=True, ref_in_text=True)
+    assert out.raw_picks == ["delta_vs_apm", "delta_cheese_index", "delta_weighted_app"]
+    assert [k for k, _ in out.highlights] == ["delta_vs_apm", "delta_cheese_index", "delta_weighted_app"]
+    assert out.highlights[0][1].startswith("VS/APM 차이는")
+
+
+@pytest.mark.parametrize("sentence", ["공격이 약한 플레이어를 나타낸다.", "가비지 처리가 빠른 플레이어입니다.",
+                                      "고른 후보는 VS/APM 차이입니다."])
+def test_유형_규정과_메타_발언은_뺌(sentence):
+    ctx = build_light_a(_req("light_testuser.json"))
+    assert check_sentence(sentence, ctx, None) is not None
+
+
+def test_강한_상대_언급은_유형_규정이_아님():
+    ctx = build_light_a(_req("light_testuser.json"))
+    assert check_sentence("강한 상대를 만나면 승률이 떨어집니다.", ctx, None) is None
+
+
+def test_선정_틀_베낌은_번호_없음():
+    gen = Scripted(select=["번호, 번호, 번호", "1, 2, 3"],
+                   write=["[1] | 보정 후에도 상대보다 공격 효율이 높습니다.\n총평 | 공격 효율이 높습니다. 차이가 납니다."] * 2)
+    out = run_light(_req(), gen, _st("b"))
+    assert out.attempts[0]["raw"] == [] and out.attempts[1]["picks"]
+
+
 def test_A_숫자를_쓰면_뺌():
     ctx = build_light_a(_req())
     out = process_lines("1 | 공격 효율이 0.8 높습니다.\n2 | 상대보다 초반 공격 성향이 강합니다.", ctx, rule_check=True)

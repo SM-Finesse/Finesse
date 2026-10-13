@@ -93,12 +93,22 @@ def test_사후_검사_같은_그룹과_보통():
     assert accepted == ["delta_app", "delta_inf_ds"] and len(dropped) == 2
 
 
-def test_벗어난_후보를_모두_고른_뒤에는_보통_허용():
+def test_보통은_범위_밖_후보_자리만_남기면_허용():
     ranked = rank(_available("light_testuser.json"), load_ranges())   # 범위 밖은 weighted_app 하나
-    assert apply_rules(["delta_weighted_app", "delta_opener", "delta_stride"], ranked) == (
-        ["delta_weighted_app", "delta_opener", "delta_stride"], [])
-    accepted, dropped = apply_rules(["delta_opener", "delta_weighted_app", "delta_stride"], ranked)
-    assert accepted == ["delta_weighted_app", "delta_stride"] and "보통" in dropped[0]
+    # 보통을 먼저 골라도 weighted_app 자리가 남아 있으면 받는다
+    assert apply_rules(["delta_opener", "delta_weighted_app", "delta_stride"], ranked) == (
+        ["delta_opener", "delta_weighted_app", "delta_stride"], [])
+    # 10/13 11번 실측 "3, 10, 6": 보통 3개 → 마지막 하나만 뺀다 (예전에는 셋 다 빠져 0개)
+    accepted, dropped = apply_rules(["delta_comeback", "session_vs_slope", "delta_app"], ranked)
+    assert accepted == ["delta_comeback", "session_vs_slope"] and "자리" in dropped[0]
+
+
+def test_같은_그룹은_다른_그룹으로_못_채울_때만():
+    # 범위 밖: 공격 2개 + 플레이스타일 1개 → weighted, app, opener 순서로 골라도 규칙 정답과 같은 집합
+    avail = {"delta_app": 0.5, "delta_weighted_app": 0.9, "delta_opener": 0.9, "delta_plonk": 0.1}
+    ranked = rank(avail, load_ranges())
+    assert apply_rules(["delta_weighted_app", "delta_app", "delta_opener"], ranked)[1] == []
+    assert set(expected_picks(ranked)) == {"delta_weighted_app", "delta_app", "delta_opener"}
 
 
 def test_범위_파일을_바꾸면_분류가_바뀜(tmp_path, monkeypatch):

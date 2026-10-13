@@ -167,24 +167,18 @@ def _run_a(r: _Runner, ctx: LightContext, out: LightOutcome) -> None:
         if not r.can_start("a", first=attempt == 1):
             break
         log = r.call("a", attempt, ctx.messages)
-        try:
-            res = process_lines(log.text, ctx, rule_check=True)
-        except ValueError as e:
-            log.result = str(e)
-            out.attempts.append({"attempt": attempt, "raw": [], "picks": [], "rule_dropped": [], "ok": 0})
-            continue
-        log.result = f"하이라이트 {len(res.highlights)}개, 뺀 것 {res.dropped}"
+        res = process_lines(log.text, ctx, rule_check=True, ref_in_text=True, allow_empty=True)
+        log.result = f"하이라이트 {len(res.highlights)}개" + (f", 뺀 것 {res.dropped}" if res.dropped else "")
         out.attempts.append({"attempt": attempt, "raw": res.raw_picks, "picks": res.picks,
                              "rule_dropped": res.rule_dropped, "ok": len(res.highlights)})
-        if best is None or _score(res) > _score(best):
+        out.sentence_dropped += res.sentence_dropped
+        if res.highlights and (best is None or _score(res) > _score(best)):
             best = res
         if len(res.highlights) >= target and not res.summary_fallback:
             break
     if best is None:
         raise LightFailure("쓸 수 있는 하이라이트 없음", out)
-    hl = dict(best.highlights)
-    out.sentence_dropped = best.sentence_dropped
-    _finish(r, out, best.picks, hl, best.summary if not best.summary_fallback else None, ctx)
+    _finish(r, out, best.picks, dict(best.highlights), best.summary if not best.summary_fallback else None, ctx)
 
 
 # ---------------- 선정 (B·C 공통) ----------------
@@ -217,18 +211,16 @@ def _run_b(r: _Runner, ctx: LightContext, out: LightOutcome) -> None:
         if not r.can_start("write"):
             break
         log = r.call("write", attempt, messages)
-        try:
-            res = process_lines(log.text, ctx, rule_check=False, allowed=picks)
-        except ValueError as e:
-            log.result = str(e)
+        res = process_lines(log.text, ctx, rule_check=False, allowed=picks, ref_in_text=True, allow_empty=True)
+        log.result = f"문장 {len(res.highlights)}개" + (f", 뺀 것 {res.dropped}" if res.dropped else "")
+        out.sentence_dropped += res.sentence_dropped
+        if not res.highlights:
             continue
-        log.result = f"문장 {len(res.highlights)}개, 뺀 것 {res.dropped}"
         if best is None or _score(res) > _score(best):
             best = res
         if len(res.highlights) >= len(picks) and not res.summary_fallback:
             break
     hl = dict(best.highlights) if best else {}
-    out.sentence_dropped = best.sentence_dropped if best else []
     summary = best.summary if best and not best.summary_fallback else None
     _finish(r, out, picks, hl, summary, ctx)
 

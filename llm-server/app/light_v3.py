@@ -182,7 +182,11 @@ _LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z_./]*")
 _LATIN_OK = {"opener", "plonk", "stride", "inf", "ds", "app", "weighted", "vs", "apm", "vs/apm",
              "cheese", "index", "tr", "tetr.io", "tetr", "io", "pps"}
 _ECHO = ("할 일", "규칙", "출력은 아래", "번호 | 문장", "총평 | 문장", "이미 계산된 해석", "다른 글은 쓰지",
-         "고르는 방법", "문장 규칙", "두드러진 순서", "미리 계산", "전체 기준:", "방향:", "지표:", "예시:")
+         "고르는 방법", "문장 규칙", "두드러진 순서", "미리 계산", "전체 기준:", "방향:", "지표:", "예시:",
+         "고른 후보", "출력 형식", "세로 막대")
+# 플레이어를 한 유형으로 규정 (10/13 11번 실측 "… 약한 플레이어를 나타낸다")
+_TYPECAST = re.compile(r"플레이어(?:를|임을)\s*(?:나타|보여)|[가-힣]{2,}\s+플레이어(?:입니다|이다|예요|임을|로 보)"
+                       r"|플레이스타일을 보여")
 _POS = ("높", "강해", "강한", "강합", "강함", "강하", "우위", "오르", "오릅", "올라", "상승", "앞서", "큽", "크고", "큰", "큼")
 _NEG = ("낮", "약해", "약한", "약합", "약함", "약하", "떨어", "내리", "내립", "하락", "밀립", "뒤처", "처지", "처집", "작습", "작고", "작은", "작음")
 
@@ -213,6 +217,8 @@ def check_sentence(text: str, ctx: LightContext, key: str | None) -> str | None:
         return f"영어·변수 이름: {bad[:3]}"
     if any(m in text for m in _ECHO):
         return "프롬프트 베낌"
+    if _TYPECAST.search(text):
+        return "유형 규정"
     for m in _NUM.findall(text):
         if round(float(m), 4) not in ctx.numbers:
             return f"입력에 없는 숫자: {m}"
@@ -250,13 +256,30 @@ def process_light_v3(text: str, ctx: LightContext) -> LightV3Result:
     return process_lines(text, ctx, rule_check=False)
 
 
+_REF = re.compile(r"(?:후보\s*\[?(\d{1,2})\]?\s*번?|\[(\d{1,2})\])\s*(?:번\s*)?(?:후보)?(?:의|은|는|이|가)?\s*")
+
+
+def _ref_in_text(sentence: str, n_max: int) -> tuple[int | None, str]:
+    """문장 안의 '후보 8의', '[8]' 를 찾아 (번호, 그 부분을 지운 문장). 없으면 (None, 원문)."""
+    m = _REF.search(sentence)
+    if not m:
+        return None, sentence
+    n = int(m.group(1) or m.group(2))
+    if not 1 <= n <= n_max:
+        return None, sentence
+    return n, (sentence[:m.start()] + sentence[m.end():]).strip()
+
+
 def process_lines(text: str, ctx: LightContext, *, rule_check: bool, allowed: list[str] | None = None,
-                  summary_required: bool = True) -> LightV3Result:
+                  summary_required: bool = True, ref_in_text: bool = False,
+                  allow_empty: bool = False) -> LightV3Result:
     """"번호 | 문장" 줄을 처리한다 (v3, A, B 둘째 호출 공통).
 
     rule_check: 선정 규칙 사후 검사 (A). 선정 검사와 문장 검사를 따로 기록한다
                 — 문장이 틀려 뺀 후보도 '고른 것'으로 보고 다음 선택의 규칙 검사에 쓴다 (이중 감점 방지).
     allowed   : 이 키만 받는다 (B 둘째 호출 = 이미 고른 3개).
+    ref_in_text: (v4) 문장 안에 '후보 8의'·'[8]' 가 있으면 줄 앞 번호 대신 그 번호를 쓰고 그 부분은 지운다.
+    allow_empty: 하이라이트가 0개여도 오류 대신 빈 결과를 돌려준다 (측정에서 뺀 이유를 세기 위해).
     """
     highlights: list[tuple[str, str]] = []
     dropped: list[str] = []
@@ -279,11 +302,15 @@ def process_lines(text: str, ctx: LightContext, *, rule_check: bool, allowed: li
         if not m:
             continue
         n = int(m.group(1))
+        sentence = m.group(2)
+        if ref_in_text:   # _clean 이 앞의 "[9]" 를 지우기 전에 읽는다
+            ref, sentence = _ref_in_text(sentence, len(ctx.order))
+            n = ref or n
+        sentence = _clean(sentence)
         if not 1 <= n <= len(ctx.order):
             dropped.append(f"{n}: 없는 번호")
             continue
         key = ctx.order[n - 1]
-        sentence = _clean(m.group(2))
         if allowed is not None and key not in allowed:
             dropped.append(f"{n}({key}): 고르지 않은 후보")
             continue
@@ -306,14 +333,14 @@ def process_lines(text: str, ctx: LightContext, *, rule_check: bool, allowed: li
         highlights.append((key, sentence))
     picks = [s.key for s in accepted] if rule_check else [k for k, _ in highlights]
     dropped += [f"[선정] {d}" for d in rule_dropped] + [f"[문장] {d}" for d in sentence_dropped]
-    if not highlights:
+    if not highlights and not allow_empty:
         raise ValueError(f"쓸 수 있는 하이라이트 없음 (뺀 것: {dropped or '형식 불일치'})")
     model_summary = summary
     use_fallback = summary is None or check_sentence(summary, ctx, None) is not None
     if use_fallback:
         if summary_required:
             dropped.append(f"총평: {'없음' if summary is None else check_sentence(summary, ctx, None)}")
-        summary = fallback_summary([k for k, _ in highlights], ctx)
+        summary = fallback_summary([k for k, _ in highlights], ctx) if highlights else ""
     return LightV3Result(summary, highlights, dropped, use_fallback, picks, raw_picks, rule_dropped,
                          sentence_dropped, model_summary)
 
@@ -350,22 +377,25 @@ _WRITE_RULES = """문장 규칙
 - 숫자, 비율, 백분율은 쓰지 마세요.
 - 영어 변수 이름은 쓰지 말고 후보의 한국어 이름을 쓰세요.
 - 플레이스타일 후보끼리 서로 비교하지 마세요. 잘하고 못함이 아니라 성향입니다.
-- 플레이어를 한 유형으로 규정하지 마세요.
+- 플레이어를 한 유형으로 규정하지 마세요. "~한 플레이어"라고 쓰지 말고 "상대보다 ~하다"로 씁니다.
+- 후보 번호나 '고른 후보' 같은 말은 문장에 쓰지 마세요.
 - 마지막에 고른 세 가지를 묶어 총평을 2문장으로 씁니다."""
 
-_LINES_OUTPUT = """출력은 아래 4줄만 씁니다. 다른 글은 쓰지 마세요.
-번호 | 문장
-번호 | 문장
-번호 | 문장
-총평 | 문장 두 개"""
+# 10/13 11번 실측: 출력 틀 줄("번호 | 문장", "번호, 번호, 번호")을 그대로 베끼고, 줄 앞에 1·2·3 순서 번호를 쓴 뒤
+# 문장 안에 "후보 8의 …" 를 씀 → 틀 줄을 빼고 말로 설명한다. 문장 속 후보 번호는 서버가 읽어 준다(_ref_in_text).
+_LINES_OUTPUT = """출력 형식
+- 고른 후보 하나에 한 줄씩, 줄 맨 앞에 그 후보의 대괄호 번호를 쓰고 세로 막대(|) 뒤에 문장을 씁니다.
+- 줄 맨 앞에는 1, 2, 3 같은 순서 번호가 아니라 후보 목록의 대괄호 번호를 그대로 씁니다.
+- 마지막 줄은 '총평'이라고 쓰고 세로 막대(|) 뒤에 총평 두 문장을 씁니다.
+- 이 네 줄 말고 다른 글은 쓰지 마세요."""
 
 LIGHT_A_SYSTEM = ("TETR.IO 전적 분석 페이지 첫 화면에 들어갈 코멘트를 한국어로 씁니다.\n"
                   f"{_TAGS_EXPLAIN}\n\n{_PICK_RULES}\n\n{_WRITE_RULES}\n\n{_LINES_OUTPUT}")
 
 LIGHT_SELECT_SYSTEM = ("TETR.IO 전적 분석 페이지 첫 화면에 보여 줄 지표 3개를 고릅니다.\n"
                        f"{_TAGS_EXPLAIN}\n\n{_PICK_RULES}\n\n"
-                       "출력은 고른 번호 3개를 쉼표로 구분해 한 줄로만 씁니다. 다른 글은 쓰지 마세요.\n"
-                       "번호, 번호, 번호")
+                       "출력: 고른 후보 3개의 대괄호 번호(숫자)만 쉼표로 구분해 한 줄로 씁니다. "
+                       "다른 글은 쓰지 마세요.")
 
 LIGHT_WRITE_SYSTEM = ("TETR.IO 전적 분석 페이지 첫 화면에 들어갈 코멘트를 한국어로 씁니다.\n"
                       "아래 후보 3개는 이 플레이어와 같은 매치 상대의 차이이고, 이미 골라 둔 것입니다. "

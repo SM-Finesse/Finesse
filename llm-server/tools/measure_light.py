@@ -25,6 +25,7 @@
   첫시도3    : 재시도 없이 첫 시도(A: 전체, B·C: 선정)가 규칙을 통과한 3개
   규칙집합   : 최종 선택이 규칙 정답과 같은 3개 (순서 무관)
   규칙순서   : 순서까지 같음 (규칙 5)
+  형식실패   : 모델 출력에서 후보 번호를 하나도 읽지 못한 시도 수 (예: "번호, 번호, 번호")
   선정위반   : 사후 검사로 뺀 선택 줄 수 (전체 시도 합)
   문장오류   : 문장 검사로 뺀 줄 수 (이유별은 아래)
   서버문장 / 서버총평 : 대체 문장 수 / 서버가 만든 총평 횟수
@@ -133,12 +134,13 @@ def _one(gen, req, st, sample, i) -> dict:
         "elapsed": round(out.elapsed, 2), "n_calls": len(out.calls),
         "picks": out.picks, "expected": out.expected, "labels": out.labels,
         "highlights": [{"stat": k, "sentence": s} for k, s in out.highlights],
-        "summary": out.summary, "summary_fallback": out.summary_fallback,
+        "summary": out.summary, "summary_fallback": status == 200 and out.summary_fallback,
         "first_attempt_full": status == 200 and len(first["picks"]) >= target,
         "first_attempt_raw": first.get("raw", []),
         "rule_set_ok": status == 200 and len(out.picks) == target and set(out.picks) == set(out.expected),
         "rule_order_ok": status == 200 and out.picks == out.expected,
         "rule_dropped": [d for a in out.attempts for d in a.get("rule_dropped", [])],
+        "format_fail": sum(1 for a in out.attempts if not a.get("raw")),   # 번호를 하나도 못 읽은 시도
         "sentence_dropped": out.sentence_dropped, "sentence_fallback": out.sentence_fallback,
         "example_copied": copied, "budget_stops": out.budget_stops,
         "calls": [{"kind": c.kind, "attempt": c.attempt, "sec": round(c.sec, 2), "finish": c.finish,
@@ -161,7 +163,7 @@ def _print_run(say, r: dict) -> None:
 
 
 def _summary(say, rows, modes, samples) -> None:
-    head = ("방식 샘플    200    3개   첫시도3 규칙집합 규칙순서 선정위반 문장오류 서버문장 서버총평 예문같음 "
+    head = ("방식 샘플    200    3개   첫시도3 규칙집합 규칙순서 형식실패 선정위반 문장오류 서버문장 서버총평 예문같음 "
             "시간중앙/최대  호출")
     say(head)
     for name in samples:
@@ -174,6 +176,7 @@ def _summary(say, rows, modes, samples) -> None:
                 f"{frac(sum(len(r['highlights']) == 3 for r in rs)):>6} "
                 f"{frac(sum(r['first_attempt_full'] for r in rs)):>7} "
                 f"{frac(sum(r['rule_set_ok'] for r in rs)):>8} {frac(sum(r['rule_order_ok'] for r in rs)):>8} "
+                f"{sum(r['format_fail'] for r in rs):>8} "
                 f"{sum(len(r['rule_dropped']) for r in rs):>8} {sum(len(r['sentence_dropped']) for r in rs):>8} "
                 f"{sum(len(r['sentence_fallback']) for r in rs):>8} {sum(r['summary_fallback'] for r in rs):>8} "
                 f"{sum(len(r['example_copied']) for r in rs):>8} "
@@ -189,7 +192,7 @@ def _summary(say, rows, modes, samples) -> None:
             first = Counter(r["first_attempt_raw"][0] if r["first_attempt_raw"] else "(없음)" for r in rows[(mode, name)])
             say(f"  {mode.upper()} {name}: {dict(first.most_common())}")
     say("\n※ 문장 내용의 정확성(방향은 맞지만 뜻이 틀린 문장 등)은 위 원문을 보고 사람이 확인한다.")
-    say("※ 25번은 CUDA 라 시간이 배포(Vulkan, 11·13번)보다 길다. 시간 판단은 11번에서 다시 잰다 (23번 v0.3 2절).")
+    say("※ 시간은 측정한 PC 기준. 배포 판단은 Vulkan(11·13번) 값으로 한다 (23번 v0.3 2절).")
 
 
 if __name__ == "__main__":
