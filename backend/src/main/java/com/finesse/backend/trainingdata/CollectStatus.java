@@ -20,7 +20,17 @@ public enum CollectStatus {
         return csv;
     }
 
-    /** 연속 실패 중단(4.6절)에 세는 상태 — 표본 부족·없는 유저는 수집기 문제가 아니라 세지 않는다 */
+    /** users.csv의 status 값 → enum. 모르는 값이면 null */
+    public static CollectStatus fromCsv(String value) {
+        for (CollectStatus s : values()) {
+            if (s.csv.equals(value)) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /** 연속 실패(4.6절)에 세고, 명단 끝에서 한 번 더 시도하는 상태 — 표본 부족·없는 유저는 다시 해도 같으니 세지 않는다 */
     public boolean isFailure() {
         return this == RATE_LIMITED || this == ERROR;
     }

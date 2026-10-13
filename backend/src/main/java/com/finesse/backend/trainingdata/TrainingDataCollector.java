@@ -88,59 +88,116 @@ public class TrainingDataCollector {
             }
             Map<String, String> keys = UserKeyRegistry.load(dataDir.resolve("user_map.csv")).assignAll(targets);
             UsersLog users = UsersLog.load(dataDir.resolve("users.csv"));
-            long remaining = keys.values().stream().filter(k -> !users.isDone(k)).count();
-            log.info("수집 시작 — calc_commit={}, 대상 {}명, 이미 처리 {}명, 남은 {}명, 저장 위치 {}",
-                    calcCommit, targets.size(), targets.size() - remaining, remaining, dataDir);
+            long fresh = keys.values().stream().filter(k -> !users.isDone(k)).count();
+            long retry = keys.values().stream().filter(users::awaitingRetry).count();
+            log.info("수집 시작 — calc_commit={}, 대상 {}명, 이미 처리 {}명, 남은 {}명(재시도 대기 {}명), 저장 위치 {}",
+                    calcCommit, targets.size(), targets.size() - fresh, fresh, retry, dataDir);
             return loop(targets, keys, users, collected, calcCommit);
         }
+    }
+
+    /** 유저 사이 대기와 연속 실패 상태 — 처음 도는 명단과 재시도 명단이 이어서 쓴다 */
+    private static final class Pace {
+        Instant lastEnd;
+        Duration wait;
+        int failStreak;
+        /** 연속 실패로 쉬었다가 다시 시작한 직후 — 이때 실패하면 3번을 채우지 않고 바로 다시 쉰다 */
+        boolean probing;
+        /** 다음 유저 전에 쉬어야 한다 — 남은 유저가 없으면 쉬지 않고 끝낸다 */
+        boolean pauseNext;
     }
 
     private int loop(List<String> targets, Map<String, String> keys, UsersLog users, Path collected, String calcCommit)
             throws IOException {
         Map<CollectStatus, Integer> counts = new EnumMap<>(CollectStatus.class);
-        Instant lastEnd = null;
-        Duration wait = Duration.ofSeconds(props.intervalSeconds());
-        int consecutiveFailures = 0;
+        Pace pace = new Pace();
+        pace.wait = Duration.ofSeconds(props.intervalSeconds());
+
+        // 1) 아직 시도하지 않은 유저
         for (String name : targets) {
             String key = keys.get(name);
-            if (users.isDone(key)) {
-                continue;
-            }
-            String normalized;
-            try {
-                normalized = TrainingPayloadBuilder.normalize(name);
-            } catch (IllegalArgumentException e) {
-                // 형식이 틀린 이름은 TETR.IO를 부르지 않는다 — 존재할 수 없는 유저라 not_found
-                record(users, counts, key, new Result(CollectStatus.NOT_FOUND, "닉네임 형식 오류", null), Duration.ZERO);
-                continue;
-            }
-            if (lastEnd != null && !sleepUntil(lastEnd.plus(wait))) {
-                log.warn("대기 중 중단 요청을 받아 종료합니다");
+            if (!users.isDone(key) && !collectAndPace(name, key, users, counts, collected, calcCommit, pace)) {
+                logSummary(counts);
                 return EXIT_STOPPED;
             }
-            Instant started = clock.instant();
-            Result result = collectOne(key, normalized, collected, calcCommit);
-            lastEnd = clock.instant();
-            record(users, counts, key, result, Duration.between(started, lastEnd));
-
-            // 429면 대기를 늘린다(1분 → 5분, 4.6절). 성공하면 다시 1분
-            wait = Duration.ofSeconds(result.status() == CollectStatus.RATE_LIMITED
-                    ? props.rateLimitedIntervalSeconds() : props.intervalSeconds());
-            if (result.status().isFailure()) {
-                consecutiveFailures++;
-                if (consecutiveFailures >= props.maxConsecutiveFailures()) {
-                    log.error("연속 {}회 실패로 수집을 중단합니다 — 원인을 확인한 뒤 다시 실행하면 {} 다음 유저부터 이어서 수집합니다",
-                            consecutiveFailures, key);
-                    logSummary(counts);
-                    return EXIT_STOPPED;
-                }
-            } else {
-                consecutiveFailures = 0;
+        }
+        // 2) error·rate_limited로 끝난 유저를 한 번 더 — 일시적인 장애로 빠진 유저를 살린다. 두 번째 결과로 확정
+        boolean announced = false;
+        for (String name : targets) {
+            String key = keys.get(name);
+            if (!users.awaitingRetry(key)) {
+                continue;
+            }
+            if (!announced) {
+                log.info("명단을 한 바퀴 돌았습니다 — error·rate_limited로 끝난 {}명을 한 번 더 시도합니다",
+                        keys.values().stream().filter(users::awaitingRetry).count());
+                announced = true;
+            }
+            if (!collectAndPace(name, key, users, counts, collected, calcCommit, pace)) {
+                logSummary(counts);
+                return EXIT_STOPPED;
             }
         }
         log.info("수집 완료 — 명단 끝까지 처리했습니다");
         logSummary(counts);
         return EXIT_DONE;
+    }
+
+    /** 유저 1명 수집 + 대기·연속 실패 처리. false면 중단 */
+    private boolean collectAndPace(String name, String key, UsersLog users, Map<CollectStatus, Integer> counts,
+                                   Path collected, String calcCommit, Pace pace) throws IOException {
+        String normalized;
+        try {
+            normalized = TrainingPayloadBuilder.normalize(name);
+        } catch (IllegalArgumentException e) {
+            // 형식이 틀린 이름은 TETR.IO를 부르지 않는다 — 존재할 수 없는 유저라 not_found
+            record(users, counts, key, new Result(CollectStatus.NOT_FOUND, "닉네임 형식 오류", null), Duration.ZERO);
+            return true;
+        }
+        if (pace.pauseNext) {
+            Duration pause = Duration.ofSeconds(props.failurePauseSeconds());
+            log.warn("{} — {} 쉬었다가 이어서 수집합니다(실패한 유저는 명단 끝에서 한 번 더 시도)",
+                    pace.probing ? "쉬고 나서 다시 시도한 유저도 실패(연속 " + pace.failStreak + "회)"
+                            : "연속 " + pace.failStreak + "회 실패",
+                    pause.toSeconds() % 60 == 0 ? pause.toMinutes() + "분" : pause.toSeconds() + "초");
+            if (!sleepFor(pause)) {
+                log.warn("대기 중 중단 요청을 받아 종료합니다");
+                return false;
+            }
+            pace.pauseNext = false;
+            pace.probing = true;
+        } else if (pace.lastEnd != null && !sleepUntil(pace.lastEnd.plus(pace.wait))) {
+            log.warn("대기 중 중단 요청을 받아 종료합니다");
+            return false;
+        }
+        Instant started = clock.instant();
+        Result result = collectOne(key, normalized, collected, calcCommit);
+        pace.lastEnd = clock.instant();
+        Duration took = Duration.between(started, pace.lastEnd);
+        record(users, counts, key, result, took);
+        if (took.toSeconds() >= props.slowUserWarnSeconds()) {
+            log.warn("{} 수집이 {}초 걸렸습니다(기준 {}초) — 바로 위 TETR.IO 경고 로그에서 원인을 확인하세요",
+                    key, took.toMillis() / 1000.0, props.slowUserWarnSeconds());
+        }
+
+        // 429면 대기를 늘린다(1분 → 5분, 4.6절). 성공하면 다시 1분
+        pace.wait = Duration.ofSeconds(result.status() == CollectStatus.RATE_LIMITED
+                ? props.rateLimitedIntervalSeconds() : props.intervalSeconds());
+        if (!result.status().isFailure()) {
+            pace.failStreak = 0;
+            pace.probing = false;
+            return true;
+        }
+        pace.failStreak++;
+        if (pace.probing || pace.failStreak >= props.maxConsecutiveFailures()) {
+            if (props.failurePauseSeconds() <= 0) {
+                log.error("연속 {}회 실패로 수집을 중단합니다 — 원인을 확인한 뒤 다시 실행하면 {} 다음 유저부터 이어서 수집합니다",
+                        pace.failStreak, key);
+                return false;
+            }
+            pace.pauseNext = true;
+        }
+        return true;
     }
 
     /** 유저 1명: 수집 1회 → 계산 1회 → payload 8개 (작업지시서 3.1절) */
@@ -225,7 +282,10 @@ public class TrainingDataCollector {
     }
 
     private boolean sleepUntil(Instant until) {
-        Duration left = Duration.between(clock.instant(), until);
+        return sleepFor(Duration.between(clock.instant(), until));
+    }
+
+    private boolean sleepFor(Duration left) {
         if (left.isNegative() || left.isZero()) {
             return true;
         }

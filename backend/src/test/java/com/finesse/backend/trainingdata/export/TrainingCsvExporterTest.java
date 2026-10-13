@@ -40,7 +40,7 @@ class TrainingCsvExporterTest {
         when(builder.analyze("icly")).thenReturn(analyzed);
         when(builder.payloads("icly", analyzed)).thenReturn(samplePayloads());
         new TrainingDataCollector(builder, MAPPER,
-                new TrainingCollectorProperties(dir, dir.resolve("targets.csv"), 60, 300, 3, "abc1234", false),
+                new TrainingCollectorProperties(dir, dir.resolve("targets.csv"), 60, 300, 3, 600, 30, "abc1234", false),
                 Clock.fixed(Instant.parse("2026-10-10T09:03:00Z"), ZoneOffset.UTC), d -> { }, dir).run();
     }
 

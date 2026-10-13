@@ -13,7 +13,9 @@ collector:
   targets-file: ${collector.data-dir}/targets.csv
   interval-seconds: 60            # 직전 수집이 끝난 뒤 1분(4.2절)
   rate-limited-interval-seconds: 300   # 429 뒤 5분(4.6절)
-  max-consecutive-failures: 3     # 연속 3회 실패면 중단(4.6절)
+  max-consecutive-failures: 3     # 연속 3회 실패면 쉰다(4.6절 — 중단 대신 쉬고 재개, PM 확인 10/13)
+  failure-pause-seconds: 600      # 연속 실패 뒤 10분 쉬고 이어서 — 쉬고 나서 첫 유저도 실패면 바로 다시 10분. 0이면 원래대로 중단
+  slow-user-warn-seconds: 30      # 유저 1명 수집이 30초를 넘으면 경고 로그
 
 logging:
   file:

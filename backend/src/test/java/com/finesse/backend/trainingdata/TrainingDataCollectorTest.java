@@ -81,8 +81,12 @@ public class TrainingDataCollectorTest {
     }
 
     private TrainingDataCollector collector() {
+        return collector(600);
+    }
+
+    private TrainingDataCollector collector(int failurePauseSeconds) {
         TrainingCollectorProperties props = new TrainingCollectorProperties(
-                dir, dir.resolve("targets.csv"), 60, 300, 3, "abc1234", false);
+                dir, dir.resolve("targets.csv"), 60, 300, 3, failurePauseSeconds, 30, "abc1234", false);
         return new TrainingDataCollector(builder, MAPPER, props, clock, d -> {
             sleeps.add(d);
             clock.advance(d);
@@ -159,16 +163,100 @@ public class TrainingDataCollectorTest {
     }
 
     @Test
-    void 연속_3회_실패하면_멈춘다() throws IOException {
+    void 쉬는_시간을_0으로_두면_작업지시서_원래대로_연속_3회_실패에서_멈춘다() throws IOException {
         targets("a01", "a02", "a03", "a04");
         when(builder.analyze(anyString())).thenReturn(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
 
-        assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_STOPPED);
+        assertThat(collector(0).run()).isEqualTo(TrainingDataCollector.EXIT_STOPPED);
 
         assertThat(usersCsv()).extracting(r -> r.get(2) + " " + r.get(3)).containsExactly(
                 "error TETR.IO 수집 실패(FAILED)", "error TETR.IO 수집 실패(FAILED)", "error TETR.IO 수집 실패(FAILED)");
         assertThat(sleeps).containsExactly(Duration.ofSeconds(60), Duration.ofSeconds(60));
         verify(builder, never()).analyze("a04");
+    }
+
+    @Test
+    void 연속_3회_실패하면_10분_쉬고_이어서_수집한다() throws IOException {
+        targets("a01", "a02", "a03", "ok1", "ok2");
+        when(builder.analyze(anyString())).thenReturn(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+        when(builder.analyze("ok2")).thenReturn(new AnalysisOutcome.UserNotFound("ok2"));
+
+        assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
+
+        // 처음 명단: a01~a03 실패 → 10분 쉬고 ok1·ok2. 끝에서 a01~a03을 한 번 더 — 또 3번 실패지만 남은 유저가 없어 쉬지 않고 끝
+        assertThat(usersCsv()).extracting(r -> r.get(0) + " " + r.get(2)).containsExactly(
+                "u0001 error", "u0002 error", "u0003 error", "u0004 not_found", "u0005 not_found",
+                "u0001 error", "u0002 error", "u0003 error");
+        assertThat(sleeps).containsExactly(Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofSeconds(600),
+                Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofSeconds(60));
+    }
+
+    @Test
+    void 쉬고_나서_처음_유저가_또_실패하면_3번을_채우지_않고_바로_다시_쉰다() throws IOException {
+        targets("f01", "f02", "f03", "f04", "f05");
+        when(builder.analyze(anyString())).thenReturn(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
+
+        assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
+
+        // 장애가 이어지면 10분에 1명만 시도한다 — f1~f3 뒤 쉬고, f4·f5·재시도 f1~f5는 1명마다 10분
+        assertThat(sleeps).containsExactly(Duration.ofSeconds(60), Duration.ofSeconds(60),
+                Duration.ofSeconds(600), Duration.ofSeconds(600), Duration.ofSeconds(600), Duration.ofSeconds(600),
+                Duration.ofSeconds(600), Duration.ofSeconds(600), Duration.ofSeconds(600));
+        assertThat(usersCsv()).hasSize(10);
+    }
+
+    @Test
+    void 쉬고_나서_한_명이라도_성공하면_다시_3번_기준으로_돌아간다() throws IOException {
+        targets("f01", "f02", "f03", "ok1", "f04", "f05", "ok2");
+        when(builder.analyze(anyString())).thenReturn(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+        when(builder.analyze("ok2")).thenReturn(new AnalysisOutcome.UserNotFound("ok2"));
+
+        collector().run();
+
+        // f1~f3 → 10분 → ok1(성공) → f4·f5는 연속 2번이라 쉬지 않음 → ok2 → 재시도 f1~f5(3번째에서 쉼, 4번째부터 1명마다)
+        assertThat(sleeps.subList(0, 7)).containsExactly(Duration.ofSeconds(60), Duration.ofSeconds(60),
+                Duration.ofSeconds(600), Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofSeconds(60),
+                Duration.ofSeconds(60));
+    }
+
+    @Test
+    void 실패한_유저는_명단_끝에서_한_번_더_시도하고_두_번째_결과로_확정한다() throws IOException {
+        targets("e01", "ok1", "e02");
+        when(builder.analyze("e01")).thenThrow(new IllegalStateException("boom"))
+                .thenReturn(new AnalysisOutcome.UserNotFound("e01"));
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+        when(builder.analyze("e02")).thenReturn(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
+
+        assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
+
+        assertThat(usersCsv()).extracting(r -> r.get(0) + " " + r.get(2)).containsExactly(
+                "u0001 error", "u0002 not_found", "u0003 error", "u0001 not_found", "u0003 error");
+
+        // 다시 실행해도 두 번 시도한 유저는 더 부르지 않는다
+        assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
+        verify(builder, times(2)).analyze("e01");
+        verify(builder, times(1)).analyze("ok1");
+        verify(builder, times(2)).analyze("e02");
+    }
+
+    @Test
+    void 지난_실행에서_실패로_끝난_유저는_다음_실행에서_한_번_더_시도한다() throws IOException {
+        // 예: 어제 수집 중 오류로 끝난 유저 — 그때는 재시도가 없던 버전이었다
+        targets("e01", "ok1");
+        when(builder.analyze("e01")).thenReturn(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+        Files.writeString(dir.resolve("users.csv"), CsvFiles.BOM + UsersLog.HEADER
+                + "u0001,2026-10-12T18:47:36+09:00,error,TetrIoUserNotFoundException,,\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("user_map.csv"), CsvFiles.BOM + "user_key,username\nu0001,e01\n", StandardCharsets.UTF_8);
+
+        collector().run();
+
+        verify(builder, times(1)).analyze("e01");
+        verify(builder, times(1)).analyze("ok1");
+        assertThat(usersCsv()).extracting(r -> r.get(0) + " " + r.get(2)).containsExactly(
+                "u0001 error", "u0002 not_found", "u0001 error");
     }
 
     @Test
@@ -181,22 +269,28 @@ public class TrainingDataCollectorTest {
         assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
 
         assertThat(usersCsv()).extracting(r -> r.get(2) + " " + r.get(3)).containsExactly(
-                "rate_limited 429", "rate_limited 429", "not_found 404", "not_found 404");
-        // 429 뒤에는 5분, 정상으로 돌아오면 다시 1분
-        assertThat(sleeps).containsExactly(Duration.ofSeconds(300), Duration.ofSeconds(300), Duration.ofSeconds(60));
+                "rate_limited 429", "rate_limited 429", "not_found 404", "not_found 404",
+                "rate_limited 429", "rate_limited 429");
+        // 429 뒤에는 5분, 정상으로 돌아오면 다시 1분. 끝에서 r01·r02를 한 번 더
+        assertThat(sleeps).containsExactly(Duration.ofSeconds(300), Duration.ofSeconds(300), Duration.ofSeconds(60),
+                Duration.ofSeconds(60), Duration.ofSeconds(300));
     }
 
     @Test
     void 성공하면_연속_실패_수가_다시_0이_된다() throws IOException {
         targets("f01", "ok1", "f02", "f03");
-        doThrow(new IllegalStateException("boom")).when(builder).analyze(anyString());
-        doReturn(new AnalysisOutcome.UserNotFound("ok1")).when(builder).analyze("ok1");
+        when(builder.analyze("f01")).thenThrow(new IllegalStateException("boom")).thenReturn(new AnalysisOutcome.UserNotFound("f01"));
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+        when(builder.analyze("f02")).thenThrow(new IllegalStateException("boom")).thenReturn(new AnalysisOutcome.UserNotFound("f02"));
+        when(builder.analyze("f03")).thenThrow(new IllegalStateException("boom")).thenReturn(new AnalysisOutcome.UserNotFound("f03"));
 
         assertThat(collector().run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
 
         assertThat(usersCsv()).extracting(r -> r.get(2) + " " + r.get(3)).containsExactly(
-                "error IllegalStateException", "not_found 404", "error IllegalStateException", "error IllegalStateException");
-        assertThat(sleeps).containsExactly(Duration.ofSeconds(60), Duration.ofSeconds(60), Duration.ofSeconds(60));
+                "error IllegalStateException", "not_found 404", "error IllegalStateException", "error IllegalStateException",
+                "not_found 404", "not_found 404", "not_found 404");
+        // f01 실패 뒤 ok1 성공으로 0 → f02·f03은 연속 2번이라 쉬지 않는다
+        assertThat(sleeps).containsOnly(Duration.ofSeconds(60)).hasSize(6);
     }
 
     @Test
