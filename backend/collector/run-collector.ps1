@@ -1,16 +1,21 @@
 ﻿# 학습 데이터 수집기 실행 (collect 브랜치 전용) — 학습 데이터 수집 서버 작업지시서 4절.
 # 1) 지금 코드로 jar를 다시 빌드한다 — calc_commit(git HEAD)과 실행 코드가 같아야 한다.
-# 2) 수집기를 띄우고, 비정상 종료(전원·JVM 오류 등)면 1분 뒤 다시 띄운다 — 수집기는 users.csv를 보고 이어서 한다.
-#    이미 실행 중(3)·설정 오류(1)·중단(2 — failure-pause-seconds를 0으로 둔 경우)이면 다시 띄우지 않는다.
-# 3) 명단 끝까지 수집해도(0) 창을 닫지 않고 기다리다가, targets.csv가 바뀌면 같은 창에서 이어서 수집한다(-Once면 그냥 끝낸다).
+# 2) 수집기를 띄우고, 비정상 종료(전원·JVM 오류 등)면 다시 띄운다 — 1분, 연달아 죽으면 2·4·8분 … 최대 10분 간격, 횟수 제한 없음
+#    (10/13). 10분 넘게 돌다 죽었으면 간격을 처음(1분)부터 다시 센다. 수집기는 users.csv를 보고 이어서 한다.
+# 3) 시작을 거부하면(1 — 커밋 안 된 코드·명단 파일 문제 등) 10분마다 다시 빌드해 다시 시도한다. 빌드가 실패해도 같다(10/13).
+# 4) 명단 끝까지 수집해도(0) 창을 닫지 않고 기다리다가, targets.csv가 바뀌면 같은 창에서 이어서 수집한다.
+#    중단(2 — failure-pause-seconds를 0으로 둔 경우·중단 요청)·이미 실행 중(3)이면 끝낸다.
 #    창은 하나만 — 이미 다른 창이 실행 중이거나 기다리는 중이면 새 창은 바로 끝낸다(3).
+# 다시 띄울 때마다 지금 코드로 다시 빌드한다 — 기다리는 동안 코드가 바뀌어도 calc_commit(git HEAD)과 실행 jar가 맞게.
+# -Once면 예전처럼 한 번만 돌고 끝낸다(대기·재시도 없음, 비정상 종료 재시작은 -MaxRestarts회).
 #
 # 예) powershell -ExecutionPolicy Bypass -File collector\run-collector.ps1 -DataDir D:\finesse-collector
 param(
     [string]$DataDir = "$env:USERPROFILE\finesse-collector",
-    [int]$MaxRestarts = 20,
+    [int]$MaxRestarts = 0,          # 0 = 제한 없음
     [switch]$Once,
-    [int]$WatchSeconds = 60
+    [int]$WatchSeconds = 60,
+    [int]$RetrySeconds = 600        # 시작 거부·빌드 실패 뒤 다시 시도할 때까지
 )
 
 # 창 하나만 — 수집기 락(collector.lock)은 java가 도는 동안만 잡혀 있어서, 기다리는 창끼리는 이걸로 막는다
@@ -35,7 +40,16 @@ function Build-Jar {
     return Get-ChildItem build\libs\*.jar | Where-Object { $_.Name -notlike '*-plain.jar' } | Select-Object -First 1
 }
 $jar = Build-Jar
-if (-not $jar) { Write-Error "빌드 실패"; exit 1 }
+while (-not $jar) {
+    if ($Once) { Write-Error "빌드 실패"; exit 1 }
+    Write-Warning "[$(Get-Date -Format 'MM-dd HH:mm')] 빌드 실패 — $([int]($RetrySeconds / 60))분 뒤 다시 빌드합니다"
+    Start-Sleep -Seconds $RetrySeconds
+    $jar = Build-Jar
+}
+function Update-Jar {
+    $rebuilt = Build-Jar
+    if ($rebuilt) { $script:jar = $rebuilt } else { Write-Warning "빌드 실패 — 이전 jar로 실행합니다(코드가 커밋 안 됐으면 수집기가 시작을 거부합니다)" }
+}
 
 $targets = Join-Path $DataDir 'targets.csv'
 function Get-TargetsStamp {
@@ -61,27 +75,37 @@ $restarts = 0
 try {
     while ($true) {
         $stamp = Get-TargetsStamp
+        $started = Get-Date
         & "$env:JAVA_HOME\bin\java.exe" -jar $jar.FullName --spring.profiles.active=collector "--collector.data-dir=$DataDir"
         $code = $LASTEXITCODE
         if ($code -eq 0 -and -not $Once) {
-            # 4) 새 명단을 기다린다 — 절전 방지는 그대로 유지
+            # 새 명단을 기다린다 — 절전 방지는 그대로 유지
             Write-Host ""
             Write-Host "[$(Get-Date -Format 'MM-dd HH:mm')] 명단 끝까지 수집했습니다. 창을 열어 둔 채 새 명단을 기다립니다."
             Write-Host "  targets.csv에 유저를 추가하면 이 창에서 자동으로 이어서 수집합니다 ($WatchSeconds초마다 확인)."
             do { Start-Sleep -Seconds $WatchSeconds } while ((Get-TargetsStamp) -eq $stamp)
             Start-Sleep -Seconds 5   # 저장이 끝날 때까지 잠깐
             Write-Host "[$(Get-Date -Format 'MM-dd HH:mm')] 명단이 바뀌었습니다 — 지금 코드로 다시 빌드하고 이어서 수집합니다"
-            # 기다리는 동안 코드가 바뀌었을 수 있다 — calc_commit(git HEAD)과 실행 jar를 맞추려고 매번 다시 빌드
-            $rebuilt = Build-Jar
-            if ($rebuilt) { $jar = $rebuilt } else { Write-Warning "빌드 실패 — 이전 jar로 수집합니다(코드가 커밋 안 됐으면 수집기가 시작을 거부합니다)" }
+            Update-Jar
             $restarts = 0
             continue
         }
+        if ($code -eq 1 -and -not $Once) {
+            # 시작 거부(커밋 안 된 코드·명단 파일 문제 등) — 고쳐질 때까지 10분마다 다시 시도
+            Write-Warning "[$(Get-Date -Format 'MM-dd HH:mm')] 수집기가 시작하지 못했습니다(설정 오류 — 위 메시지나 logs\collector.log 확인). $([int]($RetrySeconds / 60))분 뒤 다시 빌드해 다시 시도합니다"
+            Start-Sleep -Seconds $RetrySeconds
+            Update-Jar
+            continue
+        }
         if ($code -in 0, 1, 2, 3) { break }
+        # 비정상 종료 — 10분 넘게 돌았으면 일시적인 문제로 보고 간격을 처음부터
+        if (((Get-Date) - $started).TotalMinutes -ge 10) { $restarts = 0 }
         $restarts++
-        if ($restarts -gt $MaxRestarts) { Write-Warning "재시작 $MaxRestarts회 초과 — 멈춥니다"; break }
-        Write-Warning "수집기가 비정상 종료(코드 $code) — 60초 뒤 이어서 다시 실행합니다 ($restarts/$MaxRestarts)"
-        Start-Sleep -Seconds 60
+        if ($MaxRestarts -gt 0 -and $restarts -gt $MaxRestarts) { Write-Warning "재시작 $MaxRestarts회 초과 — 멈춥니다"; break }
+        $wait = [Math]::Min(60 * [Math]::Pow(2, [Math]::Min($restarts - 1, 10)), 600)
+        Write-Warning "[$(Get-Date -Format 'MM-dd HH:mm')] 수집기가 비정상 종료(코드 $code) — $([int]$wait)초 뒤 이어서 다시 실행합니다 (연속 $restarts회째)"
+        Start-Sleep -Seconds $wait
+        Update-Jar
     }
 } finally {
     [Finesse.Power]::SetThreadExecutionState($ES_CONTINUOUS) | Out-Null   # 절전 방지 해제
