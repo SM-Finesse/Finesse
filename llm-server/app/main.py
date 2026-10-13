@@ -11,6 +11,10 @@
 heavy 대체 문장 (v3.4, 10/12)
   LLM_HEAVY_ATTEMPTS (기본 2): 한 요청 안에서 LLM 으로 시도하는 횟수
   LLM_HEAVY_FALLBACK (기본 on): on 이면 모두 실패했을 때 서버가 만든 대체 문장으로 200, off 면 예전처럼 502
+  LLM_LIGHT_PROMPT (기본 v3): v3 = 번호·줄 형식(app/light_v3.py), v2 = 예전 JSON 방식
+  LLM_LIGHT_MODE (기본 a): a | b | c = light-v4(선정 규칙·라벨, app/light_pipeline.py), v3 = 라벨 없는 light-v3-lines
+      LLM_LIGHT_ATTEMPTS, LLM_LIGHT_BUDGET_SEC, LLM_LIGHT_FALLBACK, LLM_LIGHT_RANGES 설명은 app/light_pipeline.py
+  LLM_LIGHT_SIZE_HINT, LLM_LIGHT_SHUFFLE (기본 off): light-v3(LLM_LIGHT_MODE=v3) 선택 보조 — PM 확인 전 측정용
   LLM_HEAVY_TEMPLATE_CHAPTERS (기본 rivals, v3.5): LLM 을 부르지 않고 바로 서버 문장을 쓰는 챕터 (쉼표 구분,
       빈 값이면 모든 챕터에 LLM 사용). 10/12 실측에서 rivals 는 프롬프트를 바꿔도 2/10 이라 서버 문장으로 둔다.
 """
@@ -23,10 +27,13 @@ from fastapi.responses import JSONResponse
 
 from app.fallback import build_fallback
 from app.generator import ContextOverflowError, build_generator
+from app.light_pipeline import LightFailure, LightSettings, run_light
+from app.light_v3 import build_light_v3, process_light_v3
 from app.prompt import build_heavy_messages, build_light_messages
 from app.schemas import HeavyRequest, LightRequest
 from app.validation import (
     HeavyResponse,
+    Highlight,
     LightResponse,
     OutputFormatError,
     process_heavy_output,
@@ -64,11 +71,54 @@ def health():
 @app.post("/v1/comment/light", response_model=LightResponse)
 def comment_light(req: LightRequest):
     # ① 요청 검증: FastAPI가 LightRequest로 바꾸면서 자동으로 한다 (실패 시 422)
-    # ② 프롬프트 조립
+    if os.getenv("LLM_LIGHT_PROMPT", "v3").lower() == "v2":
+        return _comment_light_v2(req)
+    if os.getenv("LLM_LIGHT_MODE", "a").strip().lower() != "v3":
+        return _comment_light_v4(req)
+    # ② 프롬프트 조립 (light-v3: 번호·한국어 이름·방향을 붙인 후보 목록, app/light_v3.py)
+    ctx = build_light_v3(req)
+    # ③ 생성: 모델은 "번호 | 문장" 3줄 + "총평 | 문장"만 쓴다
+    result = _generate(generator.generate_light_text, req, ctx.messages)
+    # ④ 줄 → 하이라이트. 틀린 줄만 빼고, 쓸 수 있는 것이 하나도 없으면 502(백엔드 재요청)
+    try:
+        out = process_light_v3(result.text, ctx)
+    except ValueError as e:
+        logger.warning("light 형식 오류 generator=%s finish=%s: %s", generator.name, result.finish_reason, e)
+        raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from e
+    if out.dropped:
+        logger.warning("light 뺀 줄 %s", out.dropped)
+    logger.info("light 선택 %s (후보 순서 %s)", [k for k, _ in out.highlights], ctx.order)
+    return LightResponse(light_summary=out.summary,
+                         highlights=[Highlight(stat=k, sentence=s) for k, s in out.highlights])
+
+
+def _comment_light_v4(req: LightRequest):
+    """light-v4 (A/B/C). 단계 나누기·재시도·규칙 검사는 app/light_pipeline.py."""
+    try:
+        out = run_light(req, generator, LightSettings.from_env())
+    except ContextOverflowError as e:
+        logger.warning("입력 길이 초과 generator=%s: %s", generator.name, e)
+        raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
+    except LightFailure as e:
+        o = e.outcome
+        logger.warning("light-%s 형식 오류 generator=%s %.1fs: %s / 호출 %s", o.mode, generator.name, o.elapsed, e,
+                       [(c.kind, c.attempt, round(c.sec, 1), c.finish, c.result) for c in o.calls])
+        raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from e
+    for c in out.calls:
+        logger.info("light-%s %s#%d %.1fs finish=%s → %s", out.mode, c.kind, c.attempt, c.sec, c.finish, c.result)
+    if out.sentence_dropped or out.sentence_fallback or out.budget_stops:
+        logger.warning("light-%s 문장 뺌 %s / 서버 문장 %s / 시간 예산으로 생략 %s", out.mode, out.sentence_dropped,
+                       out.sentence_fallback, out.budget_stops)
+    logger.info("light-%s 선택 %s (규칙 정답 %s) 총평=%s %.1fs", out.mode, out.picks, out.expected,
+                "서버" if out.summary_fallback else "모델", out.elapsed)
+    return LightResponse(light_summary=out.summary,
+                         highlights=[Highlight(stat=k, sentence=s) for k, s in out.highlights])
+
+
+def _comment_light_v2(req: LightRequest):
+    """light-baseline-v2-trsum (llm-base-v1 까지의 방식). LLM_LIGHT_PROMPT=v2 로 되돌릴 수 있다."""
     messages = build_light_messages(req)
-    # ③ 생성 (LLM_GENERATOR 에 따라 Mock 또는 Qwen)
     result = _generate(generator.generate_light, req, messages)
-    # ④ 응답 검증: 형식(앞 JSON 만 읽기) → 프롬프트 베낌 → stat 키 정리 → 내용 규칙
     try:
         resp, issues, changed = process_light_output(result.text, req.available_stats())
     except OutputFormatError as e:
