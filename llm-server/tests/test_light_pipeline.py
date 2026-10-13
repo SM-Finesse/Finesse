@@ -238,3 +238,33 @@ def test_잘못된_모드는_서버_오류로_알림(monkeypatch):
     monkeypatch.setenv("LLM_LIGHT_MODE", "d")
     with pytest.raises(ValueError):
         LightSettings.from_env()
+
+
+# ---------- 10/13 11번 확인2 실측 출력 ----------
+def test_A_이름만_쓴_줄은_문장이_아님():
+    ctx = build_light_a(_req("light_testuser.json"))
+    text = ("1. **Weighted APP 차이(Cheese Index로 보정한 공격 효율)**\n"
+            "   - 방향: 보정 후 상대보다 공격 효율이 낮음 / 전체 기준: 낮은 편, 많이 벗어남\n"
+            "2. **Plonk 성향 차이(효율·가비지 활용 위주 성향)**\n")
+    out = process_lines(text, ctx, rule_check=True, ref_in_text=True, allow_empty=True)
+    assert out.highlights == [] and all("문장이 아님" in d for d in out.sentence_dropped)
+
+
+def test_B_대괄호_번호_뒤_구분자_없는_줄():
+    ctx = build_light_select(_req("light_testuser.json"))
+    picks = ["delta_weighted_app", "delta_plonk", "delta_comeback"]
+    text = ("총평\n"
+            "[1] Weighted APP 차이(Cheese Index로 보정한 공격 효율)는 상대보다 공격 효율이 낮습니다.\n"
+            "[2] Plonk 성향 차이는 전체 기준에서는 보통입니다.\n")
+    out = process_lines(text, ctx, rule_check=False, allowed=picks, ref_in_text=True, allow_empty=True)
+    assert [k for k, _ in out.highlights] == ["delta_weighted_app"]
+    assert "프롬프트 베낌" in out.sentence_dropped[0]   # '전체 기준' 노출
+
+
+def test_C_총평_머리말과_목록():
+    from app.light_v3 import process_summary
+    ctx = build_light_select(_req("light_testuser.json"))
+    text = ("하이라이트를 요약한 두 문장:\n\n1. 가비지 처리 성향을 보정한 공격 효율은 상대보다 낮습니다.\n"
+            "2. 역전 경향은 뒤집히는 경우가 더 많습니다.")
+    summary, why = process_summary(text, ctx)
+    assert why is None and summary.startswith("가비지 처리 성향을 보정한") and summary.endswith("많습니다.")

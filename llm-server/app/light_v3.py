@@ -174,6 +174,8 @@ def build_light_v3(req: LightRequest, *, shuffle: bool | None = None, size_hint:
 
 # ---------- 출력 처리 ----------
 _LINE = re.compile(r"^\s*\[?\s*(\d{1,2})\s*\]?\s*(?:번)?\s*[|:：.)]\s*(.+?)\s*$")
+# 10/13 11번 실측(B 둘째 호출): "[1] Weighted APP 차이(…)는 …낮습니다." — 대괄호 번호 뒤 구분자 없음
+_LINE_BRACKET = re.compile(r"^\s*\[(\d{1,2})\]\s*(?![|:：.)])(.+?)\s*$")
 _SUMMARY = re.compile(r"^\s*\**\s*총평\s*\**\s*[|:：]\s*(.+?)\s*$")
 _NUM = re.compile(r"\d+(?:\.\d+)?")
 _CJK = re.compile(r"[぀-ヿ一-鿿]")
@@ -182,7 +184,7 @@ _LATIN_WORD = re.compile(r"[A-Za-z][A-Za-z_./]*")
 _LATIN_OK = {"opener", "plonk", "stride", "inf", "ds", "app", "weighted", "vs", "apm", "vs/apm",
              "cheese", "index", "tr", "tetr.io", "tetr", "io", "pps"}
 _ECHO = ("할 일", "규칙", "출력은 아래", "번호 | 문장", "총평 | 문장", "이미 계산된 해석", "다른 글은 쓰지",
-         "고르는 방법", "문장 규칙", "두드러진 순서", "미리 계산", "전체 기준:", "방향:", "지표:", "예시:",
+         "고르는 방법", "문장 규칙", "두드러진 순서", "미리 계산", "전체 기준", "방향:", "지표:", "예시:", "해석:",
          "고른 후보", "출력 형식", "세로 막대")
 # 플레이어를 한 유형으로 규정 (10/13 11번 실측 "… 약한 플레이어를 나타낸다")
 _TYPECAST = re.compile(r"플레이어(?:를|임을)\s*(?:나타|보여)|[가-힣]{2,}\s+플레이어(?:입니다|이다|예요|임을|로 보)"
@@ -206,10 +208,28 @@ def _clean(s: str) -> str:
     return re.sub(r"^\[\d{1,2}\]\s*", "", s)
 
 
+# 서술어로 끝나는 문장 (10/13 11번 실측 A: "**Weighted APP 차이(…)**" 처럼 이름만 쓴 줄이 통과했음)
+_TAIL = re.compile(r"[\s.!?。\"'”’)\]]+$")
+
+
+def _ends_with_predicate(text: str) -> bool:
+    """'…다', '…요', '…죠' 또는 명사형 '…음/함/짐/큼'(받침 ㅁ) 으로 끝나면 문장으로 본다."""
+    t = _TAIL.sub("", text)
+    if not t:
+        return False
+    last = t[-1]
+    if last in "다요죠":
+        return True
+    code = ord(last) - 0xAC00
+    return 0 <= code < 11172 and code % 28 == 16   # 종성 ㅁ
+
+
 def check_sentence(text: str, ctx: LightContext, key: str | None) -> str | None:
     """문제가 있으면 이유, 없으면 None."""
     if not re.search(r"[가-힣]", text):
         return "한국어 문장 아님"
+    if ctx.ranked and not _ends_with_predicate(text):   # v4 만 (v3 동작은 그대로)
+        return "문장이 아님(서술어 없음)"
     if _CJK.search(text):
         return "중국어·일본어 섞임"
     bad = [w for w in _LATIN_WORD.findall(text) if w.lower() not in _LATIN_OK]
@@ -298,7 +318,7 @@ def process_lines(text: str, ctx: LightContext, *, rule_check: bool, allowed: li
             if summary is None:
                 summary = _clean(m.group(1))
             continue
-        m = _LINE.match(line)
+        m = _LINE.match(line) or (_LINE_BRACKET.match(line) if ref_in_text else None)
         if not m:
             continue
         n = int(m.group(1))
@@ -554,11 +574,21 @@ _SENT = re.compile(r"[^.!?。]*[.!?。]")
 _HEAD = re.compile(r"^\s*(?:문장|하이라이트|총평|답|출력)\s*[:：|]\s*")
 
 
+_LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)]|\[\d{1,2}\])\s*")
+
+
 def _first_sentences(text: str, k: int) -> str | None:
-    para = text.replace("\r", "").strip().split("\n\n")[0].replace("\n", " ")
-    para = _HEAD.sub("", para).strip().strip("\"'`“”‘’*- ").strip()
-    para = re.sub(r"^\[\d{1,2}\]\s*", "", para)
-    sents = [x.strip() for x in _SENT.findall(para) if x.strip()]
+    """앞의 완성된 문장 k 개. 10/13 11번 실측: "하이라이트를 요약한 두 문장:" 다음 줄에 "1. …" 목록으로 씀
+    → ':' 로 끝나는 머리말 줄을 버리고, 목록 기호를 지우고, 빈 줄을 건너 이어 읽는다."""
+    lines = []
+    for raw in text.replace("\r", "").split("\n"):
+        line = raw.strip().strip("*").strip()
+        if not line or line.endswith((":", "：")):
+            continue
+        line = _HEAD.sub("", _LIST_MARK.sub("", line)).strip().strip("\"'`“”‘’*- ").strip()
+        if line:
+            lines.append(line)
+    sents = [x.strip() for x in _SENT.findall(" ".join(lines)) if x.strip()]
     return " ".join(sents[:k]) if sents else None
 
 
