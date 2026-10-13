@@ -7,6 +7,7 @@ import com.finesse.backend.dto.LlmHeavyChapterRequest;
 import com.finesse.backend.dto.LlmHeavyChapterResponse;
 import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.exception.LlmFormatException;
+import com.finesse.backend.exception.LlmTimeoutException;
 import com.finesse.backend.exception.LlmUnavailableException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -163,6 +164,7 @@ public class LlmClient {
         Exception lastFailure = null;
         LightCommentResponse best = null; // 3개를 못 채웠을 때 돌려줄, 총평 있는 응답 중 유효 하이라이트가 가장 많은 것
         boolean allExcluded = false;
+        boolean inputTooLarge = false;
         Set<String> available = request.availableStats();
         int target = Math.min(3, available.size());
         int totalAttempts = props.maxRetries() + 1; // 최초 시도 1회 + 재요청 maxRetries회
@@ -184,6 +186,7 @@ public class LlmClient {
                 attempt++;
                 lastFailure = e;
                 if (isInputTooLarge(e)) {
+                    inputTooLarge = true;
                     break; // 413 입력 길이 초과 — 같은 요청은 다시 보내도 결과가 같으므로 재요청하지 않는다
                 }
                 continue; // 서버가 오류 상태로 응답(추론 서버는 형식 오류를 502로 줌) — 응답은 받았으니 형식 오류로 세고 재요청
@@ -194,14 +197,15 @@ public class LlmClient {
                 continue; // 호출 1회 타임아웃 등 응답 자체가 없음 — 재요청
             }
             attempt++;
+            int retries = attempt - 1; // attempt_count = 사용한 재요청 횟수(heavy와 같은 기준, QA R-01)
             List<LightCommentResponse.Highlight> valid = validHighlights(resp, available);
             if (valid.size() >= 3) {
                 // 3개 초과 — 응답 순서 그대로 앞 3개만 사용 (재시도 아님, LLM 전담 원칙 유지)
-                return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)));
+                return new LightCommentResponse(resp.lightSummary(), List.copyOf(valid.subList(0, 3)), retries);
             }
             if (target < 3 && valid.size() >= target && hasSummary(resp)) {
                 // 후보가 3개 미만 — 받을 수 있는 최대치를 받았으니 재요청해도 나아질 게 없다
-                return new LightCommentResponse(resp.lightSummary(), valid);
+                return new LightCommentResponse(resp.lightSummary(), valid, retries);
             }
             if (hasSummary(resp) && (best == null || valid.size() > best.highlights().size())) {
                 best = new LightCommentResponse(resp.lightSummary(), valid);
@@ -209,7 +213,8 @@ public class LlmClient {
             // 형식 오류·유효 하이라이트 3개 미만 — 재요청
         }
         if (best != null) {
-            return best; // 하이라이트가 모자라도 총평이 정상이면 응답 전체를 실패로 돌리지 않는다
+            // 하이라이트가 모자라도 총평이 정상이면 응답 전체를 실패로 돌리지 않는다 — 재요청은 쓴 만큼 전부
+            return new LightCommentResponse(best.lightSummary(), best.highlights(), Math.max(0, attempt - 1));
         }
         if (allExcluded) {
             throw new LlmUnavailableException("모든 LLM 서버가 일시 제외 상태 (" + attempt + "회 시도 후)", lastFailure);
@@ -218,7 +223,12 @@ public class LlmClient {
             throw new LlmUnavailableException(
                     "light 코멘트 서버가 응답하지 않음 (" + attempt + "회 시도)", lastFailure);
         }
-        throw new LlmFormatException("light 코멘트 형식 오류가 " + attempt + "회 시도 후에도 지속됨 (또는 엔드포인트 잔여시간 부족)");
+        // 재요청을 다 쓰기 전에 엔드포인트 마감이 가까워 멈췄으면 504 — 형식 오류(502)와 원인을 구분한다(QA 2차 제안, 10/12)
+        if (!inputTooLarge && attempt < totalAttempts
+                && !canStartNewAttempt(endpointDeadlineNanos, props.lightMinRemainingSeconds())) {
+            throw new LlmTimeoutException("light 코멘트 엔드포인트 마감 — " + attempt + "회 시도 후 남은 시간 부족");
+        }
+        throw new LlmFormatException("light 코멘트 형식 오류가 " + attempt + "회 시도 후에도 지속됨");
     }
 
     /**

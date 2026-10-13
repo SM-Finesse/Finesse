@@ -58,6 +58,11 @@ public class TetrIoApiClient implements TetrIoApi {
     public UserSummary fetchLeagueSummary(String username, String sessionId) {
         JsonNode data = get(SUMMARY, username, sessionId,
                 b -> b.path("/users/{username}/summaries/league").build(username));
+        return parseSummary(username, data);
+    }
+
+    /** summaries/league 응답의 data 노드 → UserSummary (02 3.2절·부록 C.3). gameswon이 없으면 0 (v4.1). */
+    static UserSummary parseSummary(String username, JsonNode data) {
         return new UserSummary(
                 username,
                 data.hasNonNull("rank") ? data.path("rank").asString() : null,
@@ -66,6 +71,7 @@ public class TetrIoApiClient implements TetrIoApi {
                 data.path("rd").asDouble(),
                 data.hasNonNull("gxe") ? data.path("gxe").asDouble() : null,
                 data.path("gamesplayed").asInt(),
+                data.hasNonNull("gameswon") ? data.path("gameswon").asInt() : 0,
                 data.hasNonNull("apm") ? data.path("apm").asDouble() : null,
                 data.hasNonNull("pps") ? data.path("pps").asDouble() : null,
                 data.hasNonNull("vs") ? data.path("vs").asDouble() : null

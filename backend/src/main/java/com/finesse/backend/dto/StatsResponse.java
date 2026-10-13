@@ -24,10 +24,14 @@ public record StatsResponse(
     // avatarUrl·xp·country·joinedAt은 /users/{username} 호출이 실패했거나 값이 없는 계정이면 null(응답에서 생략).
     // avatarUrl은 검색한 본인 것만 — 상대(라이벌) 사진은 닉네임 마스킹 원칙(FR-09)에 어긋나 내려주지 않는다.
     // playTimeSeconds는 유저가 숨기면 -1 그대로 (프론트가 tr·glicko·rd처럼 음수를 숨김).
+    // season*: 현재 시즌 TETRA LEAGUE 통산 판수·승·패·승률(0~1) — calc UserSummary.gamesPlayed·gamesWon·gamesLost (모듈 v4.1, 10/12).
+    //   프로필 WIN RATE용(팀 결정: 시즌 통산 승률). fixed_metrics.win_rate·recent_form(분석한 최근 경기 기준)과 기준이 다르다.
+    //   이번 시즌 판수가 0이면 4개 모두 null(생략).
     public record Profile(String rank, double tr, double glicko, double rd,
                           Double apm, Double pps, Double vs,
                           String avatarUrl, Double xp, String country, Instant joinedAt,
                           Double playTimeSeconds, Integer friendCount,
+                          Integer seasonGamesPlayed, Integer seasonWins, Integer seasonLosses, Double seasonWinRate,
                           WindowDelta windowDelta) {
     }
 

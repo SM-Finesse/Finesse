@@ -89,6 +89,16 @@ class StatsServiceMappingTest {
     }
 
     @Test
+    void 누적_판수는_있어도_1년_안_경기가_0판이면_match_count는_0() {
+        // QA 2차 BUG-06 — abc(누적 3판, 전부 2024년): 누적 3을 보내면 화면이 "7판 남음"이 된다
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 3,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
+
+        assertThat(r.matchCount()).isZero();
+        assertThat(r.fixedMetrics().winRate()).isNull();
+    }
+
+    @Test
     void 콜드스타트_0판이면_승률은_생략() {
         StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(SUMMARY, 0,
                 AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
@@ -105,6 +115,32 @@ class StatsServiceMappingTest {
         assertThat(r.profile().apm()).isEqualTo(95.5);
         assertThat(r.profile().pps()).isEqualTo(2.31);
         assertThat(r.profile().vs()).isEqualTo(210.4);
+    }
+
+    @Test
+    void 프로필에_이번_시즌_통산_판수_승_패_승률을_채운다() {
+        // 프로필 WIN RATE는 시즌 통산(팀 결정) — fixed_metrics.win_rate(분석한 최근 경기 5판 = 60%)와 따로 간다
+        UserSummary season = new UserSummary("abc", "s", 21000, 2300, 60, 80.0, 500, 320, 95.5, 2.31, 210.4);
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(season, 5,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_IN_YEAR, winLoss(WIN, LOSE, WIN, WIN, LOSE)));
+
+        assertThat(r.profile().seasonGamesPlayed()).isEqualTo(500);
+        assertThat(r.profile().seasonWins()).isEqualTo(320);
+        assertThat(r.profile().seasonLosses()).isEqualTo(180);
+        assertThat(r.profile().seasonWinRate()).isEqualTo(0.64);
+        assertThat(r.fixedMetrics().winRate()).isEqualTo(0.6);
+    }
+
+    @Test
+    void 이번_시즌_판수가_0이면_시즌_승패를_모두_생략() {
+        UserSummary noSeason = new UserSummary("abc", "z", -1, -1, -1, null, 0, 0, null, null, null);
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(noSeason, 0,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
+
+        assertThat(r.profile().seasonGamesPlayed()).isNull();
+        assertThat(r.profile().seasonWins()).isNull();
+        assertThat(r.profile().seasonLosses()).isNull();
+        assertThat(r.profile().seasonWinRate()).isNull();
     }
 
     @Test

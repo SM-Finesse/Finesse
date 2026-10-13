@@ -27,6 +27,10 @@ public class GlobalExceptionHandler {
     // 사용자에게 보이는 문구 — heavy SSE의 event: error도 같은 문구를 쓴다(CommentService). 내부 메시지는 로그에만.
     public static final String TETRIO_UNAVAILABLE_MESSAGE = "일시적으로 조회할 수 없습니다, 잠시 후 다시 시도";
     public static final String SERVER_BUSY_MESSAGE = "사용자가 많습니다, 잠시 후 다시 시도";
+    // 유저명을 넣지 않는다 — API 명세서 3절(message에 유저명 등 내부 정보 금지), QA 검수요청서 R-03과 같은 이유(10/12)
+    public static final String USER_NOT_FOUND_MESSAGE = "존재하지 않는 TETR.IO 유저입니다";
+    public static final String LLM_FORMAT_ERROR_MESSAGE = "AI 코멘트를 만들지 못했습니다, 잠시 후 다시 시도";
+    public static final String LLM_TIMEOUT_MESSAGE = "AI 코멘트 생성 시간이 초과되었습니다, 잠시 후 다시 시도";
 
     /**
      * 오류 본문은 항상 JSON으로 못박는다 — heavy는 브라우저 EventSource가 Accept: text/event-stream만 보내서,
@@ -40,7 +44,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleUserNotFound(UserNotFoundException ex) {
         return json(HttpStatus.NOT_FOUND)
-                .body(new ApiErrorResponse("USER_NOT_FOUND", ex.getMessage()));
+                .body(new ApiErrorResponse("USER_NOT_FOUND", USER_NOT_FOUND_MESSAGE));
     }
 
     @ExceptionHandler(TetrioApiException.class)
@@ -58,8 +62,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(LlmFormatException.class)
     public ResponseEntity<ApiErrorResponse> handleLlmFormatError(LlmFormatException ex) {
+        // 시도 횟수 같은 내부 메시지는 로그에만 — 사용자에게는 고정 문구(API 명세서 3절 message 규칙)
+        log.warn("light 형식 오류: {}", ex.getMessage());
         return json(HttpStatus.BAD_GATEWAY)
-                .body(new ApiErrorResponse("LLM_FORMAT_ERROR", ex.getMessage()));
+                .body(new ApiErrorResponse("LLM_FORMAT_ERROR", LLM_FORMAT_ERROR_MESSAGE));
+    }
+
+    /** light 엔드포인트 마감 초과 — 형식 오류(502)와 구분 (QA 라이트 뷰 2차 제안, 10/12) */
+    @ExceptionHandler(LlmTimeoutException.class)
+    public ResponseEntity<ApiErrorResponse> handleLlmTimeout(LlmTimeoutException ex) {
+        log.warn("light 마감 초과: {}", ex.getMessage());
+        return json(HttpStatus.GATEWAY_TIMEOUT)
+                .body(new ApiErrorResponse("LLM_TIMEOUT", LLM_TIMEOUT_MESSAGE));
     }
 
     @ExceptionHandler(LlmUnavailableException.class)
@@ -103,6 +117,13 @@ public class GlobalExceptionHandler {
         log.error("처리되지 않은 오류", ex);
         return json(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiErrorResponse("INTERNAL_ERROR", "일시적인 오류가 발생했습니다, 잠시 후 다시 시도"));
+    }
+
+    /** 유저명 형식 오류 — 일반 400과 구분, 고정 문구(입력값 미포함). QA 검수요청서 R-03 */
+    @ExceptionHandler(InvalidUsernameException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidUsername(InvalidUsernameException ex) {
+        return json(HttpStatus.BAD_REQUEST)
+                .body(new ApiErrorResponse("INVALID_USERNAME", InvalidUsernameException.MESSAGE));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

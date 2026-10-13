@@ -115,6 +115,7 @@ class LlmClientTest {
         assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
                 .containsExactly("delta_plonk", "delta_comeback", "session_vs_slope");
         assertThat(hits.get()).isEqualTo(1);
+        assertThat(r.attemptCount()).as("최초 시도로 성공 — 재요청 0회").isZero();
     }
 
     @Test
@@ -129,6 +130,7 @@ class LlmClientTest {
         assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
                 .containsExactly("delta_vs_apm", "delta_plonk", "delta_app");
         assertThat(hits.get()).isEqualTo(2);
+        assertThat(r.attemptCount()).as("재요청 1회").isEqualTo(1);
     }
 
     @Test
@@ -146,6 +148,7 @@ class LlmClientTest {
         assertThat(r.highlights()).extracting(LightCommentResponse.Highlight::stat)
                 .containsExactly("delta_plonk", "delta_app"); // 빈자리를 채우지 않는다
         assertThat(hits.get()).isEqualTo(4);
+        assertThat(r.attemptCount()).as("재요청 3회를 다 씀").isEqualTo(3);
     }
 
     @Test
@@ -264,6 +267,41 @@ class LlmClientTest {
     }
 
     @Test
+    void light_마감이_가까워_시도도_못_하면_504() {
+        // 남은 시간 5초 < 새 시도 시작 조건 12초 — 한 번도 보내지 않고 마감
+        long almostOver = System.nanoTime() + 5_000_000_000L;
+
+        assertThatThrownBy(() -> client(3, "http://127.0.0.1:1").callLight(REQUEST, almostOver))
+                .isInstanceOf(com.finesse.backend.exception.LlmTimeoutException.class);
+    }
+
+    @Test
+    void light_형식_오류_뒤_마감에_걸려_재요청을_못_하면_502가_아니라_504() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer slow = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        slow.createContext(LIGHT_PATH, ex -> {
+            hits.incrementAndGet();
+            try {
+                Thread.sleep(1_500); // 응답에 1.5초 — 그사이 남은 시간이 12초 아래로
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] b = "{\"detail\":\"LLM 출력 형식 오류\"}".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(502, b.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(b);
+            }
+        });
+        slow.start();
+        servers.add(slow);
+        long deadline = System.nanoTime() + 13_000_000_000L; // 첫 시도는 시작(13 ≥ 12), 끝나면 12초 미만
+
+        assertThatThrownBy(() -> client(3, "http://127.0.0.1:" + slow.getAddress().getPort()).callLight(REQUEST, deadline))
+                .isInstanceOf(com.finesse.backend.exception.LlmTimeoutException.class);
+        assertThat(hits.get()).as("재요청 3회가 남았지만 마감 때문에 1번만").isEqualTo(1);
+    }
+
+    @Test
     void heavy_413_입력_길이_초과는_재요청하지_않고_바로_failed() throws IOException {
         AtomicInteger hits = new AtomicInteger();
         String url = statusServer(hits, HEAVY_PATH, 413);
@@ -284,6 +322,7 @@ class LlmClientTest {
 
         assertThat(r.highlights()).hasSize(3);
         assertThat(hits.get()).isEqualTo(1);
+        assertThat(r.attemptCount()).as("연결 실패는 세지 않는다").isZero();
     }
 
     @Test

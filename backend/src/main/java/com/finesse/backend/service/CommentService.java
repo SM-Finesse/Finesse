@@ -119,8 +119,26 @@ public class CommentService {
         // SseEmitter 자체 타임아웃은 heavy 최악 상한(단일 서버 120s)보다 넉넉히 잡는다 — 실제 컷오프는
         // 아래 heavyTimeoutSeconds(엔드포인트 데드라인)가 담당하므로 여기선 연결이 일찍 끊기지만 않으면 됨.
         SseEmitter emitter = new SseEmitter(150_000L);
+        sendStart(emitter);
         llmExecutor.execute(() -> streamHeavy(normalized, emitter));
         return emitter;
+    }
+
+    /**
+     * 스트림을 열자마자 보내는 이벤트 — EventSource는 ": ping" 주석 줄을 화면 코드에 넘기지 않아서,
+     * stats 수집(최대 20초)과 첫 챕터 LLM 호출을 기다리는 동안 프론트가 "첫 이벤트 없음"으로 끊지 않게 한다
+     * (QA 검수요청서 R-05, 10/12). 챕터 결과가 아니므로 기존 chapter·done·error 처리에는 영향이 없다.
+     */
+    private void sendStart(SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event().name("start").data(new HeavyStreamStart(HEAVY_CHAPTER_IDS.size())));
+        } catch (IOException e) {
+            // 아직 응답 전이라 실패할 일은 거의 없다 — 실패해도 챕터 전송은 그대로 진행
+        }
+    }
+
+    /** start 이벤트 data — 이번 스트림에서 올 챕터 수 */
+    private record HeavyStreamStart(int totalChapters) {
     }
 
     /**
@@ -203,7 +221,7 @@ public class CommentService {
     /** heavy 스트림 시작 전 stats 단계 실패 — event: error / data: {error_code, message} 후 종료. */
     static ApiErrorResponse statsFailureBody(RuntimeException e) {
         return switch (e) {
-            case UserNotFoundException notFound -> new ApiErrorResponse("USER_NOT_FOUND", notFound.getMessage());
+            case UserNotFoundException notFound -> new ApiErrorResponse("USER_NOT_FOUND", GlobalExceptionHandler.USER_NOT_FOUND_MESSAGE);
             case ServerBusyException busy -> new ApiErrorResponse("SERVER_BUSY",
                     GlobalExceptionHandler.SERVER_BUSY_MESSAGE, busy.retryAfterSeconds());
             default -> new ApiErrorResponse("TETRIO_API_UNAVAILABLE", GlobalExceptionHandler.TETRIO_UNAVAILABLE_MESSAGE);
