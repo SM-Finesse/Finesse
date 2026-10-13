@@ -5,8 +5,9 @@ import type { CommentState } from '../../hooks/useLightComment'
 import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
 import { retryWait } from '../../lib/retry'
-import { HIGHLIGHT_COLORS, linkSummary, mapHighlights, num, readable, skippedOf, TREND_MARK, type HighlightItem, type StatKey } from '../../lib/stats'
+import { HIGHLIGHT_COLORS, linkSummary, mapHighlights, readable, TREND_MARK, type HighlightItem, type StatKey } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
+import { GamesLine } from './GamesLine'
 import type { HighlightFocus } from './Highlights'
 import { BigNum, Caption, PanelTag } from './parts'
 
@@ -17,17 +18,7 @@ export function AiReadout({ comment, onRetry, data, focus }: { comment: CommentS
   if (comment.status === 'idle') return null
 
   /* 코멘트 바로 아래 GAMES 줄 — 분석한 경기 수 · 수집했지만 뺀 경기 수(헤더·프로필에서 옮겨 옴) */
-  const skipped = data ? skippedOf(data) : null
-  const games = data && (
-    <p className="m-0 flex basis-full flex-wrap items-baseline gap-x-2 border-t border-line-soft pt-1.5 leading-tight" title={skipped === null ? undefined : a.skippedWhy}>
-      <span className="font-display text-[11px] font-bold tracking-[.18em] text-faint">GAMES</span>
-      <span className="font-num text-[18px] font-bold text-head tabular-nums">{num(data.match_count)}</span>
-      <span className="text-[13px] text-muted">
-        {t.report.profile.gamesSub}
-        {skipped !== null && ` · ${a.skipped(data.match_count + skipped, skipped)}`}
-      </span>
-    </p>
-  )
+  const games = data && <GamesLine data={data} className="basis-full border-t border-line-soft pt-1.5" />
 
   let body
   if (comment.status === 'loading') {
@@ -68,7 +59,7 @@ export function AiReadout({ comment, onRetry, data, focus }: { comment: CommentS
           <LinkedSummary text={summary} items={items} focus={focus} aside={<Caption className="flex-none max-md:hidden">{a.hint}</Caption>} footer={games} />
         ) : (
           <>
-            <p className="m-0 min-w-0 flex-1 text-base leading-[1.6] font-medium text-head">{summary}</p>
+            <p className="m-0 min-w-0 flex-1 text-base leading-[1.6] font-medium text-head max-sm:basis-full">{summary}</p>
             {games}
           </>
         )}
@@ -127,7 +118,7 @@ function LinkedSummary({ text, items, focus, aside, footer }: { text: string; it
         }}
         style={{ ['--hl' as string]: colorOf(stat) }}
         className={cx(
-          'inline cursor-pointer rounded-[3px] px-1 py-px text-left transition-colors [box-decoration-break:clone]',
+          'inline cursor-pointer rounded-[3px] px-0.5 py-px text-left transition-colors [box-decoration-break:clone]',
           'border-b-2 border-(--hl) hover:bg-(--hl)/20',
           on ? 'bg-(--hl)/25 text-white' : 'bg-white/[.04]',
         )}
@@ -139,7 +130,7 @@ function LinkedSummary({ text, items, focus, aside, footer }: { text: string; it
 
   return (
     <div ref={ref} className="contents">
-      <p className="m-0 min-w-0 flex-1 text-base leading-[1.75] font-medium text-head">
+      <p className="m-0 min-w-0 flex-1 text-base leading-[1.75] font-medium text-head max-sm:basis-full">
         {parts.map((p, i) => (p.stat ? link(p.stat, p.text, `p${i}`) : <span key={`p${i}`}>{p.text}</span>))}
       </p>
       {aside}

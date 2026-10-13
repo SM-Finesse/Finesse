@@ -1,7 +1,7 @@
-import { useId, useState, type MouseEvent } from 'react'
-import { rateColor, TREND_COLOR } from '../../../lib/chart'
+import { Fragment, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { niceScale, rateColor, TREND_COLOR } from '../../../lib/chart'
 import { cx } from '../../../lib/cx'
-import { TREND_MARK, type Trend } from '../../../lib/stats'
+import { num, TREND_MARK, type Trend } from '../../../lib/stats'
 
 /*
  * 헤비 챕터 차트 — 프로토타입(7차)의 인라인 SVG를 그대로 옮긴 것.
@@ -9,9 +9,27 @@ import { TREND_MARK, type Trend } from '../../../lib/stats'
  */
 
 const W = 1108
-const AXIS = { fontFamily: 'Oxanium, sans-serif', fontWeight: 700, fontSize: 11, fill: '#6E7D88' } as const
 
-const ticks = (min: number, max: number, n: number) => Array.from({ length: n + 1 }, (_, i) => min + ((max - min) / n) * i)
+/*
+ * 좁은 화면 — viewBox 1108을 그대로 줄이면 글자가 2~3px이 되므로 이 폭 밑으로는 줄이지 않고 옆으로 넘겨 본다.
+ * 높이는 고정하지 않고 폭에 비례 — 고정하면 줄어든 그림 위아래가 비어 버린다.
+ */
+const MIN_W = 'min-w-[820px]'
+/** end — 넘겨 볼 때 처음부터 오른쪽 끝(추이 차트의 최근 경기)을 보인다 */
+function Fit({ children, end }: { children: ReactNode; end?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (end && el) el.scrollLeft = el.scrollWidth - el.clientWidth
+  }, [end])
+  return (
+    <div ref={ref} className="overflow-x-auto overflow-y-hidden">
+      {children}
+    </div>
+  )
+}
+
+const AXIS = { fontFamily: 'Oxanium, sans-serif', fontWeight: 700, fontSize: 11, fill: '#6E7D88' } as const
 
 export interface LineSeries {
   key: string
@@ -48,7 +66,8 @@ export function LineChart({
   series,
   h = 300,
   every = 1,
-  yfmt = (v) => String(Math.round(v)),
+  yfmt = (v) => num(v),
+  minStep = 1,
   aria,
   onOpen,
   recent,
@@ -58,6 +77,8 @@ export function LineChart({
   h?: number
   every?: number
   yfmt?: (v: number) => string
+  /** 눈금 간격 하한 — 소수 값 차트는 더 작게 */
+  minStep?: number
   aria: string
   onOpen?: () => void
   recent?: RecentBand
@@ -70,11 +91,12 @@ export function LineChart({
   const n = data.length
   const base = series[0]
   const baseVals = data.map((d) => d.values[base.key])
-  let mn = Math.min(...baseVals)
-  let mx = Math.max(...baseVals)
-  const pad = (mx - mn) * 0.18 || 1
-  mn -= pad
-  mx += pad
+  /* 눈금은 1·2·5 단위로 떨어지게 — 14645 · 13812 같은 어중간한 값 대신 11,000 · 12,000 (라이트 TR 차트와 같은 규칙) */
+  const lo0 = Math.min(...baseVals)
+  const hi0 = Math.max(...baseVals)
+  const pad = (hi0 - lo0) * 0.06
+  const scale = niceScale(lo0 - pad, hi0 + pad, 4, minStep)
+  const [mn, mx] = scale.domain
   const X = (i: number) => m.l + (n === 1 ? iw / 2 : (iw * i) / (n - 1))
   const Y = (v: number) => m.t + ih - ((v - mn) / (mx - mn)) * ih
 
@@ -110,83 +132,85 @@ export function LineChart({
   })()
 
   return (
-    <div className="relative mt-0.5">
-      <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} role="img" aria-label={aria} className="block">
-        <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={base.fill ?? base.color} stopOpacity={0.34} />
-            <stop offset="1" stopColor={base.fill ?? base.color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        {ticks(mn, mx, 4).map((t) => (
-          <g key={t}>
-            <line x1={m.l} y1={Y(t)} x2={W - m.r} y2={Y(t)} stroke="#223749" />
-            <text x={m.l - 10} y={Y(t) + 4} textAnchor="end" {...AXIS}>
-              {yfmt(t)}
-            </text>
-          </g>
-        ))}
-        {data.map((d, i) =>
-          i % every === 0 || i === n - 1 ? (
-            <text key={i} x={X(i)} y={h - 12} textAnchor="middle" {...AXIS}>
-              {d.label}
-            </text>
-          ) : null,
-        )}
-        {band && recent && (
-          <g>
-            <rect x={band.x} y={m.t} width={m.l + iw - band.x} height={ih} fill={RECENT_COLOR} opacity={0.08} />
-            <line x1={band.x} y1={m.t} x2={band.x} y2={m.t + ih} stroke={RECENT_COLOR} strokeDasharray="3 3" opacity={0.6} />
-            <text x={band.x + 6} y={m.t + 13} {...AXIS} fill={RECENT_COLOR}>
-              {recent.label}
-            </text>
-          </g>
-        )}
-        {lines.map(({ sr, pts, yy }, si) => (
-          <g key={sr.key}>
-            {si === 0 && <path d={`M ${pts.join(' L ')} L ${X(n - 1).toFixed(1)} ${m.t + ih} L ${X(0).toFixed(1)} ${m.t + ih} Z`} fill={`url(#${id})`} />}
-            <path
-              d={`M ${pts.join(' L ')}`}
-              fill="none"
-              stroke={sr.color}
-              strokeWidth={sr.norm ? 1.6 : 2.4}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-              strokeDasharray={sr.dash ? '5 5' : undefined}
-            />
-            {si === 0 && band && <path d={band.d} fill="none" stroke={RECENT_COLOR} strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round" />}
-            {!sr.norm && <circle cx={X(n - 1)} cy={yy(data[n - 1].values[sr.key])} r={4} fill={si === 0 && band ? RECENT_COLOR : sr.color} />}
-          </g>
-        ))}
-        <line x1={m.l} y1={m.t + ih} x2={W - m.r} y2={m.t + ih} stroke="#2A475E" />
-        {hover !== null && <line x1={X(hover)} y1={m.t} x2={X(hover)} y2={m.t + ih} stroke="#66C0F4" strokeDasharray="3 3" />}
-        <rect
-          x={m.l}
-          y={m.t}
-          width={iw}
-          height={ih}
-          fill="transparent"
-          className={onOpen ? 'cursor-zoom-in' : undefined}
-          onMouseMove={move}
-          onMouseLeave={() => setHover(null)}
-          onClick={onOpen}
-        />
-      </svg>
-      {hover !== null && (
-        <div
-          className="pointer-events-none absolute top-1 w-max max-w-[280px] -translate-x-1/2 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-xs shadow-[0_12px_28px_-10px_rgba(0,0,0,.85)] backdrop-blur-sm"
-          style={{ left: `${tipLeft}%` }}
-        >
-          <div className="mb-1.5 font-mono text-[11px] text-faint">{data[hover].head}</div>
-          {series.map((sr) => (
-            <div key={sr.key} className="flex justify-between gap-3.5 leading-[1.7]">
-              <span style={{ color: sr.color }}>{sr.key.toUpperCase()}</span>
-              <b className="font-num font-bold tabular-nums">{(sr.fmt ?? String)(data[hover].values[sr.key])}</b>
-            </div>
+    <Fit end>
+      <div className={cx('relative mt-0.5', MIN_W)}>
+        <svg viewBox={`0 0 ${W} ${h}`} width="100%" role="img" aria-label={aria} className="block">
+          <defs>
+            <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor={base.fill ?? base.color} stopOpacity={0.34} />
+              <stop offset="1" stopColor={base.fill ?? base.color} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          {scale.ticks.map((t) => (
+            <g key={t}>
+              <line x1={m.l} y1={Y(t)} x2={W - m.r} y2={Y(t)} stroke="#223749" />
+              <text x={m.l - 10} y={Y(t) + 4} textAnchor="end" {...AXIS}>
+                {yfmt(t)}
+              </text>
+            </g>
           ))}
-        </div>
-      )}
-    </div>
+          {data.map((d, i) =>
+            i % every === 0 || i === n - 1 ? (
+              <text key={i} x={X(i)} y={h - 12} textAnchor="middle" {...AXIS}>
+                {d.label}
+              </text>
+            ) : null,
+          )}
+          {band && recent && (
+            <g>
+              <rect x={band.x} y={m.t} width={m.l + iw - band.x} height={ih} fill={RECENT_COLOR} opacity={0.08} />
+              <line x1={band.x} y1={m.t} x2={band.x} y2={m.t + ih} stroke={RECENT_COLOR} strokeDasharray="3 3" opacity={0.6} />
+              <text x={band.x + 6} y={m.t + 13} {...AXIS} fill={RECENT_COLOR}>
+                {recent.label}
+              </text>
+            </g>
+          )}
+          {lines.map(({ sr, pts, yy }, si) => (
+            <g key={sr.key}>
+              {si === 0 && <path d={`M ${pts.join(' L ')} L ${X(n - 1).toFixed(1)} ${m.t + ih} L ${X(0).toFixed(1)} ${m.t + ih} Z`} fill={`url(#${id})`} />}
+              <path
+                d={`M ${pts.join(' L ')}`}
+                fill="none"
+                stroke={sr.color}
+                strokeWidth={sr.norm ? 1.6 : 2.4}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                strokeDasharray={sr.dash ? '5 5' : undefined}
+              />
+              {si === 0 && band && <path d={band.d} fill="none" stroke={RECENT_COLOR} strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round" />}
+              {!sr.norm && <circle cx={X(n - 1)} cy={yy(data[n - 1].values[sr.key])} r={4} fill={si === 0 && band ? RECENT_COLOR : sr.color} />}
+            </g>
+          ))}
+          <line x1={m.l} y1={m.t + ih} x2={W - m.r} y2={m.t + ih} stroke="#2A475E" />
+          {hover !== null && <line x1={X(hover)} y1={m.t} x2={X(hover)} y2={m.t + ih} stroke="#66C0F4" strokeDasharray="3 3" />}
+          <rect
+            x={m.l}
+            y={m.t}
+            width={iw}
+            height={ih}
+            fill="transparent"
+            className={onOpen ? 'cursor-zoom-in' : undefined}
+            onMouseMove={move}
+            onMouseLeave={() => setHover(null)}
+            onClick={onOpen}
+          />
+        </svg>
+        {hover !== null && (
+          <div
+            className="pointer-events-none absolute top-1 w-max max-w-[280px] -translate-x-1/2 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-xs shadow-[0_12px_28px_-10px_rgba(0,0,0,.85)] backdrop-blur-sm"
+            style={{ left: `${tipLeft}%` }}
+          >
+            <div className="mb-1.5 font-mono text-[11px] text-faint">{data[hover].head}</div>
+            {series.map((sr) => (
+              <div key={sr.key} className="flex justify-between gap-3.5 leading-[1.7]">
+                <span style={{ color: sr.color }}>{sr.key.toUpperCase()}</span>
+                <b className="font-num font-bold tabular-nums">{(sr.fmt ?? String)(data[hover].values[sr.key])}</b>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Fit>
   )
 }
 
@@ -219,62 +243,64 @@ export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: s
   const minInside = 52
 
   return (
-    <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} role="img" aria-label={aria} className="block">
-      {rows.map((r, i) => {
-        const y = 10 + i * rowH
-        const lo = Math.min(0, r.mine, r.opp)
-        const hi = Math.max(0, r.mine, r.opp)
-        const a = lo * 1.18
-        const b = hi * 1.18
-        const X = (v: number) => x0 + ((v - a) / (b - a || 1)) * (x1 - x0)
-        const bar = (v: number, by: number, fill: string, ink: string) => {
-          const width = Math.max(X(v) - x0, 2)
-          const inside = width >= minInside
-          /* 값 글자 — 막대가 충분히 길면 막대 안 왼쪽에, 짧으면 막대 끝 바깥에 */
+    <Fit>
+      <svg viewBox={`0 0 ${W} ${h}`} width="100%" role="img" aria-label={aria} className={cx('block', MIN_W)}>
+        {rows.map((r, i) => {
+          const y = 10 + i * rowH
+          const lo = Math.min(0, r.mine, r.opp)
+          const hi = Math.max(0, r.mine, r.opp)
+          const a = lo * 1.18
+          const b = hi * 1.18
+          const X = (v: number) => x0 + ((v - a) / (b - a || 1)) * (x1 - x0)
+          const bar = (v: number, by: number, fill: string, ink: string) => {
+            const width = Math.max(X(v) - x0, 2)
+            const inside = width >= minInside
+            /* 값 글자 — 막대가 충분히 길면 막대 안 왼쪽에, 짧으면 막대 끝 바깥에 */
+            return (
+              <g>
+                <rect x={x0} y={by} width={width} height={18} rx={3} fill={fill} />
+                <text x={inside ? x0 + 8 : x0 + width + 7} y={by + 13} {...AXIS} fill={inside ? ink : '#C7D5E0'}>
+                  {`${v < 0 ? '−' : ''}${Math.abs(v).toFixed(r.decimals)}`}
+                </text>
+              </g>
+            )
+          }
           return (
-            <g>
-              <rect x={x0} y={by} width={width} height={18} rx={3} fill={fill} />
-              <text x={inside ? x0 + 8 : x0 + width + 7} y={by + 13} {...AXIS} fill={inside ? ink : '#C7D5E0'}>
-                {`${v < 0 ? '−' : ''}${Math.abs(v).toFixed(r.decimals)}`}
+            <g key={r.k}>
+              <text x={0} y={y + 18} fontSize={13} fontWeight={600} fill="#C7D5E0">
+                {r.k}
+              </text>
+              <text x={0} y={y + 34} fontSize={11} fill="#6E7D88">
+                {r.kr}
+              </text>
+              {bar(r.mine, y + 4, TREND_COLOR[r.trend], '#0B1218')}
+              {bar(r.opp, y + 28, '#2A475E', '#C7D5E0')}
+              {lo < 0 && (
+                <g>
+                  <line x1={X(0)} y1={y} x2={X(0)} y2={y + 50} stroke="#6E7D88" strokeDasharray="2 3" />
+                  <text x={X(0)} y={y - 2} textAnchor="middle" {...AXIS} fontSize={10}>
+                    0
+                  </text>
+                </g>
+              )}
+              <text x={W} y={y + 30} textAnchor="end" {...AXIS} fontSize={16} fill={TREND_COLOR[r.trend]}>
+                {`${r.delta} ${TREND_MARK[r.trend]}`}
               </text>
             </g>
           )
-        }
-        return (
-          <g key={r.k}>
-            <text x={0} y={y + 18} fontSize={13} fontWeight={600} fill="#C7D5E0">
-              {r.k}
-            </text>
-            <text x={0} y={y + 34} fontSize={11} fill="#6E7D88">
-              {r.kr}
-            </text>
-            {bar(r.mine, y + 4, TREND_COLOR[r.trend], '#0B1218')}
-            {bar(r.opp, y + 28, '#2A475E', '#C7D5E0')}
-            {lo < 0 && (
-              <g>
-                <line x1={X(0)} y1={y} x2={X(0)} y2={y + 50} stroke="#6E7D88" strokeDasharray="2 3" />
-                <text x={X(0)} y={y - 2} textAnchor="middle" {...AXIS} fontSize={10}>
-                  0
-                </text>
-              </g>
-            )}
-            <text x={W} y={y + 30} textAnchor="end" {...AXIS} fontSize={16} fill={TREND_COLOR[r.trend]}>
-              {`${r.delta} ${TREND_MARK[r.trend]}`}
-            </text>
-          </g>
-        )
-      })}
-      <g transform={`translate(${labW},${h - 4})`}>
-        <rect x={0} y={-9} width={10} height={10} rx={2} fill="#8F98A0" />
-        <text x={16} y={0} fontSize={11} fill="#A5A9C4">
-          {me}
-        </text>
-        <rect x={64} y={-9} width={10} height={10} rx={2} fill="#2A475E" />
-        <text x={80} y={0} fontSize={11} fill="#A5A9C4">
-          {opp}
-        </text>
-      </g>
-    </svg>
+        })}
+        <g transform={`translate(${labW},${h - 4})`}>
+          <rect x={0} y={-9} width={10} height={10} rx={2} fill="#8F98A0" />
+          <text x={16} y={0} fontSize={11} fill="#A5A9C4">
+            {me}
+          </text>
+          <rect x={64} y={-9} width={10} height={10} rx={2} fill="#2A475E" />
+          <text x={80} y={0} fontSize={11} fill="#A5A9C4">
+            {opp}
+          </text>
+        </g>
+      </svg>
+    </Fit>
   )
 }
 
@@ -301,72 +327,66 @@ export interface DivergingItem {
   trend?: Trend
 }
 
-/** 0을 가운데 둔 좌우 막대 — max를 끝으로, ±max/2에 보조선 */
-export function DivergingBars({ items, max, aria, tick = (v) => String(v) }: { items: DivergingItem[]; max: number; aria: string; tick?: (v: number) => string }) {
-  const rowH = 52
-  const H = items.length * rowH + 30
-  const labW = 180
-  const valW = 96
-  const zx = labW + (W - labW - valW) / 2
-  const half = (W - labW - valW) / 2 - 14
+/* 블록 막대 — 위는 밝게 · 아래는 어둡게 깎고 26px마다 홈 (SVG 막대와 같은 모양) */
+const BLOCK_BAR = {
+  backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 24px, rgba(22,32,45,.5) 24px 26px)',
+  boxShadow: 'inset 0 3px 0 rgba(255,255,255,.24), inset 0 -3px 0 rgba(0,0,0,.28)',
+}
 
+/**
+ * 0을 가운데 둔 좌우 막대 — max를 끝으로, ±max/2에 보조선.
+ * 다른 차트처럼 옆으로 넘기면 이름이나 한쪽 막대가 가려지므로, SVG가 아니라 HTML 격자로 그려 폭에 맞게 줄어든다.
+ * 막대 칸 양옆은 값 글자 자리로 비워 둔다.
+ */
+export function DivergingBars({ items, max, aria, tick = (v) => String(v) }: { items: DivergingItem[]; max: number; aria: string; tick?: (v: number) => string }) {
+  const track = 'relative mx-[50px] sm:mx-[64px]'
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label={aria} className="block">
-      <line x1={zx} y1={6} x2={zx} y2={H - 24} stroke="#2A475E" />
-      <text x={zx} y={H - 8} textAnchor="middle" {...AXIS}>
-        0
-      </text>
-      {[0.5, 1].flatMap((f) =>
-        [1, -1].map((d) => {
-          const gx = zx + d * half * f
-          return (
-            <g key={`${f}${d}`}>
-              <line x1={gx} y1={6} x2={gx} y2={H - 24} stroke="#223749" />
-              <text x={gx} y={H - 8} textAnchor="middle" {...AXIS} fill="#2A475E">
-                {(d > 0 ? '+' : '−') + tick(max * f)}
-              </text>
-            </g>
-          )
-        }),
-      )}
-      {items.map((it, i) => {
-        const y = 16 + i * rowH
+    <div role="img" aria-label={aria} className="grid grid-cols-[minmax(72px,auto)_minmax(0,1fr)] gap-x-3 pt-1 sm:grid-cols-[180px_minmax(0,1fr)]">
+      {items.map((it) => {
         const has = typeof it.v === 'number'
         const v = it.v ?? 0
-        const w = Math.min(half, (Math.abs(v) / (max || 1)) * half)
-        const x = v >= 0 ? zx : zx - w
-        const bw = Math.max(w, 2)
+        /* 막대 칸 폭의 % — 한쪽 끝(max)이 50% */
+        const w = Math.min(1, Math.abs(v) / (max || 1)) * 50
+        const side = v >= 0 ? 'left' : 'right'
         const trend = it.trend ?? 'even'
-        const tx = v >= 0 ? zx + w + 10 : zx - w - 10
         return (
-          <g key={it.k}>
-            <text x={0} y={y + 20} fontSize={13} fontWeight={600} fill="#C7D5E0">
-              {it.k}
-            </text>
-            <text x={0} y={y + 36} fontSize={11} fill="#6E7D88">
-              {it.kr}
-            </text>
-            {has ? (
-              <>
-                <rect x={x} y={y + 8} width={bw} height={22} rx={2} fill={it.c} />
-                <rect x={x} y={y + 8} width={bw} height={3} fill="#FFFFFF" opacity={0.24} />
-                <rect x={x} y={y + 27} width={bw} height={3} fill="#000000" opacity={0.28} />
-                {Array.from({ length: Math.max(0, Math.ceil(bw / 26) - 1) }, (_, q) => (
-                  <rect key={q} x={x + (q + 1) * 26} y={y + 8} width={2} height={22} fill="#16202D" opacity={0.5} />
-                ))}
-                <text x={tx} y={y + 24} textAnchor={v >= 0 ? 'start' : 'end'} {...AXIS} fontSize={13} fill={TREND_COLOR[trend]}>
-                  {`${it.text ?? ''} ${TREND_MARK[trend]}`}
-                </text>
-              </>
-            ) : (
-              <text x={zx + 10} y={y + 24} {...AXIS} fontSize={12}>
-                —
-              </text>
-            )}
-          </g>
+          <Fragment key={it.k}>
+            <div className="flex flex-col justify-center leading-tight">
+              <b className="text-[13px] font-semibold text-ink">{it.k}</b>
+              <i className="text-[11px] text-faint not-italic">{it.kr}</i>
+            </div>
+            <div className={cx(track, 'h-[52px]')}>
+              {[0, 25, 75, 100].map((g) => (
+                <i key={g} aria-hidden="true" className="absolute inset-y-0 w-px bg-line-soft" style={{ left: `${g}%` }} />
+              ))}
+              <i aria-hidden="true" className="absolute inset-y-0 left-1/2 w-px bg-line" />
+              {has ? (
+                <>
+                  <i aria-hidden="true" className="absolute top-1/2 h-[22px] -translate-y-1/2 rounded-[2px]" style={{ [side]: '50%', width: `max(${w}%, 2px)`, backgroundColor: it.c, ...BLOCK_BAR }} />
+                  <span className="absolute top-1/2 -translate-y-1/2 font-num text-[13px] font-bold whitespace-nowrap" style={{ [side]: `calc(50% + ${w}% + 8px)`, color: TREND_COLOR[trend] }}>
+                    {`${it.text ?? ''} ${TREND_MARK[trend]}`}
+                  </span>
+                </>
+              ) : (
+                <span className="absolute top-1/2 left-[calc(50%+10px)] -translate-y-1/2 font-num text-xs text-faint">—</span>
+              )}
+            </div>
+          </Fragment>
         )
       })}
-    </svg>
+      <div />
+      <div className={cx(track, 'h-6')}>
+        {[-1, -0.5, 0, 0.5, 1].map((f) => (
+          <span
+            key={f}
+            className={cx('absolute top-1 -translate-x-1/2 font-num text-[11px] font-bold', f === 0 ? 'text-[#6E7D88]' : 'text-[#3B5A72]', Math.abs(f) === 0.5 && 'max-sm:hidden')}
+            style={{ left: `${(f + 1) * 50}%` }}
+          >
+            {f === 0 ? '0' : (f > 0 ? '+' : '−') + tick(max * Math.abs(f))}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -418,75 +438,77 @@ export function ColumnChart({
   }
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${h}`}
-      width="100%"
-      height={h}
-      role="img"
-      aria-label={aria}
-      className={cx('block', onOpen && 'cursor-zoom-in')}
-      onClick={onOpen}
-    >
-      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-        const y = m.t + ih - f * ih
-        return (
-          <g key={f}>
-            <line x1={m.l} y1={y} x2={W - m.r} y2={y} stroke="#223749" />
-            <text x={m.l - 10} y={y + 4} textAnchor="end" {...AXIS}>
-              {(max * f).toFixed(0)}
-            </text>
-          </g>
-        )
-      })}
-      {items.map((it, i) => {
-        const cx = cxOf(i)
-        const c = it.c ?? rateColor(it.v)
-        /* 0%면 막대를 그리지 않는다. 0보다 크면 아무리 작아도 한 칸은 보이게 */
-        const cells = cellsOf(it.v)
-        /* 값 글자는 실제로 쌓인 칸 위에 — 한 칸이 값보다 높게 그려져도 겹치지 않게 */
-        const top = topOf(it.v)
-        return (
-          <g key={it.k}>
-            {Array.from({ length: cells }, (_, k) => {
-              const cy = m.t + ih - (k + 1) * (cellH + gap) + gap
-              return (
-                <g key={k}>
-                  <rect x={cx - bw / 2} y={cy} width={bw} height={cellH} rx={2} fill={c} />
-                  <rect x={cx - bw / 2} y={cy} width={bw} height={2.5} fill="#FFFFFF" opacity={0.24} />
-                  <rect x={cx - bw / 2} y={cy + cellH - 2.5} width={bw} height={2.5} fill="#000000" opacity={0.28} />
-                </g>
-              )
-            })}
-            <text x={cx} y={top - 9} textAnchor="middle" {...AXIS} fontSize={14} fill={it.vc ?? '#C7D5E0'}>
-              {`${it.v.toFixed(1)}%`}
-            </text>
-            <text x={cx} y={m.t + ih + 20} textAnchor="middle" fontSize={12} fill="#8F98A0">
-              {it.k}
-            </text>
-            {it.s && (
-              <text x={cx} y={m.t + ih + 38} textAnchor="middle" {...AXIS} fill={it.vc ?? '#8F98A0'}>
-                {it.s}
+    <Fit>
+      <svg
+        viewBox={`0 0 ${W} ${h}`}
+        width="100%"
+        role="img"
+        aria-label={aria}
+        className={cx('block', MIN_W, onOpen && 'cursor-zoom-in')}
+        onClick={onOpen}
+      >
+        {/* 50%축은 10 단위(0·10·…·50), 100%축은 25 단위 — 12.5 · 37.5처럼 반올림된 눈금이 나오지 않게 */}
+        {(max % 4 === 0 ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.2, 0.4, 0.6, 0.8, 1]).map((f) => {
+          const y = m.t + ih - f * ih
+          return (
+            <g key={f}>
+              <line x1={m.l} y1={y} x2={W - m.r} y2={y} stroke="#223749" />
+              <text x={m.l - 10} y={y + 4} textAnchor="end" {...AXIS}>
+                {(max * f).toFixed(0)}
               </text>
-            )}
-          </g>
-        )
-      })}
-      {trend && (
-        <path
-          d={`M ${items.map((it, i) => `${cxOf(i).toFixed(1)} ${topOf(it.v).toFixed(1)}`).join(' L ')}`}
-          fill="none"
-          stroke="#66C0F4"
-          strokeWidth={1.5}
-          strokeDasharray="4 4"
-          opacity={0.45}
-        />
-      )}
-      {note && (
-        <text x={m.l} y={h - 8} fontSize={11} fill="#6E7D88">
-          {note}
-        </text>
-      )}
-      <line x1={m.l} y1={m.t + ih} x2={W - m.r} y2={m.t + ih} stroke="#2A475E" />
-    </svg>
+            </g>
+          )
+        })}
+        {items.map((it, i) => {
+          const cx = cxOf(i)
+          const c = it.c ?? rateColor(it.v)
+          /* 0%면 막대를 그리지 않는다. 0보다 크면 아무리 작아도 한 칸은 보이게 */
+          const cells = cellsOf(it.v)
+          /* 값 글자는 실제로 쌓인 칸 위에 — 한 칸이 값보다 높게 그려져도 겹치지 않게 */
+          const top = topOf(it.v)
+          return (
+            <g key={it.k}>
+              {Array.from({ length: cells }, (_, k) => {
+                const cy = m.t + ih - (k + 1) * (cellH + gap) + gap
+                return (
+                  <g key={k}>
+                    <rect x={cx - bw / 2} y={cy} width={bw} height={cellH} rx={2} fill={c} />
+                    <rect x={cx - bw / 2} y={cy} width={bw} height={2.5} fill="#FFFFFF" opacity={0.24} />
+                    <rect x={cx - bw / 2} y={cy + cellH - 2.5} width={bw} height={2.5} fill="#000000" opacity={0.28} />
+                  </g>
+                )
+              })}
+              <text x={cx} y={top - 9} textAnchor="middle" {...AXIS} fontSize={14} fill={it.vc ?? '#C7D5E0'}>
+                {`${it.v.toFixed(1)}%`}
+              </text>
+              <text x={cx} y={m.t + ih + 20} textAnchor="middle" fontSize={12} fill="#8F98A0">
+                {it.k}
+              </text>
+              {it.s && (
+                <text x={cx} y={m.t + ih + 38} textAnchor="middle" {...AXIS} fill={it.vc ?? '#8F98A0'}>
+                  {it.s}
+                </text>
+              )}
+            </g>
+          )
+        })}
+        {trend && (
+          <path
+            d={`M ${items.map((it, i) => `${cxOf(i).toFixed(1)} ${topOf(it.v).toFixed(1)}`).join(' L ')}`}
+            fill="none"
+            stroke="#66C0F4"
+            strokeWidth={1.5}
+            strokeDasharray="4 4"
+            opacity={0.45}
+          />
+        )}
+        {note && (
+          <text x={m.l} y={h - 8} fontSize={11} fill="#6E7D88">
+            {note}
+          </text>
+        )}
+        <line x1={m.l} y1={m.t + ih} x2={W - m.r} y2={m.t + ih} stroke="#2A475E" />
+      </svg>
+    </Fit>
   )
 }

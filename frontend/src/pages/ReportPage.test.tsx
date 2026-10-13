@@ -121,7 +121,11 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.getByText(/^37\d\d$/)).toHaveAttribute('title', expect.stringMatching(/^다음 레벨까지 \d+%$/))
     await waitFor(() => expect(screen.getByRole('img', { name: '말레이시아' }).getAttribute('src')).toMatch(/svg/))
     /* 분석한 경기 수는 헤더에서 빠지고 AI READOUT 아래 GAMES 줄로 */
-    expect(screen.getByText(/^가입 \d+년 전 · 플레이 1,804시간 · /)).not.toHaveTextContent('경기')
+    /* 플레이 시간만 진하게 따로 감싼다 — 줄 전체는 한 문장으로 읽혀야 한다 */
+    const playTime = screen.getByText('플레이 1,804시간')
+    expect(playTime).toHaveClass('font-semibold')
+    expect(playTime.parentElement).toHaveTextContent(/^가입 \d+년 전 · 플레이 1,804시간 · /)
+    expect(playTime.parentElement).not.toHaveTextContent('경기')
     expect(within(profile).getByText('237')).toBeInTheDocument()
     /* 5칸 증감 배지 — 최근 N판 vs 그 이전 판 변화율 %. WR도 %p가 아니라 % */
     expect(within(profile).getByText('+0.5%')).toBeInTheDocument()

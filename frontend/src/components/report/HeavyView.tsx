@@ -8,6 +8,7 @@ import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
 import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
+import { GamesLine } from './GamesLine'
 import { ColdHeavy } from './heavy/ColdHeavy'
 import { CHAPTER_COLORS, EYEBROWS } from './heavy/meta'
 import { RivalBoard, RivalPolicy } from './heavy/Rivals'
@@ -300,7 +301,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       body:
         vsCurve.length >= 2 ? (
           <>
-            <LineChart data={condData} series={condSeries} h={260} yfmt={(v) => v.toFixed(2)} aria={h.condition.aria} onOpen={() => setDetail('session_vs_slope')} />
+            <LineChart data={condData} series={condSeries} h={260} aria={h.condition.aria} onOpen={() => setDetail('session_vs_slope')} />
             <Legend items={condSeries} />
           </>
         ) : slope ? (
@@ -361,7 +362,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     } else {
       body = (
         <>
-          <LineChart data={condData} series={condSeries} h={320} yfmt={(v) => v.toFixed(2)} aria={h.condition.aria} />
+          <LineChart data={condData} series={condSeries} h={320} aria={h.condition.aria} />
           <Legend items={condSeries} />
           <DataTable
             head={[h.condition.round, h.condition.avgVs, ...(ppsCurve.length ? [h.condition.pps] : []), ...(roundSamples.length ? [h.condition.samples] : [])]}
@@ -384,9 +385,13 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
 
   return (
     <div className="flex flex-col">
-      <div className="mb-8">
+      <div className="mb-10">
         <ProfilePanel data={data} />
       </div>
+      {/* 라이트의 AI READOUT 아래와 같은 GAMES 줄 — 헤비에는 총평 칸이 없어 01장 바로 위에, 칸은 글자 길이만큼 */}
+      <section aria-label="GAMES" className="panel mb-2 self-start bg-surface px-[18px] py-2">
+        <GamesLine data={data} />
+      </section>
       <div className="flex flex-col gap-8">
         <StreamError heavy={heavy} />
         {HEAVY_CHAPTERS.map((id, i) => {

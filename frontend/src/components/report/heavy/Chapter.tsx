@@ -226,7 +226,7 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
       </div>
       {state !== 'loading' && chips.length > 0 && (
         <div className={cx('relative mt-[13px] flex flex-wrap items-center gap-2 pt-3', HAIRLINE)}>
-          <span className="mr-0.5 font-display text-[10px] font-extrabold tracking-[.16em] text-faint">{t.report.heavy.evidence}</span>
+          <span className="mr-0.5 font-display text-[10px] font-extrabold tracking-[.16em] text-faint ko:tracking-normal">{t.report.heavy.evidence}</span>
           <span className="flex flex-wrap gap-2">
             {chips.map((c) => (
               <span key={c.k} className="inline-flex h-7 items-center gap-[7px] rounded border-2 border-[#2C5573] bg-[#0E1E2B] px-[11px] text-xs text-muted">

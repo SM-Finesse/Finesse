@@ -127,6 +127,11 @@ describe('readable — AI 문장 속 내부 키 이름 (QA BUG-04)', () => {
     expect(readable('A strong comeback in the opener.')).toBe('A strong comeback in the opener.')
   })
 
+  it('LLM이 옮긴 긴 소수는 화면 자릿수로 줄이고, 짧은 소수·정수는 그대로 둔다 (실제 화면 사례)', () => {
+    expect(readable('VS/APM 차이(-0.0106634)는 낮고, 기울기가 +0.541456, Cheese Index 차이(-4.48321)')).toBe('VS/APM 차이(-0.011)는 낮고, 기울기가 +0.541, Cheese Index 차이(-4.48)')
+    expect(readable('29%p 낮고 +1221.3 TR, 0.05 차이')).toBe('29%p 낮고 +1221.3 TR, 0.05 차이')
+  })
+
   it('모르는 단어나 대문자로 쓴 이름은 그대로 둔다', () => {
     expect(readable('APM과 PPS가 높고 hello_world는 그대로.')).toBe('APM과 PPS가 높고 hello_world는 그대로.')
   })

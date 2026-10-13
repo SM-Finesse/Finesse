@@ -50,7 +50,7 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   return (
     <section className="panel overflow-hidden bg-surface" aria-label="PROFILE">
       <div className="grid grid-cols-2 gap-0.5 bg-deep md:grid-cols-3 lg:grid-cols-[200px_repeat(5,minmax(0,1fr))]">
-        <div className="col-span-2 flex min-w-0 items-center bg-cell py-[15px] pr-4 pl-7 md:col-span-3 lg:col-span-1">
+        <div className="flex min-w-0 items-center bg-cell py-[15px] pr-4 pl-4 lg:pl-7">
           <div className="min-w-0">
             <div className="font-display text-xs font-bold tracking-[.2em] text-faint">RANK</div>
             {/* 랭크마다 TETR.IO 랭크 색 (lib/rankColors) */}

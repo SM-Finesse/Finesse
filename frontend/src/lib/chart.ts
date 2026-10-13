@@ -8,11 +8,11 @@ function niceStep(raw: number): number {
 }
 
 /**
- * Y축 범위와 눈금 — 값 범위를 1·2·5 단위 눈금 4칸 안팎으로 감싼다(최소 간격 1).
+ * Y축 범위와 눈금 — 값 범위를 1·2·5 단위 눈금 4칸 안팎으로 감싼다(최소 간격 minStep, 기본 1).
  * Recharts에 범위만 주면 그릴 때마다 눈금을 골라 끝 눈금이 빠질 수 있어 눈금까지 정해서 넘긴다.
  */
-export function niceScale(lo: number, hi: number, count = 4): { domain: [number, number]; ticks: number[] } {
-  const step = Math.max(1, niceStep((hi - lo) / count || 1))
+export function niceScale(lo: number, hi: number, count = 4, minStep = 1): { domain: [number, number]; ticks: number[] } {
+  const step = Math.max(minStep, niceStep((hi - lo) / count || minStep))
   let a = Math.floor(lo / step) * step
   let b = Math.ceil(hi / step) * step
   if (a === b) {
@@ -20,7 +20,8 @@ export function niceScale(lo: number, hi: number, count = 4): { domain: [number,
     b += step
   }
   const ticks: number[] = []
-  for (let v = a; v <= b + step / 2; v += step) ticks.push(v)
+  /* 소수 간격을 더해 가면 0.30000000000000004 같은 값이 생겨 몇 번째 눈금인지로 계산한다 */
+  for (let i = 0; a + i * step <= b + step / 2; i++) ticks.push(+(a + i * step).toPrecision(12))
   return { domain: [a, b], ticks }
 }
 

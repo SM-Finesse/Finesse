@@ -94,6 +94,16 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(urls().filter((u) => u.includes('/comment/'))).toHaveLength(0)
   })
 
+  it('프로필 바로 아래 GAMES 칸 — 분석한 경기 수와 수집했지만 뺀 경기 수', async () => {
+    routeFetch({ stats: [() => json({ ...FULL, chapters: { excluded_matches: 5, dropped_records: 1 } })] })
+    setup()
+    await ready()
+    const games = within(screen.getByRole('region', { name: 'GAMES' })).getByText('GAMES').parentElement!
+    expect(games).toHaveTextContent('GAMES120분석한 최근 경기 · 수집 126판 중 6판 제외')
+    expect(games).toHaveAttribute('title', expect.stringContaining('실격·무효'))
+    expect(within(screen.getByRole('region', { name: 'PROFILE' })).queryByText('GAMES')).not.toBeInTheDocument()
+  })
+
   it('코멘트는 도착하는 대로 그 챕터에 채우고, 실패·시간 초과는 챕터마다 따로 알린다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     setup()
@@ -125,7 +135,7 @@ describe('ReportPage — 헤비 뷰', () => {
     /* ΔTR이 쓰는 최근 N판(tr_trend_basis.recent_matches)을 초록 구간으로 */
     expect(within(tr).getAllByText('최근 3판 (ΔTR 기준)').length).toBeGreaterThan(0)
     /* 근거는 전체 평균만 — 최근·차이는 위쪽 ΔTR(백엔드 값)과 기준이 달라 두지 않는다 */
-    expect(within(tr).getByText('Avg of 4g')).toBeInTheDocument()
+    expect(within(tr).getByText('전체 4판 평균')).toBeInTheDocument()
     expect(within(tr).queryByText(/^Recent/)).not.toBeInTheDocument()
     expect(within(tr).queryByText('Gap')).not.toBeInTheDocument()
 

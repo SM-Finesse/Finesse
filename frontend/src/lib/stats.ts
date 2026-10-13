@@ -232,6 +232,11 @@ const FIELD_NAMES: Record<Lang, Record<string, string>> = {
  * 'plonk와'처럼 한글이 붙어 있거나 이웃해 있으면 한국어 문장 속 낱말로 본다.
  */
 export function readable(text: string): string {
+  /* LLM이 원값을 그대로 옮긴 긴 소수(−0.0106634 · 0.541456)는 화면 자릿수로 줄인다 — 1 이상은 둘째, 미만은 셋째 자리 */
+  text = text.replace(/\d+\.\d{4,}/g, (m) => {
+    const v = Number(m)
+    return v.toFixed(v >= 1 ? 2 : 3)
+  })
   return text.replace(/\b[a-z]+(?:_[a-z]+)*\b/g, (w, at: number) => {
     const near = text.slice(Math.max(0, at - 2), at) + text.slice(at + w.length, at + w.length + 2)
     const lang: Lang = /[가-힣]/.test(near) ? 'ko' : 'en'

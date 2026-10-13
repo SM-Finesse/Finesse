@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* 한국어 화면에서만 — 영문 라벨용 넓은 자간이 한글에 걸리면 글자가 흩어져 보인다 (<html lang>은 LangProvider가 맞춘다) */
+@custom-variant ko (&:lang(ko));
+
 /* 전역 토큰 — 프로토타입(7차) 팔레트. Recharts도 var(--color-piece-*) · var(--color-delta-*)를 그대로 쓴다 */
 @theme {
   --color-primary: #67c1f5;
@@ -82,6 +85,11 @@
     font-size: 16px;
     line-height: 1.62;
     -webkit-font-smoothing: antialiased;
+    /*
+     * 굵기가 하나뿐인 글꼴(Do Hyeon · Share Tech Mono)에 bold를 걸면 브라우저가 획을 덧칠해 한글 제목이 뭉개진다.
+     * 그런 글꼴은 원래 굵기 그대로 쓴다 — Oxanium · IBM Plex Sans KR처럼 굵기가 있는 글꼴은 영향 없음
+     */
+    font-synthesis-weight: none;
     background-color: var(--color-canvas);
     background-image:
       linear-gradient(rgba(102, 192, 244, 0.03) 1px, transparent 1px),

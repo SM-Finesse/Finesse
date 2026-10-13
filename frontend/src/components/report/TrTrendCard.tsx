@@ -8,7 +8,7 @@ import { TrChart } from './TrChart'
 function Stat({ k, v }: { k: string; v: string }) {
   return (
     <div>
-      <div className="font-mono text-[10px] font-bold tracking-[.2em] text-faint">{k}</div>
+      <div className="font-mono text-[10px] font-bold tracking-[.2em] text-faint ko:font-body ko:tracking-normal">{k}</div>
       <div className="mt-1 font-num text-[19px] font-bold text-head tabular-nums">
         <BigNum value={v} />
       </div>
@@ -67,7 +67,7 @@ export function TrTrendCard({ data }: { data: StatsResponse }) {
 
       <TrChart series={series} height={172} />
 
-      <div className="mt-[18px] flex flex-wrap gap-x-[34px] gap-y-3 border-t border-line-soft pt-4">
+      <div className="mt-[18px] grid grid-cols-2 gap-x-[34px] gap-y-3 border-t border-line-soft pt-4 sm:flex sm:flex-wrap">
         <Stat k={tr.high} v={num(hi, 1)} />
         <Stat k={tr.low} v={num(lo, 1)} />
         <Stat k={tr.change} v={signed(change, 1)} />
