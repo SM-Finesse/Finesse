@@ -384,7 +384,7 @@ public class StatsService {
     }
 
     /**
-     * 랭크·TR·APM·PPS·VS는 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
+     * 랭크·TR·APM·PPS·VS·시즌 승패는 calc의 UserSummary에서, 프로필 사진·XP·국가·가입일·플레이 시간·친구 수는
      * 백엔드가 /users/{username}을 직접 불러 채운다(calc와 같은 RateLimiter 사용). windowDelta는 콜드스타트면 null.
      */
     private StatsResponse.Profile profile(String normalized, UserSummary summary, StatsResponse.WindowDelta windowDelta) {
@@ -395,10 +395,16 @@ public class StatsService {
             log.warn("TETR.IO 유저 정보 조회 실패 — 프로필 사진·XP·국가·가입일 생략: {}", normalized, e);
             user = TetrioClient.UserInfo.empty();
         }
+        boolean hasSeason = summary.gamesPlayed() > 0; // 이번 시즌 판수가 0이면 승률이 정의되지 않는다 → 4개 모두 생략
         return new StatsResponse.Profile(summary.rank(), summary.tr(), summary.glicko(), summary.rd(),
                 summary.apm(), summary.pps(), summary.vs(),
                 avatarUrl(user), user.xp(), user.country(), user.joinedAt(),
-                user.gametime(), user.friendCount(), windowDelta);
+                user.gametime(), user.friendCount(),
+                hasSeason ? summary.gamesPlayed() : null,
+                hasSeason ? summary.gamesWon() : null,
+                hasSeason ? summary.gamesLost() : null,
+                hasSeason ? (double) summary.gamesWon() / summary.gamesPlayed() : null,
+                windowDelta);
     }
 
     /**

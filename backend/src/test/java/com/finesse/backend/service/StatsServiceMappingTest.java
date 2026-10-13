@@ -118,6 +118,32 @@ class StatsServiceMappingTest {
     }
 
     @Test
+    void 프로필에_이번_시즌_통산_판수_승_패_승률을_채운다() {
+        // 프로필 WIN RATE는 시즌 통산(팀 결정) — fixed_metrics.win_rate(분석한 최근 경기 5판 = 60%)와 따로 간다
+        UserSummary season = new UserSummary("abc", "s", 21000, 2300, 60, 80.0, 500, 320, 95.5, 2.31, 210.4);
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(season, 5,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_IN_YEAR, winLoss(WIN, LOSE, WIN, WIN, LOSE)));
+
+        assertThat(r.profile().seasonGamesPlayed()).isEqualTo(500);
+        assertThat(r.profile().seasonWins()).isEqualTo(320);
+        assertThat(r.profile().seasonLosses()).isEqualTo(180);
+        assertThat(r.profile().seasonWinRate()).isEqualTo(0.64);
+        assertThat(r.fixedMetrics().winRate()).isEqualTo(0.6);
+    }
+
+    @Test
+    void 이번_시즌_판수가_0이면_시즌_승패를_모두_생략() {
+        UserSummary noSeason = new UserSummary("abc", "z", -1, -1, -1, null, 0, 0, null, null, null);
+        StatsResponse r = stats(new AnalysisOutcome.ColdStartBypass(noSeason, 0,
+                AnalysisOutcome.ColdStartReason.FEW_GAMES_TOTAL, null));
+
+        assertThat(r.profile().seasonGamesPlayed()).isNull();
+        assertThat(r.profile().seasonWins()).isNull();
+        assertThat(r.profile().seasonLosses()).isNull();
+        assertThat(r.profile().seasonWinRate()).isNull();
+    }
+
+    @Test
     void 분석_결과의_TR_시계열과_라운드_곡선을_옮기고_delta가_없어도_실패하지_않는다() {
         MatchSeriesStats series = new MatchSeriesStats(
                 List.of(new MatchSeriesStats.TrPoint(Instant.parse("2026-10-01T00:00:00Z"), 20900.0),
