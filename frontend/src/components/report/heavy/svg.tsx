@@ -227,10 +227,10 @@ export interface CompareRow {
 }
 
 /**
- * 나 vs 상대 평균 — 지표마다 위(나)·아래(상대) 막대 두 개, 값은 막대 시작 쪽 안에 (프로토타입 7차).
- * 지표끼리 단위가 달라 행마다 축을 따로 잡는다. 막대는 모두 왼쪽에서 시작하고 값이 클수록 길다 —
- * 양수만 있으면 0부터(큰 쪽 × 1.18), Cheese Index처럼 음수가 끼면 가장 작은 값보다 조금 아래부터 잡아
- * −6.5가 −20.7보다 길게 보이도록 한다. 이때 0 위치에 눈금을 남긴다.
+ * 나 vs 상대 평균 — 지표마다 위(나)·아래(상대) 막대 두 개 (프로토타입 7차).
+ * 지표끼리 단위가 달라 행마다 축을 따로 잡는다. 막대는 0선에서 시작해 양수는 오른쪽, 음수는 왼쪽으로 뻗는다 —
+ * 막대 길이가 곧 절댓값이라 −19.5가 −5.5보다 길다. 음수가 끼면 0선에 눈금을 둔다.
+ * 값 글자는 막대 안 0선 쪽에, 막대가 짧으면 막대 끝 바깥에.
  */
 export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: string; opp: string; aria: string }) {
   const rowH = 76
@@ -252,15 +252,18 @@ export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: s
           const a = lo * 1.18
           const b = hi * 1.18
           const X = (v: number) => x0 + ((v - a) / (b - a || 1)) * (x1 - x0)
+          const zx = X(0)
           const bar = (v: number, by: number, fill: string, ink: string) => {
-            const width = Math.max(X(v) - x0, 2)
+            const width = Math.max(Math.abs(X(v) - zx), 2)
+            const neg = v < 0
             const inside = width >= minInside
-            /* 값 글자 — 막대가 충분히 길면 막대 안 왼쪽에, 짧으면 막대 끝 바깥에 */
+            /* 막대 안이면 0선 쪽 끝에서 8px, 바깥이면 막대 끝에서 7px — 음수는 왼쪽으로 */
+            const tx = inside ? (neg ? zx - 8 : zx + 8) : neg ? zx - width - 7 : zx + width + 7
             return (
               <g>
-                <rect x={x0} y={by} width={width} height={18} rx={3} fill={fill} />
-                <text x={inside ? x0 + 8 : x0 + width + 7} y={by + 13} {...AXIS} fill={inside ? ink : '#C7D5E0'}>
-                  {`${v < 0 ? '−' : ''}${Math.abs(v).toFixed(r.decimals)}`}
+                <rect x={neg ? zx - width : zx} y={by} width={width} height={18} rx={3} fill={fill} />
+                <text x={tx} y={by + 13.5} textAnchor={neg ? 'end' : 'start'} {...AXIS} fontSize={12.5} fill={inside ? ink : '#C7D5E0'}>
+                  {`${neg ? '−' : ''}${Math.abs(v).toFixed(r.decimals)}`}
                 </text>
               </g>
             )
@@ -277,8 +280,8 @@ export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: s
               {bar(r.opp, y + 28, '#2A475E', '#C7D5E0')}
               {lo < 0 && (
                 <g>
-                  <line x1={X(0)} y1={y} x2={X(0)} y2={y + 50} stroke="#6E7D88" strokeDasharray="2 3" />
-                  <text x={X(0)} y={y - 2} textAnchor="middle" {...AXIS} fontSize={10}>
+                  <line x1={zx} y1={y} x2={zx} y2={y + 50} stroke="#8F98A0" strokeDasharray="2 3" />
+                  <text x={zx} y={y - 2} textAnchor="middle" {...AXIS} fontSize={11} fill="#8F98A0">
                     0
                   </text>
                 </g>
