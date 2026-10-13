@@ -229,7 +229,7 @@ export interface CompareRow {
 /**
  * 나 vs 상대 평균 — 지표마다 위(나)·아래(상대) 막대 두 개 (프로토타입 7차).
  * 지표끼리 단위가 달라 행마다 축을 따로 잡는다. 막대는 0선에서 시작해 양수는 오른쪽, 음수는 왼쪽으로 뻗는다 —
- * 막대 길이가 곧 절댓값이라 −19.5가 −5.5보다 길다. 음수가 끼면 0선에 눈금을 둔다.
+ * 막대 길이가 곧 절댓값이라 −19.5가 −5.5보다 길다. 0선에는 늘 눈금을 둔다.
  * 값 글자는 막대 안 0선 쪽에, 막대가 짧으면 막대 끝 바깥에.
  */
 export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: string; opp: string; aria: string }) {
@@ -278,14 +278,13 @@ export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: s
               </text>
               {bar(r.mine, y + 4, TREND_COLOR[r.trend], '#0B1218')}
               {bar(r.opp, y + 28, '#2A475E', '#C7D5E0')}
-              {lo < 0 && (
-                <g>
-                  <line x1={zx} y1={y} x2={zx} y2={y + 50} stroke="#8F98A0" strokeDasharray="2 3" />
-                  <text x={zx} y={y - 2} textAnchor="middle" {...AXIS} fontSize={11} fill="#8F98A0">
-                    0
-                  </text>
-                </g>
-              )}
+              {/* 0 기준선 — 양수뿐인 행도 막대가 0에서 시작한다는 걸 보이게 늘 그린다 */}
+              <g>
+                <line x1={zx} y1={y} x2={zx} y2={y + 50} stroke="#8F98A0" strokeDasharray="2 3" />
+                <text x={zx} y={y - 2} textAnchor="middle" {...AXIS} fontSize={11} fill="#8F98A0">
+                  0
+                </text>
+              </g>
               <text x={W} y={y + 30} textAnchor="end" {...AXIS} fontSize={16} fill={TREND_COLOR[r.trend]}>
                 {`${r.delta} ${TREND_MARK[r.trend]}`}
               </text>

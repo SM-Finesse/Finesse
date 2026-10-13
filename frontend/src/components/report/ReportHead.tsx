@@ -43,7 +43,7 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
   const meta: ReactNode[] = [
     joined && r.joined(joined),
     playTime && (
-      <span key="play" className="font-semibold text-ink">
+      <span key="play" className="text-[15px] font-semibold text-ink">
         {playTime}
       </span>
     ),
