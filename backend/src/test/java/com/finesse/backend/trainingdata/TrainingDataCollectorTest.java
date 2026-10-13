@@ -2,6 +2,7 @@ package com.finesse.backend.trainingdata;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.finesse.backend.calc.collector.CollectionStatus;
+import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.service.AnalysisOutcome;
 import com.finesse.backend.calc.service.AnalysisOutcome.ColdStartReason;
 import com.finesse.backend.dto.LlmHeavyChapterRequest;
@@ -85,12 +86,73 @@ public class TrainingDataCollectorTest {
     }
 
     private TrainingDataCollector collector(int failurePauseSeconds) {
+        return collector(failurePauseSeconds, null);
+    }
+
+    private TrainingDataCollector collector(int failurePauseSeconds, TrainingDataCollector.RankLookup lookup) {
         TrainingCollectorProperties props = new TrainingCollectorProperties(
                 dir, dir.resolve("targets.csv"), 60, 300, 3, failurePauseSeconds, 30, "abc1234", false);
         return new TrainingDataCollector(builder, MAPPER, props, clock, d -> {
             sleeps.add(d);
             clock.advance(d);
-        }, dir);
+        }, dir, lookup);
+    }
+
+    private static UserSummary summary(String rank, double rd) {
+        return new UserSummary("x", rank, 24772, 2300, rd, null, 320, null, null, null);
+    }
+
+    @Test
+    void 리그_요약을_받은_유저는_rank와_rd를_users_csv에_적는다() throws IOException {
+        targets("icly", "sung1ow", "ghost");
+        when(builder.analyze("icly")).thenReturn(new AnalysisOutcome.ColdStartBypass(summary("z", 136.566), 5,
+                ColdStartReason.FEW_GAMES_IN_YEAR, null));
+        AnalysisOutcome.Analyzed analyzed = new AnalysisOutcome.Analyzed(summary("a+", 60.0), null, null);
+        when(builder.analyze("sung1ow")).thenReturn(analyzed);
+        when(builder.payloads("sung1ow", analyzed)).thenReturn(samplePayloads());
+        when(builder.analyze("ghost")).thenReturn(new AnalysisOutcome.UserNotFound("ghost"));
+
+        collector().run();
+
+        // Z = 미배치이거나 RD가 100을 넘은 유저(TETR.IO 문서) — 인게임 "?"
+        assertThat(usersCsv()).extracting(r -> r.get(0) + " " + r.get(2) + " " + r.get(5) + " " + r.get(6)).containsExactly(
+                "u0001 insufficient Z 136.57", "u0002 ok A+ 60.00", "u0003 not_found  ");
+    }
+
+    @Test
+    void rank_rd_열이_생기기_전에_수집한_유저는_시작할_때_리그_요약으로_채운다() throws IOException {
+        targets("icly", "ok1");
+        Files.writeString(dir.resolve("users.csv"), CsvFiles.BOM + "user_key,collected_at,status,fail_reason,match_count,split\n"
+                + "u0001,2026-10-12T17:07:23+09:00,ok,,252,\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("user_map.csv"), CsvFiles.BOM + "user_key,username\nu0001,icly\n", StandardCharsets.UTF_8);
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+        List<String> looked = new ArrayList<>();
+
+        assertThat(collector(600, name -> {
+            looked.add(name);
+            return new UsersLog.RankRd("x+", 60.0);
+        }).run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
+
+        assertThat(looked).containsExactly("icly");
+        verify(builder, never()).analyze("icly"); // 다시 수집하지는 않는다
+        assertThat(usersCsv()).extracting(r -> r.get(0) + " " + r.get(5) + " " + r.get(6) + " " + r.get(4))
+                .containsExactly("u0001 X+ 60.00 252", "u0002   ");
+    }
+
+    @Test
+    void rank_rd_채우기가_실패하면_멈추고_수집은_그대로_한다() throws IOException {
+        targets("icly", "ok1");
+        Files.writeString(dir.resolve("users.csv"), CsvFiles.BOM + "user_key,collected_at,status,fail_reason,match_count,split\n"
+                + "u0001,2026-10-12T17:07:23+09:00,ok,,252,\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("user_map.csv"), CsvFiles.BOM + "user_key,username\nu0001,icly\n", StandardCharsets.UTF_8);
+        when(builder.analyze("ok1")).thenReturn(new AnalysisOutcome.UserNotFound("ok1"));
+
+        assertThat(collector(600, name -> {
+            throw new IllegalStateException("429");
+        }).run()).isEqualTo(TrainingDataCollector.EXIT_DONE);
+
+        verify(builder, times(1)).analyze("ok1");
+        assertThat(UsersLog.load(dir.resolve("users.csv")).missingRank()).containsExactly("u0001"); // 다음 시작 때 다시
     }
 
     private void targets(String... names) throws IOException {

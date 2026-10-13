@@ -86,18 +86,57 @@ class CsvAndFilesTest {
     void users_csv에_있는_키는_처리한_것으로_본다() throws IOException {
         Path f = dir.resolve("users.csv");
         UsersLog log = UsersLog.load(f);
-        log.append("u0001", "2026-10-10T18:03:00+09:00", CollectStatus.OK, null, 183);
-        log.append("u0002", "2026-10-10T18:04:00+09:00", CollectStatus.INSUFFICIENT, "1단계 누적 7판", null);
+        log.append("u0001", "2026-10-10T18:03:00+09:00", CollectStatus.OK, null, 183,
+                new UsersLog.RankRd("s+", 61.234));
+        log.append("u0002", "2026-10-10T18:04:00+09:00", CollectStatus.INSUFFICIENT, "1단계 누적 7판", null,
+                new UsersLog.RankRd("z", -1));
+        log.append("u0003", "2026-10-10T18:05:00+09:00", CollectStatus.NOT_FOUND, "404", null);
 
         UsersLog reloaded = UsersLog.load(f);
 
         assertThat(reloaded.isDone("u0001")).isTrue();
         assertThat(reloaded.isDone("u0002")).isTrue();
-        assertThat(reloaded.isDone("u0003")).isFalse();
+        assertThat(reloaded.isDone("u0004")).isFalse();
+        // rank는 대문자, rd는 소수 둘째 자리(10판 미만 -1), 리그 요약이 없으면 빈 칸
         assertThat(Files.readString(f, StandardCharsets.UTF_8)).isEqualTo(CsvFiles.BOM
-                + "user_key,collected_at,status,fail_reason,match_count,split\n"
-                + "u0001,2026-10-10T18:03:00+09:00,ok,,183,\n"
-                + "u0002,2026-10-10T18:04:00+09:00,insufficient,1단계 누적 7판,,\n");
+                + "user_key,collected_at,status,fail_reason,match_count,rank,rd,split\n"
+                + "u0001,2026-10-10T18:03:00+09:00,ok,,183,S+,61.23,\n"
+                + "u0002,2026-10-10T18:04:00+09:00,insufficient,1단계 누적 7판,,Z,-1,\n"
+                + "u0003,2026-10-10T18:05:00+09:00,not_found,404,,,,\n");
+    }
+
+    @Test
+    void 예전_머리글의_users_csv는_rank_rd_열을_넣어_다시_쓰고_split은_그대로_둔다() throws IOException {
+        Path f = dir.resolve("users.csv");
+        Files.writeString(f, CsvFiles.BOM + "user_key,collected_at,status,fail_reason,match_count,split\n"
+                + "u0001,2026-10-12T17:07:23+09:00,ok,,252,train\n"
+                + "u0002,2026-10-12T17:08:27+09:00,error,X,,\n", StandardCharsets.UTF_8);
+
+        UsersLog log = UsersLog.load(f);
+
+        assertThat(Files.readString(f, StandardCharsets.UTF_8)).isEqualTo(CsvFiles.BOM
+                + "user_key,collected_at,status,fail_reason,match_count,rank,rd,split\n"
+                + "u0001,2026-10-12T17:07:23+09:00,ok,,252,,,train\n"
+                + "u0002,2026-10-12T17:08:27+09:00,error,X,,,,\n");
+        assertThat(log.missingRank()).containsExactly("u0001"); // error는 리그 요약이 없어 채울 대상이 아니다
+    }
+
+    @Test
+    void 나중에_조회한_rank_rd는_그_유저의_최종_행에_채운다() throws IOException {
+        Path f = dir.resolve("users.csv");
+        UsersLog log = UsersLog.load(f);
+        log.append("u0001", "2026-10-12T17:07:23+09:00", CollectStatus.ERROR, "X", null);
+        log.append("u0002", "2026-10-12T17:08:27+09:00", CollectStatus.OK, null, 200);
+        log.append("u0001", "2026-10-13T12:24:46+09:00", CollectStatus.OK, null, 98); // 재시도 성공
+
+        log.fillRank(java.util.Map.of("u0001", new UsersLog.RankRd("z", 136.566), "u0002", new UsersLog.RankRd("a+", 60.5)));
+
+        assertThat(Files.readString(f, StandardCharsets.UTF_8)).isEqualTo(CsvFiles.BOM
+                + "user_key,collected_at,status,fail_reason,match_count,rank,rd,split\n"
+                + "u0001,2026-10-12T17:07:23+09:00,error,X,,,,\n"
+                + "u0002,2026-10-12T17:08:27+09:00,ok,,200,A+,60.50,\n"
+                + "u0001,2026-10-13T12:24:46+09:00,ok,,98,Z,136.57,\n");
+        assertThat(UsersLog.load(f).missingRank()).isEmpty();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.finesse.backend.trainingdata;
 
 import com.finesse.backend.calc.collector.CollectionStatus;
+import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.service.AnalysisOutcome;
 import com.finesse.backend.dto.LlmHeavyChapterRequest;
 import com.finesse.backend.service.TrainingPayloadBuilder;
@@ -50,21 +51,37 @@ public class TrainingDataCollector {
         void sleep(Duration duration) throws InterruptedException;
     }
 
+    /** rank·rd 열이 생기기 전에 수집한 유저의 값을 채울 때 — 리그 요약 1회 조회(소문자 닉네임 → rank·rd) */
+    @FunctionalInterface
+    public interface RankLookup {
+        UsersLog.RankRd lookup(String normalized);
+    }
+
+    /** rank·rd를 채우다가 이만큼 모이면 중간 저장 — 도중에 멈춰도 채운 만큼은 남는다 */
+    static final int RANK_FILL_BATCH = 50;
+
     private final TrainingPayloadBuilder builder;
     private final JsonMapper mapper;
     private final TrainingCollectorProperties props;
     private final Clock clock;
     private final Sleeper sleeper;
     private final Path workDir;
+    private final RankLookup rankLookup;
 
     public TrainingDataCollector(TrainingPayloadBuilder builder, JsonMapper mapper, TrainingCollectorProperties props,
                                  Clock clock, Sleeper sleeper, Path workDir) {
+        this(builder, mapper, props, clock, sleeper, workDir, null);
+    }
+
+    public TrainingDataCollector(TrainingPayloadBuilder builder, JsonMapper mapper, TrainingCollectorProperties props,
+                                 Clock clock, Sleeper sleeper, Path workDir, RankLookup rankLookup) {
         this.builder = builder;
         this.mapper = mapper;
         this.props = props;
         this.clock = clock;
         this.sleeper = sleeper;
         this.workDir = workDir;
+        this.rankLookup = rankLookup;
     }
 
     public int run() throws IOException {
@@ -92,8 +109,51 @@ public class TrainingDataCollector {
             long retry = keys.values().stream().filter(users::awaitingRetry).count();
             log.info("수집 시작 — calc_commit={}, 대상 {}명, 이미 처리 {}명, 남은 {}명(재시도 대기 {}명), 저장 위치 {}",
                     calcCommit, targets.size(), targets.size() - fresh, fresh, retry, dataDir);
+            fillMissingRank(keys, users);
             return loop(targets, keys, users, collected, calcCommit);
         }
+    }
+
+    /**
+     * rank·rd 열(10/13)이 생기기 전에 수집한 ok·insufficient 유저를 리그 요약 1회씩 조회해 채운다.
+     * 수집 시점이 아니라 채우는 시점 값이다. 실패하면 멈추고 다음 시작 때 이어서 채운다.
+     */
+    private void fillMissingRank(Map<String, String> keys, UsersLog users) throws IOException {
+        if (rankLookup == null) {
+            return;
+        }
+        List<String> missing = users.missingRank();
+        if (missing.isEmpty()) {
+            return;
+        }
+        Map<String, String> nameByKey = new java.util.HashMap<>();
+        keys.forEach((name, key) -> nameByKey.put(key, name));
+        log.info("rank·rd가 빈 {}명을 리그 요약으로 채웁니다(유저당 TETR.IO 1회, 지금 시점 값)", missing.size());
+        Map<String, UsersLog.RankRd> filled = new java.util.LinkedHashMap<>();
+        int done = 0;
+        for (String key : missing) {
+            String name = nameByKey.get(key);
+            if (name == null) {
+                continue; // 지금 명단에 없는 유저 — 닉네임을 모른다
+            }
+            try {
+                filled.put(key, rankLookup.lookup(TrainingPayloadBuilder.normalize(name)));
+            } catch (com.finesse.backend.calc.exception.TetrIoUserNotFoundException e) {
+                continue; // 그사이 없어진 유저 — 빈 칸으로 둔다
+            } catch (RuntimeException e) {
+                log.warn("rank·rd 채우기를 멈춥니다({}) — 채운 {}명은 저장하고, 나머지는 다음 시작 때 이어서", e.getClass().getSimpleName(),
+                        done + filled.size());
+                break;
+            }
+            if (filled.size() >= RANK_FILL_BATCH) {
+                users.fillRank(filled);
+                done += filled.size();
+                filled.clear();
+            }
+        }
+        users.fillRank(filled);
+        done += filled.size();
+        log.info("rank·rd 채우기 끝 — {}명", done);
     }
 
     /** 유저 사이 대기와 연속 실패 상태 — 처음 도는 명단과 재시도 명단이 이어서 쓴다 */
@@ -209,10 +269,10 @@ public class TrainingDataCollector {
                 case AnalysisOutcome.Analyzed analyzed -> {
                     TrainingPayloadBuilder.Payloads payloads = builder.payloads(normalized, analyzed);
                     writePayloads(key, collectedAt, calcCommit, payloads, collected);
-                    yield new Result(CollectStatus.OK, null, payloads.matchCount(), collectedAt);
+                    yield new Result(CollectStatus.OK, null, payloads.matchCount(), collectedAt, rankRd(analyzed.summary()));
                 }
                 case AnalysisOutcome.ColdStartBypass cold ->
-                        new Result(CollectStatus.INSUFFICIENT, insufficientReason(cold), null, collectedAt);
+                        new Result(CollectStatus.INSUFFICIENT, insufficientReason(cold), null, collectedAt, rankRd(cold.summary()));
                 case AnalysisOutcome.UserNotFound notFound ->
                         new Result(CollectStatus.NOT_FOUND, "404", null, collectedAt);
                 // 429는 calc가 RATE_LIMITED로 구분해 준다(collect 브랜치), 5xx·타임아웃 등은 FAILED·INSUFFICIENT
@@ -269,11 +329,13 @@ public class TrainingDataCollector {
     private void record(UsersLog users, Map<CollectStatus, Integer> counts, String key, Result result, Duration took)
             throws IOException {
         String collectedAt = result.collectedAt() != null ? result.collectedAt() : now();
-        users.append(key, collectedAt, result.status(), result.failReason(), result.matchCount());
+        users.append(key, collectedAt, result.status(), result.failReason(), result.matchCount(), result.rankRd());
         counts.merge(result.status(), 1, Integer::sum);
-        log.info("{} {}{}{} ({}초)", key, result.status().csv(),
+        log.info("{} {}{}{}{} ({}초)", key, result.status().csv(),
                 result.failReason() == null ? "" : " — " + result.failReason(),
                 result.matchCount() == null ? "" : " — " + result.matchCount() + "판",
+                result.rankRd() == null ? "" : " · " + UsersLog.rankCell(result.rankRd().rank())
+                        + " RD " + UsersLog.rdCell(result.rankRd().rd()),
                 took.toMillis() / 1000.0);
     }
 
@@ -338,9 +400,18 @@ public class TrainingDataCollector {
         return new ArrayList<>(names);
     }
 
-    record Result(CollectStatus status, String failReason, Integer matchCount, String collectedAt) {
-        Result(CollectStatus status, String failReason, Integer matchCount) {
-            this(status, failReason, matchCount, null);
+    record Result(CollectStatus status, String failReason, Integer matchCount, String collectedAt, UsersLog.RankRd rankRd) {
+        Result(CollectStatus status, String failReason, Integer matchCount, String collectedAt) {
+            this(status, failReason, matchCount, collectedAt, null);
         }
+
+        Result(CollectStatus status, String failReason, Integer matchCount) {
+            this(status, failReason, matchCount, null, null);
+        }
+    }
+
+    /** 리그 요약의 rank·rd (10/13) — 요약이 없으면 null */
+    static UsersLog.RankRd rankRd(UserSummary summary) {
+        return summary == null ? null : new UsersLog.RankRd(summary.rank(), summary.rd());
     }
 }

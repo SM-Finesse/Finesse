@@ -63,12 +63,17 @@ powershell -ExecutionPolicy Bypass -File collector\run-collector.ps1 -DataDir D:
 |---|---|---|
 | `targets.csv` | 수집 대상 (입력) | 🔴 밖 |
 | `user_map.csv` | `user_key` ↔ username | 🔴 밖 |
-| `users.csv` | 유저별 결과 = 진행 기록. `split`은 PM이 채운다 | `.gitignore` |
+| `users.csv` | 유저별 결과 = 진행 기록. 열: `user_key, collected_at, status, fail_reason, match_count, rank, rd, split`. `split`은 PM이 채운다 | `.gitignore` |
 | `collected/u0001_light.json`, `u0001_heavy_<chapter>.json` | 유저당 8개. 메타(`user_key`·`collected_at`·`calc_commit`·`match_count`) + `payload` | `.gitignore` |
 | `logs/collector.log` | 10MB·30개 롤링 | |
 | `collector.lock` | 단일 실행 잠금 | |
 
 `users.csv` status: `ok` · `insufficient`(표본 부족 1·2·3단계, 정상 제외) · `not_found`(404·닉네임 형식 오류) · `rate_limited`(429 — 다음 수집까지 5분) · `error`(5xx·타임아웃 등). `rate_limited`·`error`가 연속 3번이면 10분 쉬고, 명단 끝에서 한 번 더 시도.
+
+`users.csv` `rank`·`rd` (10/13 추가, 19번 지시서 3절에 없는 열) — 수집 시점 TETR.IO 리그 요약 값. 리그 요약을 받은 `ok`·`insufficient`만 채우고 나머지는 빈 칸.
+- `rank`: 대문자 티어(`X+` … `D`). **`Z` = 미배치이거나 RD가 100을 넘은 유저** — 인게임에서는 `?`로 보인다. TETR.IO 문서: "`z` is unranked", rd "If over 100, this user is unranked".
+- `rd`: Glicko-2 RD, 소수 둘째 자리. 10판 미만이면 `-1`. 게임을 쉬면 올라간다(리그 요약 `decaying` = 최근 1주 안 함).
+- 예전 머리글의 `users.csv`는 시작할 때 새 머리글로 다시 쓴다(`split`은 그대로). 열이 생기기 전에 수집한 `ok`·`insufficient` 유저는 시작할 때 리그 요약을 1회씩 조회해 채운다 — **수집 시점이 아니라 채운 시점 값**이다. 실패하면 멈추고 다음 시작 때 이어서.
 
 ## JSON → CSV
 

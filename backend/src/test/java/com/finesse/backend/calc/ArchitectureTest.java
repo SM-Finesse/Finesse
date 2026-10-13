@@ -3,7 +3,9 @@ package com.finesse.backend.calc;
 import com.finesse.backend.calc.calculator.AnalyticsCalculator;
 import com.finesse.backend.calc.collector.CollectionStatus;
 import com.finesse.backend.calc.collector.RateLimiter;
+import com.finesse.backend.calc.collector.TetrIoApi;
 import com.finesse.backend.calc.collector.UserSummary;
+import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.FancyStats;
 import com.finesse.backend.calc.domain.HighlightStats;
@@ -101,7 +103,9 @@ class ArchitectureTest {
                         StatResult.class, FancyStats.class, DeltaStats.class, HighlightStats.class,
                         RecentWinLossStats.class, ProfileWindowDeltaStats.class, MatchSeriesStats.class,
                         RivalryStats.class, RivalOpponentStats.class, RivalBadge.class, MatchResult.class,
-                        UserSummary.class, CollectionStatus.class, RateLimiter.class))))
+                        UserSummary.class, CollectionStatus.class, RateLimiter.class,
+                        // collect 브랜치: 수집기가 rank·rd를 채울 때 리그 요약만 따로 조회한다(10/13)
+                        TetrIoApi.class, TetrIoUserNotFoundException.class))))
                 .allowEmptyShould(true)
                 .check(classes);
     }

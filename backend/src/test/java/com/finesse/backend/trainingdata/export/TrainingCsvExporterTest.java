@@ -126,7 +126,7 @@ class TrainingCsvExporterTest {
         collect();
         Path users = dir.resolve("users.csv");
         Files.writeString(users, Files.readString(users, StandardCharsets.UTF_8)
-                .replace("u0001,2026-10-10T18:03:00+09:00,ok,,183,", "u0001,2026-10-10T18:03:00+09:00,ok,,183,train"),
+                .replace("u0001,2026-10-10T18:03:00+09:00,ok,,183,,,", "u0001,2026-10-10T18:03:00+09:00,ok,,183,,,train"),
                 StandardCharsets.UTF_8);
 
         new TrainingCsvExporter().export(dir, dir.resolve("export"));
