@@ -10,6 +10,8 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.SlidingWindowT
 import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +29,8 @@ import java.util.function.Supplier;
 public class TetrIoResilience {
 
     static final String NAME = "tetrIoApi";
+
+    private static final Logger log = LoggerFactory.getLogger(TetrIoResilience.class);
 
     private static final Predicate<Throwable> TRANSIENT =
             e -> e instanceof TetrIoApiException t && t.retryable();
@@ -55,6 +59,14 @@ public class TetrIoResilience {
         this.retry = Retry.of(NAME, retryConfig);
         this.circuitBreaker = CircuitBreaker.of(NAME, circuitBreakerConfig);
         this.metrics = metrics;
+        // collect 브랜치: 재요청·안전장치 상태를 로그로 남긴다 — 수집이 왜 느려졌는지 나중에 알 수 있게 (10/13 u0147 156초)
+        retry.getEventPublisher()
+                .onRetry(e -> log.warn("TETR.IO 재요청 {}/{} — {}초 뒤 다시 보냅니다", e.getNumberOfRetryAttempts(),
+                        maxAttempts - 1, e.getWaitInterval().toMillis() / 1000.0))
+                .onError(e -> log.warn("TETR.IO 요청이 {}번 시도 모두 실패했습니다", e.getNumberOfRetryAttempts()));
+        circuitBreaker.getEventPublisher()
+                .onStateTransition(e -> log.warn("TETR.IO 안전장치(CircuitBreaker) {} — OPEN이면 30초 동안 요청을 보내지 않습니다",
+                        e.getStateTransition()));
         metrics.bindCircuitState(circuitBreaker::getState);
     }
 

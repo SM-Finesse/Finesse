@@ -5,6 +5,8 @@ import com.finesse.backend.calc.exception.TetrIoApiException;
 import com.finesse.backend.calc.exception.TetrIoRateLimitedException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
 import com.finesse.backend.calc.metrics.AnalyticsMetrics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,7 @@ import org.springframework.web.util.UriBuilder;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -32,6 +35,10 @@ public class TetrIoApiClient implements TetrIoApi {
     static final String SESSION_HEADER = "X-Session-ID";
     static final String SUMMARY = "summary";
     static final String RECORDS = "records";
+    /** collect 브랜치: 이보다 오래 걸린 요청은 경고 로그 */
+    static final Duration SLOW_REQUEST = Duration.ofSeconds(10);
+
+    private static final Logger log = LoggerFactory.getLogger(TetrIoApiClient.class);
 
     private final RestClient restClient;
     private final RateLimiter rateLimiter;
@@ -105,10 +112,30 @@ public class TetrIoApiClient implements TetrIoApi {
             throw e;
         } catch (TetrIoApiException e) {
             outcome = e.retryable() ? "retryable_failure" : "failure";
+            // collect 브랜치: 실패한 요청을 남긴다 — 예외 메시지에 요청 URL(닉네임)이 들어갈 수 있어 원인은 클래스 이름만
+            log.warn("TETR.IO {} 요청 실패 — {}{} ({}초)", endpoint, e.getMessage(), rootCauseName(e),
+                    seconds(System.nanoTime() - start));
             throw e;
         } finally {
-            metrics.recordApiCall(endpoint, outcome, System.nanoTime() - start);
+            long took = System.nanoTime() - start;
+            metrics.recordApiCall(endpoint, outcome, took);
+            if ("success".equals(outcome) && took >= SLOW_REQUEST.toNanos()) {
+                // collect 브랜치: 실패 없이 느리기만 한 요청 — 응답이 조금씩 오거나 DNS 조회가 늦으면 타임아웃(5초)에 안 걸린다
+                log.warn("TETR.IO {} 요청이 {}초 걸렸습니다(기준 {}초)", endpoint, seconds(took), SLOW_REQUEST.toSeconds());
+            }
         }
+    }
+
+    private static String rootCauseName(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root == e ? "" : " [" + root.getClass().getSimpleName() + "]";
+    }
+
+    private static double seconds(long nanos) {
+        return Math.round(nanos / 1_000_000.0) / 1000.0;
     }
 
     /** HTTP 1회 시도 — 재시도마다 다시 불린다. */
