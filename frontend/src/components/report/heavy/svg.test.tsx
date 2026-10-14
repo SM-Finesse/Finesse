@@ -37,12 +37,21 @@ describe('ColumnChart', () => {
     expect(rateColor(61)).toBe(rateColor(69))
   })
 
-  it('나 vs 상대 막대 — 음수끼리도 값이 클수록 길게, 0 눈금을 남긴다', () => {
+  it('나 vs 상대 막대 — 0선에서 시작해 음수는 왼쪽으로, 길이는 절댓값 (−20.7이 −6.5보다 길다)', () => {
     const { container } = render(
       <CompareBars me="나" opp="상대" aria="수비" rows={[{ k: 'ΔCheese Index', kr: '', mine: -20.7, opp: -6.5, decimals: 1, delta: '−14.2', trend: 'down' }]} />,
     )
-    const [mine, opp] = [...container.querySelectorAll('rect[height="18"]')].map((r) => Number(r.getAttribute('width')))
-    expect(opp).toBeGreaterThan(mine)
+    const [mine, opp] = [...container.querySelectorAll('rect[height="18"]')].map((r) => ({ x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) }))
+    expect(mine.w).toBeGreaterThan(opp.w)
+    /* 두 막대 모두 0선(오른쪽 끝)에서 끝난다 */
+    expect(mine.x + mine.w).toBeCloseTo(opp.x + opp.w)
     expect(container).toHaveTextContent('0')
+  })
+
+  it('양수와 음수가 섞이면 0선을 사이에 두고 반대쪽으로', () => {
+    const { container } = render(<CompareBars me="나" opp="상대" aria="수비" rows={[{ k: 'Δ', kr: '', mine: 10, opp: -5, decimals: 1, delta: '+15.0', trend: 'up' }]} />)
+    const [mine, opp] = [...container.querySelectorAll('rect[height="18"]')].map((r) => ({ x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) }))
+    expect(opp.x + opp.w).toBeCloseTo(mine.x)
+    expect(mine.w).toBeCloseTo(opp.w * 2)
   })
 })

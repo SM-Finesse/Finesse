@@ -39,7 +39,19 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
   const updated = data.updated_at ? timeAgo(data.updated_at, lang) : null
   const tag = view === 'heavy' ? r.viewTag.heavy : data.cold_start ? r.viewTag.lightCold : r.viewTag.light
   /* 분석한 경기 수는 AI READOUT 코멘트 아래로 옮겼다 */
-  const meta = [joined && r.joined(joined), playTime, updated && r.updated(updated), r.officialApi].filter(Boolean).join(' · ')
+  /* 플레이 시간만 조금 진하게 — 나머지는 흐린 안내 글자 그대로 */
+  const meta: ReactNode[] = [
+    joined && r.joined(joined),
+    playTime && (
+      <span key="play" className="text-[15px] font-semibold text-ink">
+        {playTime}
+      </span>
+    ),
+    updated && r.updated(updated),
+    r.officialApi,
+  ]
+    .filter(Boolean)
+    .flatMap((m, i) => (i ? [' · ', m] : [m]))
 
   return (
     <div className="mb-[22px] flex flex-wrap items-end gap-4">
@@ -79,7 +91,7 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
         <span className="rounded border border-line bg-surface px-[11px] py-1 font-display text-[13px] text-muted">{tag}</span>
         {/* 좁은 화면에서는 헤더의 스위치를 숨기므로 여기서 뷰를 바꾼다 */}
         <span className="md:hidden">{viewSwitch}</span>
-        <div className="flex flex-wrap items-center gap-4 font-mono text-[11px] tracking-[.1em] text-faint max-sm:hidden">{keys}</div>
+        <div className="flex flex-wrap items-center gap-4 font-mono text-[11px] tracking-[.1em] text-faint ko:tracking-normal max-sm:hidden">{keys}</div>
       </div>
     </div>
   )

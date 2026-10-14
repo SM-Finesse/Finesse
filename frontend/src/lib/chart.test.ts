@@ -18,6 +18,10 @@ describe('niceScale — Y축', () => {
     expect(niceScale(500, 500)).toEqual({ domain: [499, 501], ticks: [499, 500, 501] })
     expect(niceScale(100.2, 100.6).ticks.every(Number.isInteger)).toBe(true)
   })
+
+  it('minStep을 낮추면 소수 눈금 — 떠도는 소수 오차 없이 (0.30000000000000004가 아니라 0.3)', () => {
+    expect(niceScale(0.12, 0.38, 4, 0.01)).toEqual({ domain: [0.1, 0.4], ticks: [0.1, 0.2, 0.3, 0.4] })
+  })
 })
 
 describe('gameTicks — X축', () => {

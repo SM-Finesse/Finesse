@@ -120,7 +120,7 @@ export function LandingPage({ view, onViewChange, onAnalyze, initialUsername = '
               {/* 최근 검색은 왼쪽, 단축키 안내는 오른쪽 — 좁아지면 두 줄로 접힌다 */}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-x-7 gap-y-4">
                 <RecentSearches names={recent} onPick={searchRecent} onRemove={onRemoveRecent} />
-                <div className="flex flex-wrap items-center justify-end gap-4 font-mono text-[11px] tracking-[.1em] text-faint max-sm:hidden">
+                <div className="flex flex-wrap items-center justify-end gap-4 font-mono text-[11px] tracking-[.1em] text-faint ko:tracking-normal max-sm:hidden">
                   {keyCaps}
                   <span>{t.noLogin}</span>
                 </div>
