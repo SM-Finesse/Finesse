@@ -14,6 +14,9 @@
 
 옵션
   --attempts 2   six 의 호출 하나당 시도 횟수(최초 포함). 백엔드 재요청 규칙이 정해지면 맞춘다.
+  --judge both   (기본) 1단계 모델 판정을 그대로 호출해 정확도를 기록하고, 끝내 틀리면 서버가 계산한 판정으로
+                 2·3단계를 계속한다 — 34번 운영 방식이 아니라 측정용 (10/14 11번 확인: 모델 판정 정답 23%).
+                 llm = 34번 그대로(판정 실패면 그 요청 502), server = 판정 호출 없이 서버 판정만.
                  첫 시도 결과도 따로 집계하므로 재시도 효과를 같이 볼 수 있다.
   --modes one,six  --samples ...(기본 tests/samples/l6_*.json 6개)
 
@@ -53,6 +56,8 @@ def main() -> None:
     ap.add_argument("--modes", default="one,six")
     ap.add_argument("--samples", nargs="+", default=[str(p) for p in sorted(SAMPLES.glob("l6_*.json"))])
     ap.add_argument("--attempts", type=int, default=2)
+    ap.add_argument("--judge", default="both", choices=("llm", "both", "server"),
+                    help="llm: 34번 그대로 / both(기본): 모델 판정을 재고, 실패하면 서버 판정으로 2·3단계 계속 / server: 판정 호출 없음")
     ap.add_argument("--repeat-penalty", type=float, default=None)
     ap.add_argument("--mock", action="store_true")
     ap.add_argument("--out", default=None)
@@ -83,7 +88,7 @@ def main() -> None:
         print(line)
         txt.write(line + "\n")
 
-    say(f"one={PROMPT_VERSION} {LIGHT_DECODING} / six={LIGHT6_VERSION} attempts={args.attempts} / 생성기 {gen.name} "
+    say(f"one={PROMPT_VERSION} {LIGHT_DECODING} / six={LIGHT6_VERSION} attempts={args.attempts} judge={args.judge} / 생성기 {gen.name} "
         f"(적재 {load_sec:.1f}s) / repeat_penalty={args.repeat_penalty} / runs={args.runs}")
     rows = defaultdict(list)
     for name, req in samples:
@@ -93,7 +98,7 @@ def main() -> None:
         for i in range(1, args.runs + 1):
             for mode in modes:                       # 회차마다 번갈아 (시간대 차이가 한쪽에 몰리지 않게)
                 rec = (_one(gen, req, values) if mode == "one"
-                       else _six(gen, values, Flow6Settings(attempts=args.attempts)))
+                       else _six(gen, values, Flow6Settings(attempts=args.attempts, judge=args.judge)))
                 rec.update(mode=mode, sample=name, run=i, expected=expected)
                 rec["rule_set_ok"] = len(rec["picks"]) == len(expected) and set(rec["picks"]) == set(expected)
                 rec["rule_order_ok"] = rec["picks"] == expected
@@ -229,7 +234,8 @@ def _summary(say, rows, modes, samples) -> None:
         all_ok = sum(1 for r in rs if r["judge_first_items"] and all(r["judge_first_items"].values()))
         say("\n6회 호출 단계별 (첫 시도 기준 = 재요청이 없었다면)")
         say(f"  1 판정: 11개 모두 정답 {all_ok}/{n} · 지표별 정답 {sum(items)}/{len(items)} "
-            f"({sum(items) / max(1, len(items)):.0%}) · 재요청 후 통과 {sum(r['judge_ok'] for r in rs)}/{n}")
+            f"({sum(items) / max(1, len(items)):.0%}) · 재요청 후 통과 {sum(r['judge_ok'] for r in rs)}/{n}"
+            + ("  ※ 2·3단계는 판정 실패 시 서버 계산 판정으로 계속한 결과(측정용)" if any(not r['judge_ok'] for r in rs) else ""))
         per_key = defaultdict(list)
         for r in rs:
             for k, ok in r["judge_first_items"].items():

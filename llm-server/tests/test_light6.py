@@ -291,3 +291,20 @@ def test_기존_엔드포인트_six_모드(mock, monkeypatch):
     r = client.post("/v1/comment/light", json=body)
     assert r.status_code == 200
     assert [h["stat"] for h in r.json()["highlights"]] == ["delta_app", "delta_opener", "delta_cheese_index"]
+
+
+def test_판정_표_줄도_읽음():
+    c = _cands("l6_typical")[:2]
+    assert parse_judge("| 대괄호 번호 | 영역 | 벗어난 정도 |\n| --- | --- | --- |\n| 1 | 보통 | 0.0 |\n| 2 | 보통 | 0.0 |", c).errors == []
+
+
+def test_측정용_both_모드는_판정_실패해도_2_3단계를_계속():
+    gen = Scripted(judge=["엉뚱한 출력", "또 엉뚱한 출력"], select=["[10], [3], [6]"],
+                   sentence=["불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 강합니다.",
+                             "맞붙은 상대들에 비해 Stride 성향이 짙게 나타납니다.",
+                             "상대 대비 보정 공격 효율에서 앞섭니다."],
+                   summary=["맞붙은 상대들에 비해 Stride 성향이 짙고, 상대 대비 보정 공격 효율에서 앞섭니다."])
+    out = run_light6(_values("l6_typical"), gen, Flow6Settings(attempts=2, judge="both"))
+    assert not out.judge_ok and out.status == 200 and out.picks == ["delta_comeback", "delta_stride", "delta_weighted_app"]
+    out = run_light6(_values("l6_typical"), Scripted(judge=["x", "y"]), Flow6Settings(attempts=2, judge="llm"))
+    assert out.status == 502

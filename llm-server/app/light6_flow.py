@@ -36,6 +36,11 @@ from app.schemas import CANDIDATE_KEYS
 @dataclass
 class Flow6Settings:
     attempts: int = 2        # 호출 하나당 시도 횟수(최초 포함). 백엔드 재요청 규칙이 정해지면 맞춘다(34번 6절 4번).
+    # 판정을 누가 다음 단계로 넘기나 — llm: 34번 그대로(검증 통과한 모델 판정만) /
+    # both: [측정용] 모델 판정은 그대로 호출·기록하되, 끝내 실패하면 서버 계산 판정으로 2·3단계를 계속
+    #       (10/14 11번: 1.5B 모델 판정 지표별 정답 23%, 11개 모두 정답 0/6 → 2·3단계를 측정하려고 둠) /
+    # server: [측정용] 판정 호출 없이 서버 계산 판정만
+    judge: str = "llm"
 
 
 @dataclass
@@ -96,7 +101,7 @@ def run_light6(values: dict[str, float | None], generator, st: Flow6Settings | N
     try:
         # ---------- 1단계 판정 ----------
         judged = None
-        for attempt in range(1, st.attempts + 1):
+        for attempt in range(1, (st.attempts if st.judge != "server" else 0) + 1):
             c = call("judge", attempt, build_judge(cands))
             r = parse_judge(c.text, cands)
             out.judge_attempts = attempt
@@ -106,10 +111,12 @@ def run_light6(values: dict[str, float | None], generator, st: Flow6Settings | N
             if not r.errors:
                 judged = r.judgments
                 break
+        out.judge_ok = judged is not None
         if judged is None:
-            out.status, out.error = 502, "판정 검증 실패"
-            return out
-        out.judge_ok = True
+            if st.judge == "llm":
+                out.status, out.error = 502, "판정 검증 실패"
+                return out
+            judged = truth                      # [측정용] 서버 계산 판정으로 계속 (34번 운영 방식 아님)
 
         # ---------- 2단계 선정 (모델 판정 그대로 넘김 — 검증을 통과했으므로 정답과 ±0.1 안) ----------
         jlist = [(k, *judged[k]) for k in CANDIDATE_KEYS]

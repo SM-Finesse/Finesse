@@ -158,7 +158,7 @@ def build_judge(cands: list[tuple[str, float | None, float, float]]) -> list[dic
 
 
 _MINUS = str.maketrans({"−": "-", "–": "-", "—": "-", "－": "-", "＋": "+"})
-_LEAD_NUM = re.compile(r"^\s*\[?\s*(\d{1,2})\s*\]?")
+_LEAD_NUM = re.compile(r"^\s*\|?\s*\[?\s*(\d{1,2})\s*\]?")   # 표 줄 "| 1 | 높음 | +0.3 |" 도 읽는다 (10/14 11번)
 _ZONE = re.compile(r"(높음|보통|낮음|없음)")
 _SIGNED = re.compile(r"(?<![\d.])([+-]?\s*\d+(?:\.\d+)?)")
 
