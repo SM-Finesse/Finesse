@@ -2,7 +2,10 @@
 백엔드·API·요청/응답 스키마는 그대로 ({light_summary, highlights[{stat, sentence}]}).
 
 환경변수 (서버를 켜기 전에 지정)
-  LLM_LIGHT_MODE       a(기본) | b | c | v3   — v3 = 라벨 없는 light-v3-lines (비교 기준)
+  LLM_LIGHT_MODE       a(기본) | b | c | c2 | d | v3
+                       a = 1회, b = 2회(선정 + 문장3·총평), d = 3회(선정 + 문장3 + 총평, 라이트뷰 분리 대화 내용의 중간안),
+                       c = 5회 v1(문장 호출에 해석·전체 기준 포함), c2 = 5회 v2(해석·전체 기준 뺌),
+                       v3 = 라벨 없는 light-v3-lines (비교 기준)
   LLM_LIGHT_ATTEMPTS   기본 2. 검사에 걸렸을 때만 같은 서버에서 다시 생성하는 최대 횟수 (헤비 LLM_HEAVY_ATTEMPTS 와 같은 방식)
                        A: 호출 전체, B: 선정·문장 호출 각각, C: 선정·지표별 문장 각각
   LLM_LIGHT_BUDGET_SEC 기본 14. 이 요청 안에서 쓸 시간 상한(초). 다음 호출이 이 안에 끝날 것 같을 때만 시작한다.
@@ -40,7 +43,7 @@ from app.schemas import LightRequest
 
 logger = logging.getLogger("uvicorn.error")
 
-MODES = ("a", "b", "c")
+MODES = ("a", "b", "c", "c2", "d")
 
 # 호출 종류별 예상 시간(초). light 1회 최악 약 10초, heavy 1회 약 2.8초 (23번 v0.3 2절, Vulkan).
 # 선정·총평은 측정 전 추정치 — 25번·11번 측정 후 고친다.
@@ -149,7 +152,7 @@ def run_light(req: LightRequest, generator, st: LightSettings | None = None,
     try:
         if not ctx.order:
             raise LightFailure("값이 있는 후보 없음", out)
-        {"a": _run_a, "b": _run_b, "c": _run_c}[st.mode](r, ctx, out)
+        {"a": _run_a, "b": _run_b, "c": _run_c, "c2": _run_c, "d": _run_d}[st.mode](r, ctx, out)
     finally:
         out.calls, out.budget_stops, out.elapsed = r.calls, r.budget_stops, r.elapsed()
     return out
@@ -231,7 +234,7 @@ def _run_c(r: _Runner, ctx: LightContext, out: LightOutcome) -> None:
     hl: dict[str, str] = {}
     for key in picks:
         kind = f"comment:{key}"
-        messages = build_light_comment(ctx, key)
+        messages = build_light_comment(ctx, key, extras=r.st.mode == "c")
         for attempt in range(1, r.st.attempts + 1):
             if not r.can_start(kind):
                 break
@@ -242,13 +245,38 @@ def _run_c(r: _Runner, ctx: LightContext, out: LightOutcome) -> None:
                 hl[key] = sentence
                 break
             out.sentence_dropped.append(f"{key}: {why}")
-    summary = None
+    _finish(r, out, picks, hl, _summary_call(r, ctx, picks, hl), ctx)
+
+
+def _summary_call(r: _Runner, ctx: LightContext, picks: list[str], hl: dict[str, str]) -> str | None:
     done = [(k, hl[k]) for k in picks if k in hl]
-    if done and r.can_start("summary"):
-        log = r.call("summary", 1, build_light_summary(done))
-        summary, why = process_summary(log.text, ctx)
-        log.result = "통과" if summary else why
-    _finish(r, out, picks, hl, summary, ctx)
+    if not done or not r.can_start("summary"):
+        return None
+    log = r.call("summary", 1, build_light_summary(done))
+    summary, why = process_summary(log.text, ctx)
+    log.result = "통과" if summary else why
+    return summary
+
+
+# ---------------- D: 3회 (선정 + 문장 3개 한 번에 + 총평) ----------------
+def _run_d(r: _Runner, ctx: LightContext, out: LightOutcome) -> None:
+    picks = _select(r, ctx, out)
+    messages = build_light_write(ctx, picks, with_summary=False)
+    best: LightV3Result | None = None
+    for attempt in range(1, r.st.attempts + 1):
+        if not r.can_start("write"):
+            break
+        log = r.call("write", attempt, messages)
+        res = process_lines(log.text, ctx, rule_check=False, allowed=picks, ref_in_text=True, allow_empty=True,
+                            summary_required=False)
+        log.result = f"문장 {len(res.highlights)}개" + (f", 뺀 것 {res.dropped}" if res.dropped else "")
+        out.sentence_dropped += res.sentence_dropped
+        if res.highlights and (best is None or len(res.highlights) > len(best.highlights)):
+            best = res
+        if best and len(best.highlights) >= len(picks):
+            break
+    hl = dict(best.highlights) if best else {}
+    _finish(r, out, picks, hl, _summary_call(r, ctx, picks, hl), ctx)
 
 
 def _finish(r: _Runner, out: LightOutcome, picks: list[str], hl: dict[str, str], summary: str | None,

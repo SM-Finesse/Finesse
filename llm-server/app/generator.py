@@ -80,7 +80,7 @@ class MockGenerator:
         if label == "light:comment":
             name = re.search(r"^지표: ([^(]+)", user, re.M).group(1).strip()
             direction = re.search(r"^방향: (.+)$", user, re.M).group(1).strip()
-            return GenerationResult(text=f"모의 응답입니다. {name}: {direction}.", finish_reason="stop")
+            return GenerationResult(text=f"모의 응답 {name}, {direction}.", finish_reason="stop")
         if label == "light:summary":
             return GenerationResult(text="모의 응답입니다. 실제 모델이 만든 총평이 아닙니다.", finish_reason="stop")
         rows, groups = [], set()

@@ -188,9 +188,38 @@ _ECHO = ("할 일", "규칙", "출력은 아래", "번호 | 문장", "총평 | �
          "고른 후보", "출력 형식", "세로 막대")
 # 플레이어를 한 유형으로 규정 (10/13 11번 실측 "… 약한 플레이어를 나타낸다")
 _TYPECAST = re.compile(r"플레이어(?:를|임을)\s*(?:나타|보여)|[가-힣]{2,}\s+플레이어(?:입니다|이다|예요|임을|로 보)"
-                       r"|플레이스타일을 보여")
-_POS = ("높", "강해", "강한", "강합", "강함", "강하", "우위", "오르", "오릅", "올라", "상승", "앞서", "큽", "크고", "큰", "큼")
-_NEG = ("낮", "약해", "약한", "약합", "약함", "약하", "떨어", "내리", "내립", "하락", "밀립", "뒤처", "처지", "처집", "작습", "작고", "작은", "작음")
+                       r"|플레이스타일을 보여"
+                       r"|(?:[A-Za-z]+|[가-힣]*[은는인한])\s+플레이어(?:는|가)\s")   # C v1: "Plonk 플레이어는", "높은 플레이어는"
+_POS = ("높", "강해", "강한", "강합", "강함", "강하", "우위", "오르", "오릅", "올라", "상승", "앞서", "큽", "크고", "큰", "큼",
+        "증가", "향상", "늘어", "커지", "커집",
+        "중시", "강조", "중점")   # C v1: "상대보다 효율과 가비지 활용을 중시/강조" = 상대보다 그 성향이 강함
+_NEG = ("낮", "약해", "약한", "약합", "약함", "약하", "떨어", "내리", "내립", "하락", "밀립", "뒤처", "처지", "처집", "처짐", "작습", "작고", "작은", "작음",
+        "감소", "약화", "줄어", "저하")
+# C v1 실측(10/14 11번)에서 나온 문제 — v4(라벨 방식)에만 적용
+_TENDENCY_KEYS = ("delta_opener", "delta_plonk", "delta_stride", "delta_inf_ds", "delta_vs_apm", "delta_cheese_index")
+_BANNED = ("플로킹", "투수율")                    # 다른 분야 말 (기준 측정·C v1)
+_LABEL_LEAK = ("보통", "벗어")                    # 선정용 내부 라벨 ("보통 낮습니다", "(Plonk)이 보통입니다")
+
+
+def _comeback_direction(text: str) -> int:
+    """역전 문장의 방향. "A 경우가 B 경우보다 많다" 에서 '보다' 바로 앞에 나온 쪽(B)이 적은 쪽이다.
+    +1 = 뒤집는 쪽이 많음, -1 = 뒤집히는 쪽이 많음, 0 = 판단 불가 (둘 중 하나만 나오거나 '보다'가 없음).
+    C v1 실측: neg(-0.18) 20문장 중 12개가 "뒤집는 경향이 유리한 경우가 … 많습니다" 처럼 한쪽만 말하거나 반대였음."""
+    i = text.find("보다")
+    if i < 0:
+        return 0
+    before, after = text[:i], text[i + 2:]
+    kinds = []
+    for m in re.finditer("뒤집", before):
+        kinds.append("히" if before[m.end():m.end() + 1] == "히" else "는")
+    if "히" not in kinds or "는" not in kinds:
+        return 0
+    dom = 1 if kinds[-1] == "히" else -1          # 마지막(=비교 대상)의 반대쪽이 많은 쪽
+    less = [after.find(w) for w in ("적", "드물", "작", "낮") if w in after]
+    more = [after.find(w) for w in ("많", "자주", "크", "높", "잦") if w in after]
+    if less and (not more or min(less) < min(more)):
+        dom = -dom
+    return dom
 
 
 def _first_direction(text: str) -> int:
@@ -242,12 +271,31 @@ def check_sentence(text: str, ctx: LightContext, key: str | None) -> str | None:
     for m in _NUM.findall(text):
         if round(float(m), 4) not in ctx.numbers:
             return f"입력에 없는 숫자: {m}"
+    if ctx.ranked:   # v4 만
+        if any(w in text for w in _BANNED):
+            return "다른 분야 말"
+        if any(w in text for w in _LABEL_LEAK):
+            return "내부 라벨 노출"
+        if key in _TENDENCY_KEYS and re.search(r"잘하|못하|잘한|못한", text):
+            return "성향을 우열로 씀"      # 초안: "잘하고 못함이 아니라 성향이다" (C v1: "중점을 두고 잘하는 성향")
+        if "플레이어보다" in text:          # C v1: "공격 효율이 이 플레이어보다 낮습니다" (비교 대상을 뒤바꿈)
+            return "비교 대상 혼동"
     if key is not None:
         v = ctx.available[key]
+        want = 1 if v > 0 else -1
+        if ctx.ranked and v and key == "delta_comeback":
+            d = _comeback_direction(text)
+            if d == 0:
+                return "방향 불명(역전)"
+            if d != want:
+                return f"방향 반대 ({v:+g})"
+            return None
         d = _first_direction(text)
-        # strength_split·delta_comeback 은 문장 구조상 첫 방향 단어가 부호와 바로 대응하지 않을 수 있어 검사하지 않음
-        if v and d and key not in ("strength_split", "delta_comeback") and d != (1 if v > 0 else -1):
+        # strength_split·delta_comeback(v3) 은 문장 구조상 첫 방향 단어가 부호와 바로 대응하지 않을 수 있어 검사하지 않음
+        if v and d and key not in ("strength_split", "delta_comeback") and d != want:
             return f"방향 반대 ({v:+g})"
+        if ctx.ranked and v and not d and key != "strength_split":
+            return "방향 없음"      # C v1: "효율과 가비지 활용 위주 성향을 보입니다" 처럼 방향을 빼먹은 문장
     return None
 
 
@@ -422,6 +470,16 @@ LIGHT_WRITE_SYSTEM = ("TETR.IO 전적 분석 페이지 첫 화면에 들어갈 �
                       "방향은 서버가 계산한 해석입니다.\n\n"
                       f"{_WRITE_RULES}\n\n{_LINES_OUTPUT}")
 
+# D(3회안, 라이트뷰 분리 대화 내용의 중간안): 선정 → 고른 3개 문장을 한 번에 → 총평 따로
+LIGHT_WRITE3_SYSTEM = ("TETR.IO 전적 분석 페이지 첫 화면에 들어갈 하이라이트 문장을 한국어로 씁니다.\n"
+                       "아래 후보 3개는 이 플레이어와 같은 매치 상대의 차이이고, 이미 골라 둔 것입니다. "
+                       "방향은 서버가 계산한 해석입니다.\n\n"
+                       + _WRITE_RULES.replace("\n- 마지막에 고른 세 가지를 묶어 총평을 2문장으로 씁니다.", "")
+                       + "\n\n출력 형식\n"
+                       "- 후보 하나에 한 줄씩, 줄 맨 앞에 그 후보의 대괄호 번호를 쓰고 세로 막대(|) 뒤에 문장을 씁니다.\n"
+                       "- 줄 맨 앞에는 1, 2, 3 같은 순서 번호가 아니라 후보 목록의 대괄호 번호를 그대로 씁니다.\n"
+                       "- 이 세 줄 말고 다른 글은 쓰지 마세요.")
+
 LIGHT_COMMENT_SYSTEM = """TETR.IO 전적 분석 페이지 첫 화면의 하이라이트 문장 하나를 한국어로 씁니다.
 아래 지표가 이 플레이어에 대해 무엇을 뜻하는지 한 문장으로 쓰세요.
 
@@ -527,21 +585,27 @@ def build_light_select(req: LightRequest, cfg: RangeConfig | None = None) -> Lig
     return _v4_context(req, LIGHT_SELECT_SYSTEM, cfg)
 
 
-def build_light_write(ctx: LightContext, picks: list[str]) -> list[dict[str, str]]:
-    """B 둘째 호출. 번호는 선정 때와 같은 번호를 쓴다 (서버가 키로 바꾸기 쉽게)."""
+def build_light_write(ctx: LightContext, picks: list[str], with_summary: bool = True) -> list[dict[str, str]]:
+    """B 둘째 호출(with_summary=True) / D 둘째 호출(False, 총평은 따로). 번호는 선정 때와 같은 번호."""
     st = ctx.standing
     lines = ["고른 후보"] + [_candidate_line(ctx.order.index(k) + 1, st[k]) for k in picks]
-    return [{"role": "system", "content": LIGHT_WRITE_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
+    system = LIGHT_WRITE_SYSTEM if with_summary else LIGHT_WRITE3_SYSTEM
+    return [{"role": "system", "content": system}, {"role": "user", "content": "\n".join(lines)}]
 
 
-def build_light_comment(ctx: LightContext, key: str) -> list[dict[str, str]]:
+def build_light_comment(ctx: LightContext, key: str, extras: bool = True) -> list[dict[str, str]]:
+    """C 지표별 문장 호출. extras=False(C v2): '해석'·'전체 기준' 줄을 뺀다.
+    C v1 실측(10/14 11번): 해석 줄을 그대로 쓴 문장 4개, 라벨 '보통'이 섞인 문장 약 11개.
+    빼면 후보 정보가 A·B·D 와 같아진다 (이름·뜻·방향 + 예시)."""
     s = ctx.standing[key]
     name, meaning = _v4_terms(key)
-    lines = [f"지표: {name}({meaning})",
-             f"해석: {LIGHT_NOTES[key]}",
-             f"방향: {_sgn_word(key, s.value)}",
-             f"전체 기준: {s.label}",
-             f"예시: {template_sentence(key, s.value)}"]
+    lines = [f"지표: {name}({meaning})"]
+    if extras:
+        lines.append(f"해석: {LIGHT_NOTES[key]}")
+    lines.append(f"방향: {_sgn_word(key, s.value)}")
+    if extras:
+        lines.append(f"전체 기준: {s.label}")
+    lines.append(f"예시: {template_sentence(key, s.value)}")
     return [{"role": "system", "content": LIGHT_COMMENT_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
 
 
@@ -571,7 +635,7 @@ def select_with_rules(text: str, ctx: LightContext) -> tuple[list[str], list[str
 
 
 _SENT = re.compile(r"[^.!?。]*[.!?。]")
-_HEAD = re.compile(r"^\s*(?:문장|하이라이트|총평|답|출력)\s*[:：|]\s*")
+_HEAD = re.compile(r"^\s*(?:하이라이트 문장|문장|하이라이트|총평|답|출력)\s*[:：|]\s*")
 
 
 _LIST_MARK = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)]|\[\d{1,2}\])\s*")

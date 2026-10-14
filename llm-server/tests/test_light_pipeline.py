@@ -215,8 +215,8 @@ def test_C_시간_예산이면_총평을_서버가():
 
 
 # ---------- 엔드포인트 (Mock) ----------
-@pytest.mark.parametrize("mode", ["a", "b", "c"])
-@pytest.mark.parametrize("sample", ["light_testuser.json", "light_pos.json", "light_spread.json"])
+@pytest.mark.parametrize("mode", ["a", "b", "c", "c2", "d"])
+@pytest.mark.parametrize("sample", ["light_testuser.json", "light_pos.json", "light_spread.json", "light_group.json"])
 def test_엔드포인트_Mock_모드별_200(monkeypatch, mode, sample):
     monkeypatch.setenv("LLM_LIGHT_MODE", mode)
     monkeypatch.setattr(main_module, "generator", MockGenerator())
@@ -235,7 +235,7 @@ def test_엔드포인트_실패는_502(monkeypatch):
 
 
 def test_잘못된_모드는_서버_오류로_알림(monkeypatch):
-    monkeypatch.setenv("LLM_LIGHT_MODE", "d")
+    monkeypatch.setenv("LLM_LIGHT_MODE", "x")
     with pytest.raises(ValueError):
         LightSettings.from_env()
 
@@ -268,3 +268,68 @@ def test_C_총평_머리말과_목록():
             "2. 역전 경향은 뒤집히는 경우가 더 많습니다.")
     summary, why = process_summary(text, ctx)
     assert why is None and summary.startswith("가비지 처리 성향을 보정한") and summary.endswith("많습니다.")
+
+
+# ---------- C v2 · D(3회) · 그룹 함정 (10/14) ----------
+def test_그룹_함정_샘플은_앞_3개가_정답이_아님():
+    from app.light_rules import apply_rules, expected_picks
+    ctx = build_light_select(_req("light_group.json"))
+    assert ctx.order[:4] == ["delta_weighted_app", "delta_app", "delta_opener", "delta_cheese_index"]
+    assert expected_picks(ctx.ranked) == ["delta_weighted_app", "delta_opener", "delta_cheese_index"]
+    accepted, dropped = apply_rules(ctx.order[:3], ctx.ranked)          # 습관대로 [1] [2] [3]
+    assert accepted == ["delta_weighted_app", "delta_opener"] and "같은 그룹" in dropped[0]
+
+
+@pytest.mark.parametrize("v, sentence, ok", [
+    (-0.18, "역전 경향 차이는 유리한 경기를 뒤집히는 경우가 불리한 경기를 뒤집는 경우보다 많습니다.", True),
+    (-0.18, "역전 경향 차이는 뒤집는 경향이 유리한 경우가 불리한 경우보다 더 많습니다.", False),   # 한쪽만 말함
+    (-0.18, "역전 경향 차이는 뒤집는 경향이 불리할 때 강하게 반응합니다.", False),              # '보다' 없음
+    (-0.18, "불리한 경기를 뒤집는 경우가 유리한 경기를 뒤집히는 경우보다 많습니다.", False),        # 반대
+    (0.25, "역전 경향 차이(역전승률 − 역전 허용률): 불리한 경기를 뒤집는 경우가 유리한 경기를 뒤집히는 경우보다 많습니다.", True),
+    (0.25, "유리한 경기를 뒤집히는 경우가 불리한 경기를 뒤집는 경우보다 적습니다.", True),          # '적다' 로 뒤집음
+])
+def test_역전_방향_검사(v, sentence, ok):
+    ctx = build_light_select(_req("light_testuser.json"))
+    ctx.available["delta_comeback"] = v
+    assert (check_sentence(sentence, ctx, "delta_comeback") is None) == ok
+
+
+@pytest.mark.parametrize("sentence, why", [
+    ("그 플레이어는 상대보다 효율과 가비지 활용 위주의 성향을 보여줍니다.", "방향 없음"),
+    ("상대보다 효율과 가비지 활용 위주 성향(Plonk)이 보통입니다.", "내부 라벨"),
+    ("플로킹 성향 차이는 상대보다 약합니다.", "다른 분야"),
+])
+def test_C_v1_오류_문장(sentence, why):
+    ctx = build_light_select(_req("light_testuser.json"))     # plonk -0.22
+    assert why in (check_sentence(sentence, ctx, "delta_plonk") or "")
+
+
+def test_하이라이트_문장_머리말():
+    from app.light_v3 import process_comment
+    ctx = build_light_select(_req("light_testuser.json"))
+    s, why = process_comment("하이라이트 문장: Plonk 성향 차이는 상대보다 약합니다.", ctx, "delta_plonk")
+    assert why is None and s == "Plonk 성향 차이는 상대보다 약합니다."
+
+
+def test_C_v2_문장_프롬프트는_해석과_전체기준_없음():
+    ctx = build_light_select(_req())
+    v1 = build_light_comment(ctx, "session_vs_slope")[1]["content"]
+    v2 = build_light_comment(ctx, "session_vs_slope", extras=False)[1]["content"]
+    assert "해석:" in v1 and "전체 기준:" in v1
+    assert "해석:" not in v2 and "전체 기준:" not in v2 and "방향:" in v2 and "예시:" in v2
+
+
+def test_D_3회_선정_문장3_총평():
+    gen = Scripted(select=["[1] [2] [3]"],
+                   write=["[1] | 보정 후에도 상대보다 공격 효율이 높습니다.\n[2] | 상대보다 초반 공격 성향이 강합니다.\n"
+                          "[3] | 라운드가 진행될수록 공방 능력이 떨어집니다."],
+                   summary=["공격 효율과 초반 공격 성향은 상대보다 강합니다. 다만 라운드 후반에는 처집니다."])
+    out = run_light(_req(), gen, _st("d"))
+    assert gen.labels == ["light:select", "light:write", "light:summary"]
+    assert len(out.highlights) == 3 and not out.summary_fallback
+
+
+def test_성향을_우열로_쓰면_뺌():
+    ctx = build_light_select(_req("light_pos.json"))        # plonk +0.18
+    assert "우열" in check_sentence("그 플레이어는 상대보다 효율과 가비지 활용을 중점을 두고 잘하는 성향입니다.", ctx, "delta_plonk")
+    assert check_sentence("상대보다 효율과 가비지 활용을 중시합니다.", ctx, "delta_plonk") is None

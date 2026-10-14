@@ -4,10 +4,11 @@
   $env:LLM_MODEL_PATH = "C:\\경로\\qwen2.5-1.5b-instruct-q4_k_m.gguf"
   python -m tools.measure_light --runs 2 --mock                 # 모델 없이 흐름만 확인 (몇 초)
   python -m tools.measure_light --runs 3                        # 실제 모델로 짧게 확인
-  python -m tools.measure_light --runs 20                       # 본 측정 (샘플 3개 × A/B/C × 20회)
+  python -m tools.measure_light --runs 20 --repeat-penalty 1.1  # 본 측정 (기본: D·C v2 × 샘플 4개 × 20회)
+  python -m tools.measure_light --runs 20 --modes a,b,c        # 10/14 A·B·C 비교를 다시 할 때
 
 옵션
-  --modes a,b,c            비교할 방식 (v3 은 tools/try_light.py --prompt v3 로 따로)
+  --modes d,c2             비교할 방식 a | b | c | c2 | d (v3 은 tools/try_light.py --prompt v3 로 따로)
   --samples ...            입력 JSON (기본: light_testuser=neg, light_pos=pos, light_spread=규칙 검사용 합성)
   --attempts 2             LLM_LIGHT_ATTEMPTS 와 같음. 첫 시도 결과도 따로 집계하므로 한 번 돌리면 둘 다 나온다
   --budget 999             LLM_LIGHT_BUDGET_SEC. 25번(CUDA)은 배포(Vulkan)보다 느려서, 품질은 예산 없이 재고
@@ -49,8 +50,13 @@ from app.light_v3 import LIGHT_V4_DECODING, LIGHT_V4_VERSION, template_sentence
 from app.schemas import LightRequest
 
 SAMPLES = Path(__file__).resolve().parent.parent / "tests" / "samples"
-DEFAULT_SAMPLES = [SAMPLES / "light_testuser.json", SAMPLES / "light_pos.json", SAMPLES / "light_spread.json"]
-NICK = {"light_testuser": "neg", "light_pos": "pos", "light_spread": "spread"}
+DEFAULT_SAMPLES = [SAMPLES / "light_testuser.json", SAMPLES / "light_pos.json", SAMPLES / "light_spread.json",
+                   SAMPLES / "light_group.json"]
+NICK = {"light_testuser": "neg", "light_pos": "pos", "light_spread": "spread", "light_group": "group"}
+
+# 사전 기준 (10/14, 측정 전에 정함). 문장 정확도는 사람이 판정하므로 여기서는 시간·형식만 자동 판정한다.
+CRITERIA = {"max_sec": 14.0,      # 23번 v0.3 light 호출 1회 15초 - 1초 여유
+            "ok_rate": 0.95}      # 200 응답 비율
 
 
 def main() -> None:
@@ -60,7 +66,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="      [log] %(message)s")
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=20)
-    ap.add_argument("--modes", default="a,b,c")
+    ap.add_argument("--modes", default="d,c2")
     ap.add_argument("--samples", nargs="+", default=[str(p) for p in DEFAULT_SAMPLES])
     ap.add_argument("--attempts", type=int, default=2)
     ap.add_argument("--budget", type=float, default=999.0)
@@ -191,6 +197,19 @@ def _summary(say, rows, modes, samples) -> None:
         for mode in modes:
             first = Counter(r["first_attempt_raw"][0] if r["first_attempt_raw"] else "(없음)" for r in rows[(mode, name)])
             say(f"  {mode.upper()} {name}: {dict(first.most_common())}")
+    say(f"\n사전 기준 판정 (시간 최대 ≤ {CRITERIA['max_sec']:g}초, 200 비율 ≥ {CRITERIA['ok_rate']:.0%}; 문장 정확도는 사람 판정)")
+    for mode in modes:
+        rs = [r for name in samples for r in rows[(mode, name)]]
+        worst = max(r["elapsed"] for r in rs)
+        ok = sum(r["status"] == 200 for r in rs) / len(rs)
+        verdict = "통과" if worst <= CRITERIA["max_sec"] and ok >= CRITERIA["ok_rate"] else "미달"
+        say(f"  {mode.upper()}: 최대 {worst:.1f}초, 200 {ok:.0%} → {verdict}")
+    if "group" in samples:
+        say("\n그룹 함정(group) 샘플: 규칙 정답 = [1] [3] [4] (정렬된 앞 3개가 아님). 모델이 [1] [2] [3] 을 고르면 [2] 는 같은 그룹이라 빠진다.")
+        for mode in modes:
+            rs = rows[(mode, "group")]
+            first3 = sum(1 for r in rs if len(r["first_attempt_raw"]) >= 2 and r["first_attempt_raw"][1] == "delta_app")
+            say(f"  {mode.upper()}: 첫 시도에서 [2](같은 그룹)를 고름 {first3}/{len(rs)}, 최종 규칙 정답 {sum(r['rule_set_ok'] for r in rs)}/{len(rs)}")
     say("\n※ 문장 내용의 정확성(방향은 맞지만 뜻이 틀린 문장 등)은 위 원문을 보고 사람이 확인한다.")
     say("※ 시간은 측정한 PC 기준. 배포 판단은 Vulkan(11·13번) 값으로 한다 (23번 v0.3 2절).")
 
