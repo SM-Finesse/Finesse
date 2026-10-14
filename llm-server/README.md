@@ -5,6 +5,7 @@ Finesse LLM 추론 서버 (FastAPI + llama-cpp-python, Vulkan). 라이트·헤�
 - 담당 브랜치: `llm` (윤세연)
 - 설계 기준: Finesse — LLM/AI 파트 설계 v1.2
 - API: `GET /health`, `POST /v1/comment/light`, `POST /v1/comment/heavy-chapter` (포트 8081)
+- 라이트 6회 호출(34번 문서, 브랜치 `light-6call`): `POST /v1/light/judge` · `/v1/light/select` · `/v1/light/sentence` · `/v1/light/summary` — 백엔드 연동 명세 `docs/light6-backend.md`, 측정 `python -m tools.measure_light6`
 
 ## 재현 기준 버전 — `llm-base-v1` (파인튜닝 전 베이스 모델)
 

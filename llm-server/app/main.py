@@ -17,6 +17,16 @@ heavy 대체 문장 (v3.4, 10/12)
   LLM_LIGHT_SIZE_HINT, LLM_LIGHT_SHUFFLE (기본 off): light-v3(LLM_LIGHT_MODE=v3) 선택 보조 — PM 확인 전 측정용
   LLM_HEAVY_TEMPLATE_CHAPTERS (기본 rivals, v3.5): LLM 을 부르지 않고 바로 서버 문장을 쓰는 챕터 (쉼표 구분,
       빈 값이면 모든 챕터에 LLM 사용). 10/12 실측에서 rivals 는 프롬프트를 바꿔도 2/10 이라 서버 문장으로 둔다.
+
+light 6회 호출 (light-6call, 34번 「라이트 뷰 LLM 호출 구조」 PM 확정안 10/14) — 단계를 잇는 것은 백엔드
+  POST /v1/light/judge     1단계 판정   {candidates:[{stat,value,q1,q3}]}      → {judgments:[{stat,zone,deviation}]}
+  POST /v1/light/select    2단계 선정   {judgments:[...]}                        → {stats:[...]} (우선순위 순, 3개 초과 가능)
+  POST /v1/light/sentence  3단계 개별   {stat,value,zone}                        → {stat,sentence}
+  POST /v1/light/summary   3단계 기본   {items:[{stat,value,zone}] ≤3}           → {light_summary}
+  검증 ①②③(app/light6.py)에 실패하면 502 → 백엔드가 그 호출만 재요청 (34번 5절). 413 은 기존과 같음.
+  LLM_LIGHT6_ATTEMPTS (기본 1): 서버 안에서 다시 생성하는 횟수. 1 이면 재요청은 전부 백엔드가 한다.
+  LLM_LIGHT_MODE=six : 기존 /v1/comment/light 한 번 호출로 6회 흐름을 서버 안에서 순서대로 실행 (임시·연동 시험용,
+      Q1·Q3 는 config/light_quartiles.json, 3단계를 동시에 못 하므로 백엔드 구현보다 느림)
 """
 import logging
 import os
@@ -27,10 +37,31 @@ from fastapi.responses import JSONResponse
 
 from app.fallback import build_fallback
 from app.generator import ContextOverflowError, build_generator
+from app.light6 import (
+    LIGHT6_DECODING,
+    StageError,
+    build_judge,
+    build_select,
+    build_sentence,
+    build_summary,
+    parse_judge,
+    parse_select,
+    parse_sentence,
+    parse_summary,
+)
+from app.light6_flow import Flow6Settings, run_light6
 from app.light_pipeline import LightFailure, LightSettings, run_light
 from app.light_v3 import build_light_v3, process_light_v3
 from app.prompt import build_heavy_messages, build_light_messages
-from app.schemas import HeavyRequest, LightRequest
+from app.schemas import (
+    CANDIDATE_KEYS,
+    HeavyRequest,
+    JudgeRequest,
+    LightRequest,
+    SelectRequest,
+    SentenceRequest,
+    SummaryRequest,
+)
 from app.validation import (
     HeavyResponse,
     Highlight,
@@ -73,7 +104,10 @@ def comment_light(req: LightRequest):
     # ① 요청 검증: FastAPI가 LightRequest로 바꾸면서 자동으로 한다 (실패 시 422)
     if os.getenv("LLM_LIGHT_PROMPT", "v3").lower() == "v2":
         return _comment_light_v2(req)
-    if os.getenv("LLM_LIGHT_MODE", "a").strip().lower() != "v3":
+    mode = os.getenv("LLM_LIGHT_MODE", "a").strip().lower()
+    if mode == "six":
+        return _comment_light_six(req)
+    if mode != "v3":
         return _comment_light_v4(req)
     # ② 프롬프트 조립 (light-v3: 번호·한국어 이름·방향을 붙인 후보 목록, app/light_v3.py)
     ctx = build_light_v3(req)
@@ -130,6 +164,112 @@ def _comment_light_v2(req: LightRequest):
     if issues:
         logger.warning("내용 규칙 위반 generator=%s: %s", generator.name, issues)
     return resp
+
+
+# ---------------- light 6회 호출: 단계별 엔드포인트 ----------------
+def _light6_attempts() -> int:
+    return max(1, int(os.getenv("LLM_LIGHT6_ATTEMPTS", "1")))
+
+
+def _light6_generate(stage: str, messages, parse):
+    """생성 → 해석·검증. 통과하면 parse 결과, LLM_LIGHT6_ATTEMPTS 번 모두 실패하면 502."""
+    last = ""
+    for attempt in range(1, _light6_attempts() + 1):
+        try:
+            result = generator.generate_text(f"light6:{stage}", messages, LIGHT6_DECODING[stage])
+        except ContextOverflowError as e:
+            logger.warning("light6 %s 입력 길이 초과: %s", stage, e)
+            raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
+        try:
+            return parse(result.text)
+        except StageError as e:
+            last = str(e)
+            logger.warning("light6 %s 검증 실패 %d/%d finish=%s: %s", stage, attempt, _light6_attempts(),
+                           result.finish_reason, e)
+    raise HTTPException(status_code=502, detail=f"LLM 출력 형식 오류 ({stage}: {last})")
+
+
+@app.post("/v1/light/judge")
+def light_judge(req: JudgeRequest):
+    given = {c.stat: c for c in req.candidates}
+    if len(given) != len(req.candidates):
+        raise HTTPException(status_code=422, detail="같은 stat 이 두 번 들어옴")
+    # 후보 고정 순서(34번 3.0절 동점 규칙과 같은 순서). 요청에 없는 지표는 판정하지 않는다.
+    cands = [(k, given[k].value, given[k].q1, given[k].q3) for k in CANDIDATE_KEYS if k in given]
+    if any(q3 <= q1 for _, _, q1, q3 in cands):
+        raise HTTPException(status_code=422, detail="Q1 < Q3 이어야 함")
+
+    def parse(text):
+        r = parse_judge(text, cands)
+        if r.errors:                                   # 검증 ① — 정답과 다르면 덮어쓰지 않고 재요청(502)
+            raise StageError(f"판정 불일치 {len(r.errors)}개 {r.errors[:3]}")
+        return {"judgments": [{"stat": k, "zone": r.judgments[k][0], "deviation": r.judgments[k][1]}
+                              for k, *_ in cands]}
+
+    return _light6_generate("judge", build_judge(cands), parse)
+
+
+@app.post("/v1/light/select")
+def light_select(req: SelectRequest):
+    order = {k: i for i, k in enumerate(CANDIDATE_KEYS)}
+    jl = sorted(((j.stat, j.zone, j.deviation) for j in req.judgments), key=lambda t: order[t[0]])
+    target = min(3, sum(1 for _, z, _ in jl if z != "없음"))
+    if target == 0:
+        raise HTTPException(status_code=422, detail="고를 수 있는 지표가 없음 (모두 '없음')")
+
+    def parse(text):
+        r = parse_select(text, jl)                     # 검증 ② — 11개 키·서로 다름·'없음' 아님
+        if len(r.stats) < target:
+            raise StageError(f"선정 {len(r.stats)}개 < {target} (고름 {r.raw}, 뺀 것 {r.dropped})")
+        return {"stats": r.stats}
+
+    return _light6_generate("select", build_select(jl), parse)
+
+
+@app.post("/v1/light/sentence")
+def light_sentence(req: SentenceRequest):
+    def parse(text):
+        s, why = parse_sentence(text, req.stat, req.value)   # 검증 ③
+        if not s:
+            raise StageError(why)
+        return {"stat": req.stat, "sentence": s}
+
+    return _light6_generate("sentence", build_sentence(req.stat, req.value), parse)
+
+
+@app.post("/v1/light/summary")
+def light_summary(req: SummaryRequest):
+    items = [(i.stat, i.value) for i in req.items]
+    if len({k for k, _ in items}) != len(items):
+        raise HTTPException(status_code=422, detail="같은 stat 이 두 번 들어옴")
+
+    def parse(text):
+        s, why = parse_summary(text, items)                   # 검증 ③
+        if not s:
+            raise StageError(why)
+        return {"light_summary": s}
+
+    return _light6_generate("summary", build_summary(items), parse)
+
+
+def _comment_light_six(req: LightRequest):
+    """LLM_LIGHT_MODE=six — 6회 흐름을 서버 안에서 순서대로 (백엔드 단계별 구현 전 임시·연동 시험용)."""
+    values = {k: None for k in CANDIDATE_KEYS} | req.available_stats()
+    try:
+        out = run_light6(values, generator, Flow6Settings(attempts=max(2, _light6_attempts())))
+    except ContextOverflowError as e:
+        raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
+    for c in out.calls:
+        logger.info("light6 %s#%d %.1fs finish=%s → %s", c.stage, c.attempt, c.sec, c.finish, c.result)
+    hl = [(k, s) for k, s in out.highlights if s]
+    if out.status != 200 or not hl:
+        logger.warning("light6 실패 %.1fs: %s", out.elapsed, out.error or "문장 0개")
+        raise HTTPException(status_code=502, detail="LLM 출력 형식 오류")
+    from app.light6 import NAMES
+    summary = out.summary or f"이번 전적에서 두드러진 지표는 {', '.join(NAMES[k] for k, _ in hl)}입니다."
+    logger.info("light6 선택 %s (규칙 정답 %s) 문장 %d/3 기본=%s %.1fs", out.picks, out.expected, len(hl),
+                "모델" if out.summary else "서버", out.elapsed)
+    return LightResponse(light_summary=summary, highlights=[Highlight(stat=k, sentence=s) for k, s in hl])
 
 
 @app.post("/v1/comment/heavy-chapter", response_model=HeavyResponse)

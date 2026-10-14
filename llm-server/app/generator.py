@@ -75,8 +75,10 @@ class MockGenerator:
         return GenerationResult(text="\n".join(lines), finish_reason="stop")
 
     def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict) -> GenerationResult:
-        """light-v4 (A/B/C) 공통 호출. label 로 어떤 단계인지 구분해 모양만 흉내 낸다."""
+        """light-v4 (A/B/C)·light-6call 공통 호출. label 로 어떤 단계인지 구분해 모양만 흉내 낸다."""
         user = messages[-1]["content"]
+        if label.startswith("light6:"):
+            return GenerationResult(text=_mock_light6(label, user), finish_reason="stop")
         if label == "light:comment":
             name = re.search(r"^지표: ([^(]+)", user, re.M).group(1).strip()
             direction = re.search(r"^방향: (.+)$", user, re.M).group(1).strip()
@@ -101,6 +103,36 @@ class MockGenerator:
     def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
         # heavy-draft-v2: 모델은 각주 문장만 쓴다 (JSON 은 서버가 만든다)
         return GenerationResult(text="[Mock] 실제 모델이 만든 각주가 아닙니다.", finish_reason="stop")
+
+
+def _mock_light6(label: str, user: str) -> str:
+    """light-6call Mock — 입력에서 정답을 계산해 형식에 맞게 낸다 (흐름·연동 시험용, 실제 모델 아님)."""
+    from app.light6 import NAMES, example_sentence, expected_selection, judge_one
+    by_name = {v: k for k, v in NAMES.items()}
+    if label == "light6:judge":
+        out = []
+        for row in user.splitlines():
+            m = re.match(r"\[(\d+)\] (.+?): (값 없음|값 (\S+)), Q1 (\S+), Q3 (\S+),", row)
+            if m:
+                v = None if m.group(4) is None else float(m.group(4).rstrip(","))
+                z, d = judge_one(v, float(m.group(5).rstrip(",")), float(m.group(6).rstrip(",")))
+                out.append(f"[{m.group(1)}] | {z} | {'-' if d is None else f'{d:+.1f}'}")
+        return "\n".join(out)
+    if label == "light6:select":
+        judged, num = {}, {}
+        for row in user.splitlines():
+            m = re.match(r"\[(\d+)\] (.+?) \(그룹: .+?\): 영역 (\S+), 벗어난 정도 (\S+)", row)
+            if m:
+                k = by_name[m.group(2)]
+                judged[k] = (m.group(3).rstrip(","), None if m.group(4) == "-" else float(m.group(4)))
+                num[k] = m.group(1)
+        return ", ".join(f"[{num[k]}]" for k in expected_selection(judged))
+    if label == "light6:sentence":
+        k = by_name[re.search(r"^지표: (.+)$", user, re.M).group(1)]
+        v = float(re.search(r"^값: (\S+)$", user, re.M).group(1))
+        return example_sentence(k, v)
+    names = re.findall(r"^- (.+?): 값", user, re.M)
+    return f"맞붙은 상대들에 비해 {', '.join(names)} 쪽이 두드러집니다. 모의 응답이라 실제 모델의 요약이 아닙니다."
 
 
 def light_response_schema(available: list[str]) -> dict:
