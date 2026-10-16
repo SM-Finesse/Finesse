@@ -25,6 +25,16 @@ services:
       # application.yml 의 llm.servers 를 덮어씀 (쉼표로 구분)
       LLM_SERVERS: ${LLM_SERVERS:-http://192.168.0.111:8081,http://192.168.0.113:8081}
       TZ: Asia/Seoul
+    # 멈춤(응답 없음) 감지용. JRE 이미지에 curl/wget이 없어 bash /dev/tcp 로 HTTP 응답 첫 줄만 확인.
+    # 3번 연속 실패 → unhealthy → 24번 autoheal 컨테이너가 재시작 (모니터링 compose 쪽)
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET / HTTP/1.0\\r\\n\\r\\n' >&3 && timeout 5 head -c 12 <&3 | grep -q HTTP"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      autoheal: "true"
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -39,6 +49,15 @@ services:
       # 같은 PC에 backend 도 띄우면 기본값(http://backend:8081) 그대로, 다른 PC면 그 PC 주소
       BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-http://backend:8081}
       TZ: Asia/Seoul
+    # nginx:alpine 에 들어 있는 busybox wget 으로 첫 화면만 확인 (/api 는 안 건드림)
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      autoheal: "true"
     depends_on:
       backend:
         condition: service_started
