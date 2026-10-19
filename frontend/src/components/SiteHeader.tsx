@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useI18n } from '../i18n/context'
 import { LogoMark } from './LogoMark'
-import { LangSwitch } from './Switches'
+import { LANG_SWITCH_ENABLED, LangSwitch } from './Switches'
 
 /** actions가 있으면(결과 화면) OFFICIAL API 표시 대신 뷰 스위치·전적 갱신 같은 조작을 둔다 */
 export function SiteHeader({ onHome, actions }: { onHome?: () => void; actions?: ReactNode }) {
@@ -22,7 +22,7 @@ export function SiteHeader({ onHome, actions }: { onHome?: () => void; actions?:
           <div className={logoCls}>{logo}</div>
         )}
         <div className="ml-auto flex items-center gap-3.5">
-          <LangSwitch />
+          {LANG_SWITCH_ENABLED && <LangSwitch />}
           <span className={actions ? 'hidden text-[13px] text-[#7A8A99] xl:inline' : 'hidden text-[13px] text-[#7A8A99] lg:inline'}>{t.disclaimer}</span>
           {actions ?? (
             <span className="hidden items-center gap-[7px] rounded border border-line px-[9px] py-1 font-mono text-[10px] tracking-[.12em] text-faint sm:inline-flex">
