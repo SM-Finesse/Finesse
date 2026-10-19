@@ -85,6 +85,7 @@ describe('ReportPage — 헤비 뷰', () => {
     await ready()
 
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(TITLES)
+    expect(screen.getByText('헤비 · 8개 챕터')).toBeInTheDocument()
     /* 자세히 보기는 큰 차트가 있는 챕터만 — 01 · 02 · 05(5구간이 왔을 때) · 07 */
     expect(screen.getAllByRole('button', { name: '자세히 보기' })).toHaveLength(4)
 
@@ -490,6 +491,9 @@ describe('ReportPage — 헤비 뷰', () => {
     const meter = await screen.findByRole('region', { name: '분석이 열리기까지' })
     expect(within(meter).getByText('3')).toBeInTheDocument()
     expect(within(meter).getByText(/헤비 8개 챕터와 챕터별 AI 코멘트가 열립니다/)).toBeInTheDocument()
+    /* 뷰 배지도 표본 부족 문구로 — 잠긴 챕터를 '8개 챕터'라고 하지 않는다 */
+    expect(screen.getByText('헤비 · 표본 부족')).toBeInTheDocument()
+    expect(screen.queryByText('헤비 · 8개 챕터')).not.toBeInTheDocument()
 
     const locked = screen.getByRole('region', { name: '최근 1년 랭크 경기 10판이 쌓이면 열리는 챕터' })
     expect(within(locked).getAllByRole('listitem')).toHaveLength(8)

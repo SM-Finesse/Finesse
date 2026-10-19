@@ -65,7 +65,7 @@ export function LineChart({
   data,
   series,
   h = 300,
-  every = 1,
+  ticks,
   yfmt = (v) => num(v),
   minStep = 1,
   aria,
@@ -75,7 +75,8 @@ export function LineChart({
   data: LinePoint[]
   series: LineSeries[]
   h?: number
-  every?: number
+  /** x축 글자를 찍을 점 위치(0부터) — 없으면 모든 점 */
+  ticks?: number[]
   yfmt?: (v: number) => string
   /** 눈금 간격 하한 — 소수 값 차트는 더 작게 */
   minStep?: number
@@ -150,7 +151,7 @@ export function LineChart({
             </g>
           ))}
           {data.map((d, i) =>
-            i % every === 0 || i === n - 1 ? (
+            !ticks || ticks.includes(i) ? (
               <text key={i} x={X(i)} y={h - 12} textAnchor="middle" {...AXIS}>
                 {d.label}
               </text>
