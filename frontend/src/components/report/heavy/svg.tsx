@@ -410,6 +410,7 @@ export function ColumnChart({
   mb = 46,
   max = 100,
   bw: bwMax = 96,
+  ticks,
   note,
   aria,
   trend = items.length > 2,
@@ -420,6 +421,8 @@ export function ColumnChart({
   mb?: number
   max?: number
   bw?: number
+  /** Y축 눈금 값 — 없으면 max를 4~5등분 */
+  ticks?: number[]
   note?: string
   aria: string
   trend?: boolean
@@ -433,12 +436,22 @@ export function ColumnChart({
   const cellH = 14
   const gap = 3
   const cxOf = (i: number) => m.l + slot * i + slot / 2
-  const cellsOf = (v: number) => (v > 0 ? Math.max(1, Math.floor(((Math.min(v, max) / max) * ih + gap) / (cellH + gap))) : 0)
-  /* 실제로 쌓인 칸의 꼭대기 — 값 글자와 점선이 같은 높이를 쓴다 */
-  const topOf = (v: number) => {
-    const cells = cellsOf(v)
-    return m.t + ih - cells * (cellH + gap) + (cells ? gap : 0)
+  /* 막대 높이는 축 눈금과 같은 비율 — 0보다 크면 아무리 작아도 얇게 한 칸은 보이게 */
+  const heightOf = (v: number) => (v > 0 ? Math.max(4, (Math.min(v, max) / max) * ih) : 0)
+  /* 아래부터 꽉 찬 칸을 쌓고, 맨 위 칸은 남은 높이만큼만 — 칸을 통째로 버리면 막대가 축 눈금보다 낮아진다 */
+  const cellsOf = (v: number) => {
+    const hh = heightOf(v)
+    const out: { y: number; h: number }[] = []
+    let used = 0
+    while (hh - used >= cellH) {
+      out.push({ y: m.t + ih - used - cellH, h: cellH })
+      used += cellH + gap
+    }
+    if (hh - used > 0.5) out.push({ y: m.t + ih - hh, h: hh - used })
+    return out
   }
+  /* 막대 꼭대기 — 값 글자와 점선이 같은 높이를 쓴다 */
+  const topOf = (v: number) => m.t + ih - heightOf(v)
 
   return (
     <Fit>
@@ -451,13 +464,14 @@ export function ColumnChart({
         onClick={onOpen}
       >
         {/* 50%축은 10 단위(0·10·…·50), 100%축은 25 단위 — 12.5 · 37.5처럼 반올림된 눈금이 나오지 않게 */}
-        {(max % 4 === 0 ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.2, 0.4, 0.6, 0.8, 1]).map((f) => {
-          const y = m.t + ih - f * ih
+        {(ticks ?? (max % 4 === 0 ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.2, 0.4, 0.6, 0.8, 1]).map((f) => max * f)).map((t) => {
+          const y = m.t + ih - (t / max) * ih
           return (
-            <g key={f}>
+            <g key={t}>
               <line x1={m.l} y1={y} x2={W - m.r} y2={y} stroke="#223749" />
               <text x={m.l - 10} y={y + 4} textAnchor="end" {...AXIS}>
-                {(max * f).toFixed(0)}
+                {/* 천장 눈금은 36.7처럼 소수 한 자리까지 */}
+                {+t.toFixed(1)}
               </text>
             </g>
           )
@@ -465,22 +479,23 @@ export function ColumnChart({
         {items.map((it, i) => {
           const cx = cxOf(i)
           const c = it.c ?? rateColor(it.v)
-          /* 0%면 막대를 그리지 않는다. 0보다 크면 아무리 작아도 한 칸은 보이게 */
+          /* 0%면 막대를 그리지 않는다 */
           const cells = cellsOf(it.v)
-          /* 값 글자는 실제로 쌓인 칸 위에 — 한 칸이 값보다 높게 그려져도 겹치지 않게 */
           const top = topOf(it.v)
           return (
             <g key={it.k}>
-              {Array.from({ length: cells }, (_, k) => {
-                const cy = m.t + ih - (k + 1) * (cellH + gap) + gap
-                return (
-                  <g key={k}>
-                    <rect x={cx - bw / 2} y={cy} width={bw} height={cellH} rx={2} fill={c} />
-                    <rect x={cx - bw / 2} y={cy} width={bw} height={2.5} fill="#FFFFFF" opacity={0.24} />
-                    <rect x={cx - bw / 2} y={cy + cellH - 2.5} width={bw} height={2.5} fill="#000000" opacity={0.28} />
-                  </g>
-                )
-              })}
+              {cells.map((cell, k) => (
+                <g key={k}>
+                  <rect x={cx - bw / 2} y={cell.y} width={bw} height={cell.h} rx={Math.min(2, cell.h / 2)} fill={c} />
+                  {/* 윗면 빛·아랫면 그림자 — 잘린 얇은 칸에는 넣지 않는다 */}
+                  {cell.h >= 8 && (
+                    <>
+                      <rect x={cx - bw / 2} y={cell.y} width={bw} height={2.5} fill="#FFFFFF" opacity={0.24} />
+                      <rect x={cx - bw / 2} y={cell.y + cell.h - 2.5} width={bw} height={2.5} fill="#000000" opacity={0.28} />
+                    </>
+                  )}
+                </g>
+              ))}
               <text x={cx} y={top - 9} textAnchor="middle" {...AXIS} fontSize={14} fill={it.vc ?? '#C7D5E0'}>
                 {`${it.v.toFixed(1)}%`}
               </text>

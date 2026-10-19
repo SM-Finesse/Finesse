@@ -3,7 +3,7 @@ import { HEAVY_CHAPTERS, type HeavyChapterId, type StatsResponse } from '../../a
 import { footStateOf, type HeavyState } from '../../hooks/useHeavyComment'
 import { useI18n } from '../../i18n/context'
 import type { StatInfo } from '../../i18n/strings'
-import { gameTicks } from '../../lib/chart'
+import { ceilingTicks, comebackCeiling, gameTicks } from '../../lib/chart'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
@@ -142,7 +142,8 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   const cb = ev('comeback_rate')
   const ca = ev('comeback_rate_against')
   const cbNet = ev('delta_comeback')
-  const cbMax = Math.max(cb?.value ?? 0, ca?.value ?? 0) * 100 <= 50 ? 50 : 100
+  /* 천장은 두 비율 중 큰 값에 따라 20~40% 사이에서 이어서 오르고, 40%를 넘으면 그 값 */
+  const cbMax = comebackCeiling(Math.max(cb?.value ?? 0, ca?.value ?? 0) * 100)
   /* 비율 아래에 "몇 번 중 몇 번" — 표본이 안 왔으면 설명만 */
   const cs = d?.comeback_samples
   const sampled = (sub: string, total?: number, hit?: number) => (total !== undefined && hit !== undefined ? `${sub} · ${h.comeback.of(total, hit)}` : sub)
@@ -286,8 +287,9 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
               h={250}
               mb={62}
               max={cbMax}
+              ticks={ceilingTicks(cbMax)}
               bw={120}
-              note={h.comeback.note(cbMax)}
+              note={h.comeback.note(Math.round(cbMax * 10) / 10)}
               aria={h.comeback.aria}
             />
           </>
