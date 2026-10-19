@@ -66,7 +66,7 @@ export interface ReportStrings {
   updated: (ago: string) => string
   officialApi: string
   xpProgress: (pct: number) => string
-  viewTag: { light: string; lightCold: string; heavy: string }
+  viewTag: { light: string; lightCold: string; heavy: string; heavyCold: string }
   viewSwitchAria: string
   keyRefresh: string
   keyBack: string
@@ -333,7 +333,7 @@ const ko: Strings = {
     updated: (ago) => `${ago} 갱신`,
     officialApi: '공식 API',
     xpProgress: (pct) => `다음 레벨까지 ${pct}%`,
-    viewTag: { light: '라이트 · 고정 지표 + 하이라이트 3', lightCold: '라이트 · 표본 부족', heavy: '헤비 · 8개 챕터' },
+    viewTag: { light: '라이트 · 고정 지표 + 하이라이트 3', lightCold: '라이트 · 표본 부족', heavy: '헤비 · 8개 챕터', heavyCold: '헤비 · 표본 부족' },
     viewSwitchAria: '뷰 전환 — 끄면 라이트, 켜면 헤비',
     keyRefresh: '갱신',
     keyBack: '처음으로',
@@ -750,7 +750,7 @@ const en: Strings = {
     updated: (ago) => `updated ${ago}`,
     officialApi: 'official API',
     xpProgress: (pct) => `${pct}% to next level`,
-    viewTag: { light: 'Light · fixed metrics + 3 highlights', lightCold: 'Light · too few games', heavy: 'Heavy · 8 chapters' },
+    viewTag: { light: 'Light · fixed metrics + 3 highlights', lightCold: 'Light · too few games', heavy: 'Heavy · 8 chapters', heavyCold: 'Heavy · too few games' },
     viewSwitchAria: 'View — off is Light, on is Heavy',
     keyRefresh: 'Refresh',
     keyBack: 'Home',

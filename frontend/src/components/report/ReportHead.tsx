@@ -37,7 +37,7 @@ export function ReportHead({ data, view, keys, viewSwitch }: { data: StatsRespon
   const joined = p.joined_at ? timeAgo(p.joined_at, lang) : null
   const playTime = typeof p.play_time_seconds === 'number' && p.play_time_seconds >= 0 ? r.playTime(num(Math.floor(p.play_time_seconds / 3600))) : null
   const updated = data.updated_at ? timeAgo(data.updated_at, lang) : null
-  const tag = view === 'heavy' ? r.viewTag.heavy : data.cold_start ? r.viewTag.lightCold : r.viewTag.light
+  const tag = view === 'heavy' ? (data.cold_start ? r.viewTag.heavyCold : r.viewTag.heavy) : data.cold_start ? r.viewTag.lightCold : r.viewTag.light
   /* 분석한 경기 수는 AI READOUT 코멘트 아래로 옮겼다 */
   /* 플레이 시간만 조금 진하게 — 나머지는 흐린 안내 글자 그대로 */
   const meta: ReactNode[] = [

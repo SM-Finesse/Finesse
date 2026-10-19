@@ -3,6 +3,7 @@ import { HEAVY_CHAPTERS, type HeavyChapterId, type StatsResponse } from '../../a
 import { footStateOf, type HeavyState } from '../../hooks/useHeavyComment'
 import { useI18n } from '../../i18n/context'
 import type { StatInfo } from '../../i18n/strings'
+import { gameTicks } from '../../lib/chart'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
 import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
@@ -337,7 +338,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       const full: LinePoint[] = series.map((v, i) => ({ label: String(i + 1), head: `GAME ${i + 1}`, values: { tr: v } }))
       body = (
         <>
-          <LineChart data={full} series={trSeries} h={340} every={Math.max(1, Math.round(full.length / 15))} aria={h.trend.aria} recent={bandAt(1)} />
+          <LineChart data={full} series={trSeries} h={340} ticks={gameTicks(full.length).map((g) => g - 1)} aria={h.trend.aria} recent={bandAt(1)} />
           <Legend items={trLegend} />
           <DataTable head={[h.trend.game, 'TR']} rows={series.map((v, i) => [i + 1, num(v, 1)])} scroll={460} note={h.trend.tableNote(series.length)} />
         </>
