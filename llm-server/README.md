@@ -6,28 +6,29 @@ Finesse LLM 추론 서버 (FastAPI + llama-cpp-python, Vulkan). 라이트·헤�
 - 설계 기준: Finesse — LLM/AI 파트 설계 v1.2
 - API: `GET /health`, `POST /v1/comment/light`, `POST /v1/comment/heavy-chapter` (포트 8081)
 
-## 재현 기준 버전 — `llm-base-v1` (파인튜닝 전 베이스 모델)
+## 재현 기준 버전 — `llm-base-v2` (파인튜닝 전 베이스 모델)
 
 라이트·헤비는 한 서버(같은 모델·같은 코드)라 태그도 하나로 매긴다. 각 태그의 라이트·헤비 프롬프트 버전은 아래 표와
 `app/prompt.py` 의 `PROMPT_VERSION`(라이트)·`HEAVY_PROMPT_VERSION`(헤비)으로 확인한다.
 
 | 태그 | 날짜 | 라이트 | 헤비 |
 |---|---|---|---|
-| `llm-base-v1` (현재 기준) | 2026-10-12 | `light-baseline-v2-trsum` (v0 과 같음) | `heavy-v3.6-norules` — 첫 저장. 챕터별 프롬프트, 서버 내용 검사, 대체 문장, 라이벌 서버 문장 |
+| `llm-base-v2` (현재 기준) | 2026-10-19 | `light-baseline-v2-trsum` (v1 과 같음) | `heavy-v4.3-guide31r` — 「코멘트 작성 가이드라인」(31번, 10/16 개정판) 반영. 비교 표현 5개·서술어, %·%p 금지, 보통 범위로 강도 조절, 검사 추가. 실측 약 70%(rivals 제외) |
+| `llm-base-v1` | 2026-10-12 | `light-baseline-v2-trsum` (v0 과 같음) | `heavy-v3.6-norules` — 첫 저장. 챕터별 프롬프트, 서버 내용 검사, 대체 문장, 라이벌 서버 문장 |
 | `llm-base-v0` | 2026-10-08 | `light-baseline-v2-trsum` — 첫 저장, 실서비스 버전 | 초안 (사용하지 않음) |
 
 모델·wheel·패키지는 두 태그가 같다. 코드만 다르다.
 
 | 항목 | 값 |
 |---|---|
-| 서버 코드 | 태그 `llm-base-v1` |
+| 서버 코드 | 태그 `llm-base-v2` |
 | 모델 | `qwen2.5-1.5b-instruct-q4_k_m.gguf` (1.12GB) — Qwen 공식 `Qwen/Qwen2.5-1.5B-Instruct-GGUF` 원본 |
 | 모델 SHA256 | `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e` |
 | llama-cpp-python | 0.3.35 Vulkan 공식 wheel, SHA256 `fa06c0c184801410be1ffdcc32cf5b57d92b23a6dff9e90e5870dea8710a233c` |
 | Python | 3.11.9 (64bit) |
 | 확인 환경 | Windows, GTX 1050 (VRAM 2GB), NVIDIA 드라이버 582.42 — 학교 11번·13번 PC |
 | 실행 설정 | `LLM_JSON_MODE=off`, `LLM_REPEAT_PENALTY=1.1`, n_ctx 2048, 디코딩 temperature 0.4 / top_p 0.9 / max_tokens light 377·heavy 119 |
-| 헤비 설정 (v1, 기본값) | `LLM_HEAVY_ATTEMPTS=2`(검사 실패 시 재생성 횟수), `LLM_HEAVY_FALLBACK=on`(모두 실패하면 서버 대체 문장), `LLM_HEAVY_TEMPLATE_CHAPTERS=rivals`(LLM 없이 서버 문장) — 설명은 `app/main.py` |
+| 헤비 설정 (v1~, 기본값) | `LLM_HEAVY_ATTEMPTS=2`(검사 실패 시 재생성 횟수), `LLM_HEAVY_FALLBACK=on`(모두 실패하면 서버 대체 문장), `LLM_HEAVY_TEMPLATE_CHAPTERS=rivals`(LLM 없이 서버 문장) — 설명은 `app/main.py` |
 
 모델 파일과 wheel 백업본은 담당자 Google Drive에 있다 (링크는 재현 가이드 문서 참고, 레포에는 넣지 않음).
 
@@ -41,7 +42,7 @@ Finesse LLM 추론 서버 (FastAPI + llama-cpp-python, Vulkan). 라이트·헤�
    git clone https://github.com/SM-Finesse/Finesse.git
    cd C:\Finesse
    git switch llm
-   git checkout llm-base-v1      # 재현 기준 버전으로 고정 (최신을 쓰려면 생략)
+   git checkout llm-base-v2      # 재현 기준 버전으로 고정 (최신을 쓰려면 생략)
    cd llm-server
    ```
 4. **가상환경 + 설치**
