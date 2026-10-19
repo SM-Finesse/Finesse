@@ -34,6 +34,11 @@ describe('gameTicks — X축', () => {
   it('양 끝에 바짝 붙는 배수는 뺀다', () => {
     expect(gameTicks(41)).toEqual([1, 10, 20, 30, 41])
     expect(gameTicks(11)).toEqual([1, 4, 6, 8, 11])
+    /* 헤비 자세히 보기에서 끝 숫자가 겹치던 판수 (151·153, 99·100, 196·200) */
+    expect(gameTicks(153)).toEqual([1, 50, 100, 153])
+    expect(gameTicks(100)).toEqual([1, 20, 40, 60, 80, 100])
+    expect(gameTicks(200)).toEqual([1, 50, 100, 150, 200])
+    expect(gameTicks(253)).toEqual([1, 100, 200, 253])
   })
 
   it('경기가 적으면 전부', () => {
