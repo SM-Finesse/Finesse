@@ -41,7 +41,7 @@ public class StatsController {
             content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @GetMapping("/api/v1/stats/{username}")
     public StatsResponse getStats(
-            @Parameter(description = "TETR.IO 유저명 (대소문자 무관, 소문자로 정규화)", example = "icly")
+            @Parameter(description = "TETR.IO 유저명 (대소문자 무관, 소문자로 정규화)", example = "example_user")
             @PathVariable String username,
             @Parameter(description = "true면 캐시를 무시하고 다시 계산 (comment 캐시도 함께 무효화)")
             @RequestParam(defaultValue = "false") boolean refresh) {

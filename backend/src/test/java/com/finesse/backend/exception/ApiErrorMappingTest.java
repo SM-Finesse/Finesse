@@ -37,7 +37,7 @@ class ApiErrorMappingTest {
 
     @Test
     void 필수_파라미터_scope가_없으면_공통_포맷_400() throws Exception {
-        mvc(mock(CommentService.class)).perform(get("/api/v1/comment/icly"))
+        mvc(mock(CommentService.class)).perform(get("/api/v1/comment/test_user"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("BAD_REQUEST")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("trace"))));
@@ -100,7 +100,7 @@ class ApiErrorMappingTest {
 
     @Test
     void 잘못된_scope는_기존처럼_BAD_REQUEST() throws Exception {
-        mvc(mock(CommentService.class)).perform(get("/api/v1/comment/icly").param("scope", "medium"))
+        mvc(mock(CommentService.class)).perform(get("/api/v1/comment/test_user").param("scope", "medium"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("BAD_REQUEST")));
     }
@@ -132,7 +132,7 @@ class ApiErrorMappingTest {
         CommentService service = mock(CommentService.class);
         when(service.getLight(anyString())).thenThrow(new IllegalStateException("내부 상태 노출되면 안 됨"));
 
-        mvc(service).perform(get("/api/v1/comment/icly").param("scope", "light"))
+        mvc(service).perform(get("/api/v1/comment/test_user").param("scope", "light"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("INTERNAL_ERROR")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("내부 상태"))));
@@ -143,7 +143,7 @@ class ApiErrorMappingTest {
         MockMvc mvc = MockMvcBuilders.standaloneSetup(new StatsController(mock(StatsService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        mvc.perform(get("/api/v1/stats/icly").param("refresh", "abc"))
+        mvc.perform(get("/api/v1/stats/test_user").param("refresh", "abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("BAD_REQUEST")));
     }
