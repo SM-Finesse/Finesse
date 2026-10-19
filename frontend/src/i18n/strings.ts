@@ -352,7 +352,7 @@ const ko: Strings = {
       apmSub: '분당 공격',
       ppsSub: '초당 블록',
       vsSub: '종합 지표',
-      note: (n) => `값 아래 증감은 최근 ${n}판 평균을 그 이전 경기 평균과 비교한 변화율(%)입니다.`,
+      note: (n) => `값 아래 증감은 최근 ${n}판을 그 이전 경기와 비교한 값입니다 — 승률은 승률 차(%p), 나머지는 평균 변화율(%).`,
     },
     ai: {
       loading: '코멘트 생성 중… 통계는 이미 표시됨',
@@ -769,7 +769,7 @@ const en: Strings = {
       apmSub: 'Attack per minute',
       ppsSub: 'Pieces per second',
       vsSub: 'Composite',
-      note: (n) => `The change under each value compares your last ${n} games with the games before them (% change).`,
+      note: (n) => `The change under each value compares your last ${n} games with the games before them — win rate in percentage points (%p), the rest as % change.`,
     },
     ai: {
       loading: 'Generating comment… stats are already shown',

@@ -22,6 +22,19 @@ export function signed(v: number, decimals: number): string {
   return `${v > 0 ? '+' : '−'}${abs}`
 }
 
+/**
+ * 승률 증감(%p) — 백엔드 wr_delta_pct는 최근 n판 승률 R과 나머지 판 승률 S의 변화율 (R − S) / S × 100이라,
+ * 분석한 N판 전체 승률 W와 함께 R − S를 거꾸로 푼다. W·N = n·R + (N − n)·S, R = S(1 + r) → S = W·N / (N + n·r).
+ * 나머지 판 승률이 0%면 백엔드가 변화율을 0으로 보내 0%p로 나온다. 풀 수 없는 값이면 null.
+ */
+export function winRateDeltaPp(winRate: number, matches: number, recent: number, deltaPct: number): number | null {
+  if (!(recent > 0 && matches > recent)) return null
+  const r = deltaPct / 100
+  const denom = matches + recent * r
+  if (!(denom > 0)) return null
+  return ((winRate * matches) / denom) * r * 100
+}
+
 export const num = (v: number, decimals = 0) =>
   v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
 

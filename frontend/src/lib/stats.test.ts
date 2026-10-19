@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DeltaMetrics } from '../api/types'
-import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, linkSummary, numOrDash, rankLabel, readable, signed, timeAgo, trendOf } from './stats'
+import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, linkSummary, numOrDash, rankLabel, readable, signed, timeAgo, trendOf, winRateDeltaPp } from './stats'
 
 const DELTA: DeltaMetrics = {
   tr_trend_delta: 12.34,
@@ -200,5 +200,24 @@ describe('linkSummary — 총평 구절 ↔ 하이라이트 카드', () => {
       ['delta_opener', 'Opener is strong'],
       ['delta_vs_apm', 'defense lags'],
     ])
+  })
+})
+
+describe('winRateDeltaPp — 승률 변화율(%)을 승률 차(%p)로', () => {
+  it('최근 30판 21승(70%) · 나머지 70판 35승(50%) → 변화율 +40% = +20%p', () => {
+    expect(winRateDeltaPp(56 / 100, 100, 30, 40)).toBeCloseTo(20, 9)
+  })
+
+  it('최근 30판 12승(40%) · 나머지 70판 42승(60%) → 변화율 −33.3% = −20%p', () => {
+    expect(winRateDeltaPp(54 / 100, 100, 30, (-1 / 3) * 100)).toBeCloseTo(-20, 9)
+  })
+
+  it('변화가 없으면 0%p', () => {
+    expect(winRateDeltaPp(0.6, 100, 30, 0)).toBe(0)
+  })
+
+  it('나눌 구간이 없으면 null', () => {
+    expect(winRateDeltaPp(0.5, 30, 30, 10)).toBeNull()
+    expect(winRateDeltaPp(0.5, 100, 0, 10)).toBeNull()
   })
 })
