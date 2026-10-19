@@ -14,12 +14,12 @@ class RawMatchParserTest {
     private static final String PAGE = """
         {"entries":[
           {"_id":"m2","ts":"2026-09-20T10:00:00.000Z",
-           "extras":{"result":"victory","league":{"uid-me":[{"tr":15000.5},{"tr":15010}],"uid-opp":[{"tr":15200},{"tr":15190}]}},
+           "extras":{"result":"victory","league":{"uid-me":[{"tr":15000.5,"rank":"S"},{"tr":15010,"rank":"S"}],"uid-opp":[{"tr":15200},{"tr":15190}]}},
            "otherusers":[{"id":"uid-opp","username":"opp_now"}],
            "results":{
              "leaderboard":[{"id":"uid-me","username":"me_then","stats":{"apm":80.5,"pps":1.8,"vsscore":160.2}},
                             {"id":"uid-opp","username":"opp_then","stats":{"apm":70,"pps":1.6,"vsscore":140}}],
-             "rounds":[[{"id":"uid-opp","alive":false,"stats":{"vsscore":130}},{"id":"uid-me","alive":true,"stats":{"vsscore":150}}],
+             "rounds":[[{"id":"uid-opp","alive":false,"stats":{"vsscore":130}},{"id":"uid-me","alive":true,"stats":{"vsscore":150,"pps":2.1}}],
                        [{"id":"uid-me","alive":false,"stats":{"vsscore":170}},{"id":"uid-opp","alive":true,"stats":{"vsscore":150}}]]},
            "p":{"pri":1,"sec":2,"ter":3}},
           {"_id":"m1","ts":"2026-09-19T10:00:00.000Z",
@@ -53,6 +53,13 @@ class RawMatchParserTest {
     }
 
     @Test
+    void 매치_전_등급을_소문자로_읽고_없으면_null이다() {
+        assertThat(parse(PAGE).matches().get(0).me().rankBefore()).isEqualTo("s");
+        assertThat(parse(PAGE).matches().get(0).opponent().rankBefore()).isNull();
+        assertThat(parse(PAGE).matches().get(1).me().rankBefore()).isNull();   // [null, null]
+    }
+
+    @Test
     void 라운드는_ID로_본인_상대를_찾고_alive로_승패를_정한다() {
         RawMatch m = parse(PAGE).matches().get(0);
 
@@ -60,6 +67,14 @@ class RawMatchParserTest {
         assertThat(m.rounds().get(0).meAlive()).isTrue();
         assertThat(m.rounds().get(0).myVs()).isEqualTo(150.0);
         assertThat(m.rounds().get(1).meAlive()).isFalse();
+    }
+
+    @Test
+    void 라운드_본인_PPS를_읽고_없으면_null이다() {
+        RawMatch m = parse(PAGE).matches().get(0);
+
+        assertThat(m.rounds().get(0).myPps()).isEqualTo(2.1);
+        assertThat(m.rounds().get(1).myPps()).isNull();
     }
 
     @Test

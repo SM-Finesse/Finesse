@@ -2,6 +2,7 @@ package com.finesse.backend.calc.service;
 
 import com.finesse.backend.calc.collector.CollectionStatus;
 import com.finesse.backend.calc.collector.UserSummary;
+import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.StatResult;
 
 /**
@@ -15,8 +16,12 @@ public sealed interface AnalysisOutcome
     /** 정상 분석 */
     record Analyzed(UserSummary summary, StatResult result, AnalysisMeta meta) implements AnalysisOutcome {}
 
-    /** 분석 가능한 매치가 10판 미만 — 통계 계산을 하지 않는다 (3.3·5.8절) */
-    record ColdStartBypass(UserSummary summary, int availableMatches, ColdStartReason reason) implements AnalysisOutcome {}
+    /**
+     * 분석 가능한 매치가 10판 미만 — 통계 계산을 하지 않는다 (3.3·5.8절).
+     * recentWinLoss는 있는 매치만큼 계산한 최근 승패 기록이며, 계산할 매치가 없으면 null (12.2절, v3.6).
+     */
+    record ColdStartBypass(UserSummary summary, int availableMatches, ColdStartReason reason,
+                           RecentWinLossStats recentWinLoss) implements AnalysisOutcome {}
 
     /** 존재하지 않는 TETR.IO 유저 */
     record UserNotFound(String username) implements AnalysisOutcome {}

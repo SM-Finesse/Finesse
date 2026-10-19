@@ -53,20 +53,54 @@ public final class MatchFixtures {
     public static MatchHistory rounds(MatchResult result, boolean... roundWins) {
         List<MatchRound> rounds = new ArrayList<>();
         for (int i = 0; i < roundWins.length; i++) {
-            rounds.add(new MatchRound(i, 0, 0, null, roundWins[i]));
+            rounds.add(new MatchRound(i, 0, 0, null, roundWins[i], null));
         }
         int n = SEQ.getAndIncrement();
         return create("test-match-" + n, BASE.plusSeconds(n), 0, 60, 1.0, 120, 60, 1.0, 120, 0.0, 0.0, result, rounds);
+    }
+
+    /** 전처리에서 정한 경기 형식(firstTo)·조기 종료 여부와 라운드별 승리 여부 지정 (5.11절, 역전 지표 테스트용) */
+    public static MatchHistory roundsWithFormat(Integer firstTo, boolean endedEarly,
+                                                MatchResult result, boolean... roundWins) {
+        List<MatchRound> rounds = new ArrayList<>();
+        for (int i = 0; i < roundWins.length; i++) {
+            rounds.add(new MatchRound(i, 0, 0, null, roundWins[i], null));
+        }
+        int n = SEQ.getAndIncrement();
+        return create("test-match-" + n, BASE.plusSeconds(n), 0, 60, 1.0, 120, 60, 1.0, 120, 0.0, 0.0,
+                result, rounds, firstTo, endedEarly);
+    }
+
+    /** 라운드별 본인 VS와 조기 종료 여부 지정 (조기 종료 매치의 마지막 라운드 제외 테스트용) */
+    public static MatchHistory vsRoundsEndedEarly(double... myVsPerRound) {
+        List<MatchRound> rounds = new ArrayList<>();
+        for (int i = 0; i < myVsPerRound.length; i++) {
+            rounds.add(new MatchRound(i, myVsPerRound[i], 0, null, true, null));
+        }
+        int n = SEQ.getAndIncrement();
+        return create("test-match-" + n, BASE.plusSeconds(n), 0, 60, 1.0, 120, 60, 1.0, 120, 0.0, 0.0,
+                MatchResult.WIN, rounds, 7, true);
     }
 
     /** 라운드별 본인 VS를 순서대로 지정 (session_vs_slope 테스트용) */
     public static MatchHistory vsRounds(double... myVsPerRound) {
         List<MatchRound> rounds = new ArrayList<>();
         for (int i = 0; i < myVsPerRound.length; i++) {
-            rounds.add(new MatchRound(i, myVsPerRound[i], 0, null, true));
+            rounds.add(new MatchRound(i, myVsPerRound[i], 0, null, true, null));
         }
         int n = SEQ.getAndIncrement();
         return create("test-match-" + n, BASE.plusSeconds(n), 0, 60, 1.0, 120, 60, 1.0, 120, 0.0, 0.0, MatchResult.WIN, rounds);
+    }
+
+    /** 라운드별 본인 PPS(null 가능)·VS와 조기 종료 여부 지정 (라운드 곡선 테스트용, 11.13절) */
+    public static MatchHistory ppsVsRounds(boolean endedEarly, Double[] ppsPerRound, double... vsPerRound) {
+        List<MatchRound> rounds = new ArrayList<>();
+        for (int i = 0; i < vsPerRound.length; i++) {
+            rounds.add(new MatchRound(i, vsPerRound[i], 0, null, true, ppsPerRound[i]));
+        }
+        int n = SEQ.getAndIncrement();
+        return create("test-match-" + n, BASE.plusSeconds(n), 0, 60, 1.0, 120, 60, 1.0, 120, 0.0, 0.0,
+                MatchResult.WIN, rounds, 7, endedEarly);
     }
 
     /** 본인·상대 APM/PPS/VS 지정 (DeltaStatCalculator 테스트용) */
@@ -89,6 +123,16 @@ public final class MatchFixtures {
                                        double oppApm, double oppPps, double oppVs,
                                        Double myTr, Double oppTr,
                                        MatchResult result, List<MatchRound> rounds) {
+        return create(matchId, playedAt, opponentSeq, myApm, myPps, myVs, oppApm, oppPps, oppVs,
+                myTr, oppTr, result, rounds, 3, false);   // 기본: 3선승 정상 종료
+    }
+
+    private static MatchHistory create(String matchId, Instant playedAt, int opponentSeq,
+                                       double myApm, double myPps, double myVs,
+                                       double oppApm, double oppPps, double oppVs,
+                                       Double myTr, Double oppTr,
+                                       MatchResult result, List<MatchRound> rounds,
+                                       Integer firstTo, boolean endedEarly) {
         return new MatchHistory(
                 matchId, playedAt, PseudonymId.of(opponentSeq),
                 myPps, myApm, myVs,
@@ -97,7 +141,8 @@ public final class MatchFixtures {
                 null, null, null, null,
                 myTr, oppTr,
                 result,
-                rounds
+                rounds,
+                firstTo, endedEarly
         );
     }
 }

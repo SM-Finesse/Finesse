@@ -34,6 +34,7 @@ public record RawMatch(
      * @param pps             leaderboard[].stats.pps
      * @param vs              leaderboard[].stats.vsscore
      * @param trBefore        extras.league[userId][0].tr (매치 시작 시점 TR, 없으면 null)
+     * @param rankBefore      extras.league[userId][0].rank (매치 시작 시점 등급, 소문자. 없으면 null) — 5.11절
      */
     public record RawPlayer(
             String userId,
@@ -41,7 +42,8 @@ public record RawMatch(
             Double apm,
             Double pps,
             Double vs,
-            Double trBefore
+            Double trBefore,
+            String rankBefore
     ) {}
 
     /**
@@ -51,6 +53,7 @@ public record RawMatch(
             boolean meAlive,
             boolean opponentAlive,
             Double myVs,
-            Double opponentVs
+            Double opponentVs,
+            Double myPps        // 라운드 본인 stats.pps, 없으면 null (v3.6, 라운드 곡선용)
     ) {}
 }
