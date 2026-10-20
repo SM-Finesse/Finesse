@@ -18,8 +18,17 @@ public record StatsResponse(
         DeltaMetrics deltaMetrics,
         RoundCurves roundCurves,
         Rivals rivals,
-        Map<String, Object> chapters // 헤비 뷰 8챕터 차트 데이터 — 세부 스키마 [협의 필요], 확정 전까지 자유 구조
+        Map<String, Object> chapters, // 헤비 뷰 8챕터 차트 데이터 — 세부 스키마 [협의 필요], 확정 전까지 자유 구조
+        HighlightJudgement highlightJudgement // 라이트 하이라이트 판정·선정(calc v4.3) — 콜드스타트면 null(생략)
 ) {
+
+    /** highlight_judgement 없이 만드는 생성자 — 기존 테스트·콜드스타트용 */
+    public StatsResponse(String username, boolean coldStart, int matchCount, Instant updatedAt, Profile profile,
+                         FixedMetrics fixedMetrics, DeltaMetrics deltaMetrics, RoundCurves roundCurves,
+                         Rivals rivals, Map<String, Object> chapters) {
+        this(username, coldStart, matchCount, updatedAt, profile, fixedMetrics, deltaMetrics, roundCurves,
+                rivals, chapters, null);
+    }
 
     // avatarUrl·xp·country·joinedAt은 /users/{username} 호출이 실패했거나 값이 없는 계정이면 null(응답에서 생략).
     // avatarUrl은 검색한 본인 것만 — 상대(라이벌) 사진은 닉네임 마스킹 원칙(FR-09)에 어긋나 내려주지 않는다.
@@ -136,5 +145,23 @@ public record StatsResponse(
     }
 
     public record RivalItem(String nicknameMasked, int matches, int wins, int losses, Instant lastMatchAt) {
+    }
+
+    /**
+     * 라이트 하이라이트 판정·선정 결과 (calc HighlightJudgement, 설계서 30장 v4.3 — 10/16 결정: 판정·선정은 calc, LLM은 코멘트만).
+     * rangesVersion: 판정에 쓴 보통 범위 버전(예: ref-2026-10-15-g2). rangeGroup: 티어 묶음 t1~t5 또는 default(Z·등급 없음).
+     * metrics: 후보 11개 판정(고정 순서). picks: 선정 0~3개(pick1 → pick3) — 범위 밖 지표가 모자라면 '보통'(normal)으로 채운 지표도 들어온다.
+     */
+    public record HighlightJudgement(String rangesVersion, String rangeGroup,
+                                     List<JudgedMetric> metrics, List<JudgedMetric> picks) {
+    }
+
+    /**
+     * 지표 하나의 판정. zone: high·normal·low·none. deviation: 벗어난 정도(소수 둘째 자리, 범위 밖 최소 ±0.01) — normal은 0.0, none은 생략.
+     * edgeGap: normal일 때만 가까운 경계까지 거리 ÷ 범위 폭. value는 판정에 쓴 값이다 — delta_comeback은 표본 수로 평균 쪽에 당긴
+     * 축소값(k=20)이라 delta_metrics.delta_comeback(원값)과 다르다.
+     */
+    public record JudgedMetric(String key, String group, Double value, double q1, double q3, String zone,
+                               Double deviation, Double edgeGap) {
     }
 }

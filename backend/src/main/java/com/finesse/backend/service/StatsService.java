@@ -2,7 +2,9 @@ package com.finesse.backend.service;
 
 import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
+import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.HighlightStats;
+import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
@@ -299,7 +301,23 @@ public class StatsService {
                         windowDelta(r.profileWindowDelta(), meta.analyzedMatches(), trTrendRatio)), fixed, deltaMetrics,
                 roundCurves(series),
                 new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
-                chapters);
+                chapters,
+                highlightJudgement(r.highlightJudgement()));
+    }
+
+    /** calc 판정·선정 결과를 그대로 옮긴다 — 영역은 소문자 이름(high·normal·low·none). calc가 판정하지 않았으면 null(생략) */
+    static StatsResponse.HighlightJudgement highlightJudgement(HighlightJudgement judgement) {
+        if (judgement == null) {
+            return null;
+        }
+        return new StatsResponse.HighlightJudgement(judgement.rangesVersion(), judgement.rangeGroup(),
+                judgement.metrics().stream().map(StatsService::judgedMetric).toList(),
+                judgement.picks().stream().map(StatsService::judgedMetric).toList());
+    }
+
+    private static StatsResponse.JudgedMetric judgedMetric(JudgedMetric m) {
+        return new StatsResponse.JudgedMetric(m.key(), m.group(), m.value(), m.q1(), m.q3(),
+                m.zone() == null ? null : m.zone().wireName(), m.deviation(), m.edgeGap());
     }
 
     /** recentResults는 최신순 — recent_form의 "index 0이 가장 최근"과 같은 순서 */
