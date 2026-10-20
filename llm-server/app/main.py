@@ -11,7 +11,8 @@
 heavy 대체 문장 (v3.4, 10/12)
   LLM_HEAVY_ATTEMPTS (기본 2): 한 요청 안에서 LLM 으로 시도하는 횟수
   LLM_HEAVY_FALLBACK (기본 on): on 이면 모두 실패했을 때 서버가 만든 대체 문장으로 200, off 면 예전처럼 502
-  LLM_LIGHT_PROMPT (기본 v3): v3 = 번호·줄 형식(app/light_v3.py), v2 = 예전 JSON 방식
+  LLM_LIGHT_PROMPT (기본 v2, 10/20): v2 = 서비스 중인 light-baseline-v2 (백엔드가 개별·기본 코멘트로 옮기기 전까지 유지),
+      v3 = 실험용 줄 형식·light-v4(LLM_LIGHT_MODE)
   LLM_LIGHT_MODE (기본 a): a | b | c = light-v4(선정 규칙·라벨, app/light_pipeline.py), v3 = 라벨 없는 light-v3-lines
       LLM_LIGHT_ATTEMPTS, LLM_LIGHT_BUDGET_SEC, LLM_LIGHT_FALLBACK, LLM_LIGHT_RANGES 설명은 app/light_pipeline.py
   LLM_LIGHT_SIZE_HINT, LLM_LIGHT_SHUFFLE (기본 off): light-v3(LLM_LIGHT_MODE=v3) 선택 보조 — PM 확인 전 측정용
@@ -107,7 +108,7 @@ def health():
 @app.post("/v1/comment/light", response_model=LightResponse)
 def comment_light(req: LightRequest):
     # ① 요청 검증: FastAPI가 LightRequest로 바꾸면서 자동으로 한다 (실패 시 422)
-    if os.getenv("LLM_LIGHT_PROMPT", "v3").lower() == "v2":
+    if os.getenv("LLM_LIGHT_PROMPT", "v2").lower() == "v2":
         return _comment_light_v2(req)
     mode = os.getenv("LLM_LIGHT_MODE", "a").strip().lower()
     if mode == "six":

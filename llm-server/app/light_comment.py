@@ -39,14 +39,13 @@ from app.light6 import (
     _comeback_direction,
     _ends_with_predicate,
     _first_direction,
-    clean_sentences,
     judge_one,
     load_quartiles,
 )
-from app.prompt import COMPARE_PHRASES
+from app.prompt import COMPARE_PHRASES, HEAVY_RANGES
 from app.validation import _BASIS, _INTENSIFIERS
 
-LIGHT_COMMENT_VERSION = "light-v5-guide31"
+LIGHT_COMMENT_VERSION = "light-v5.2-guide31"
 
 # temperature·top_p: v1.2 7.2절. max_tokens: 개별 119(헤비 1문장 예산과 같음), 기본 160 (light6 와 같음)
 LIGHT_COMMENT_DECODING = {
@@ -55,6 +54,8 @@ LIGHT_COMMENT_DECODING = {
 }
 
 ZONE_NAMES = ("높음", "보통", "낮음")
+# 31번 2.3절 Q1·Q3 (train-2026-10-14) — 영역이 안 왔을 때만 쓴다. 헤비 보통 범위와 같은 표 + 역전 경향
+_QUARTILES = {**HEAVY_RANGES, "delta_comeback": (-0.046, 0.050)}
 # 값이 0 일 때 쓰는 비교 표현 — "최근 대전 상대들보다 … 비슷한 수준" 은 어색해서 뺀다
 _ZERO_PHRASES = tuple(p for p in COMPARE_PHRASES if not p.endswith("보다"))
 # 비교 기준이 상대인 지표 (31번 1.3절). comeback 은 경향으로만 쓰므로 뺀다 (2.4절)
@@ -97,7 +98,10 @@ def resolve_zone(k: str, v: float, zone: str | None) -> str:
     """calc 가 준 영역을 쓴다. 없으면(연동 시험용) 31번 2.3절 Q1·Q3 로 직접 판정."""
     if zone in ZONE_NAMES:
         return zone
-    q1, q3 = load_quartiles()[k]
+    try:
+        q1, q3 = load_quartiles()[k]
+    except (FileNotFoundError, KeyError):         # config/light_quartiles.json 이 없는 서버 (11·13번)
+        q1, q3 = _QUARTILES[k]
     return judge_one(float(v), q1, q3)[0]
 
 
@@ -191,6 +195,9 @@ def _compare_rule(k: str, phrase: str) -> str:
 def _predicate_rule(k: str) -> str:
     if k in RANK_KEYS:
         return "서술어는 '앞섭니다', '밀립니다'를 씁니다."
+    if k == "delta_vs_apm":    # v5.1: 낮음인데 '짙게'로 쓴 경우가 5/5회 실패의 원인 (10/20 25번)
+        return ("서술어는 '큰 편입니다', '작은 편입니다'만 씁니다. '짙게', '옅게'는 쓰지 않습니다. "
+                "잘하고 못함이 아니라 성향이므로 '앞섭니다', '밀립니다'는 쓰지 않습니다.")
     if k in TENDENCY_KEYS:
         return ("서술어는 '짙게/옅게 나타납니다', '큰/작은 편입니다'를 씁니다. "
                 "잘하고 못함이 아니라 성향이므로 '앞섭니다', '밀립니다'는 쓰지 않습니다.")
@@ -224,6 +231,8 @@ SUMMARY_SYSTEM = f"""TETR.IO 전적 분석 페이지 첫 화면의 요약 코멘
 - 방향 문장이 '차이는 크지 않습니다'인 지표는 '크게', '뚜렷하게' 같은 말로 부풀리지 마세요.
 - 성향 지표(Opener·Plonk·Stride·Inf DS 성향, 수비 비중, 가비지 처리 성향)는 잘하고 못함으로 쓰지 않습니다.
 - 승률, TR, 티어는 입력에 없으므로 쓰지 않습니다.
+- 지표 이름 뒤에 쌍점(:)을 붙여 나열하지 말고, '이 플레이어는'으로 시작하지 마세요.
+- 상대 강도별 승률 차는 '강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 …' 순서를 바꾸지 말고 방향 문장 그대로 씁니다.
 {COMMON_RULES}
 - 요약 문장만 쓰세요. 제목, 목록, 따옴표는 쓰지 마세요."""
 
@@ -242,6 +251,90 @@ def build_summary_text(items: list[tuple[str, float, str]], rng: random.Random |
     """대체 요약 — 개별 문장을 이어 붙인다 (지표마다 비교 기준이 붙어 절마다 검사 통과)."""
     rng = rng or random
     return " ".join(build_sentence_text(k, v, z, pick_phrase(state(k, v, z), rng), show) for k, v, z in items)
+
+
+# =====================================================================================
+# 정리 (v5.1, 10/20 25번 측정) — 뜻을 바꾸지 않는 기계적 손질만 한다
+# =====================================================================================
+_PLAYER_HEAD = re.compile(r"(^|(?<=[.!?]\s))이 (?:플)?레이어(?:는|가|의 전적은|의)\s+")   # '이 레이어는'(오타) 포함
+# v5.2: 소수점(+0.08)에서 문장이 잘리지 않게 — 숫자 사이의 점은 문장 끝이 아니다
+_SENT2 = re.compile(r"(?:[^.!?]|(?<=\d)\.(?=\d))+[.!?]")
+_HEAD2 = re.compile(r"^\s*(?:하이라이트 문장|문장|요약 코멘트|요약|코멘트|총평|답|출력)\s*[:：|]\s*")
+_LIST2 = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)](?!\d)|\[\d{1,2}\])\s*")
+
+
+def clean_text(text: str, k_max: int) -> str | None:
+    """light6.clean_sentences 와 같고, 소수점에서 문장을 자르지 않는다."""
+    lines = []
+    for raw in text.replace("\r", "").split("\n"):
+        line = raw.strip().strip("*").strip()
+        if not line or line.endswith((":", "：")):
+            continue
+        line = _HEAD2.sub("", _LIST2.sub("", line)).strip().strip("\"'`“”‘’「」*- ").strip()
+        if line:
+            lines.append(line)
+    sents = [x.strip() for x in _SENT2.findall(" ".join(lines)) if x.strip()]
+    return " ".join(sents[:k_max]) if sents else None
+
+
+def _label_re(keys) -> re.Pattern:
+    """문장 앞의 '지표 이름:' 꼬리표. 예: '상대 강도별 승률 차: …', 'Opener 성향: …'"""
+    names = sorted({NAMES[k].split("(")[0].strip() for k in keys}, key=len, reverse=True)
+    alt = "|".join(re.escape(n) for n in names)
+    return re.compile(rf"^({alt})(?:\s*\([^()]*\))?(?:\s*변화)?\s*:\s*")
+
+
+def _drop_label(sent: str, items) -> str:
+    """'지표 이름: 나머지' → 나머지에 그 지표가 다시 나오면 꼬리표만 떼고, 없으면 '지표 이름은/는 나머지'."""
+    m = _label_re([k for k, _, _ in items]).match(sent)
+    if not m:
+        return sent
+    rest = sent[m.end():]
+    k = next(k for k, _, _ in items if NAMES[k].split("(")[0].strip() == m.group(1))
+    if any(w in rest.lower() for w in STAT_WORDS[k]):
+        return rest
+    name = NAMES[k]
+    return f"{name}{_topic(name)} {rest}"
+
+
+def _split(text: str) -> list[str]:
+    return [x.strip() for x in _SENT2.findall(text) if x.strip()]
+
+
+def _starts_with_name(sent: str, k: str) -> bool:
+    return sent.startswith(NAMES[k].split("(")[0].strip())   # 괄호 앞 이름이 전체 이름의 앞부분
+
+
+def tidy(text: str, items: list[tuple[str, float, str]], rng: random.Random | None = None) -> tuple[str, list[str]]:
+    """(정리한 글, 한 일). 1) '이 플레이어는' 떼기 2) '지표 이름:' 꼬리표 떼기
+    3) 상대와 비교하는 지표인데 비교 기준 없이 지표 이름으로 시작하는 문장 → 앞에 비교 표현을 붙인다(31번 1.3절).
+    방향·숫자는 건드리지 않는다. 검사는 정리한 글로 한다."""
+    rng = rng or random
+    done = []
+    t = _PLAYER_HEAD.sub(r"\1", text)
+    if t != text:
+        done.append("플레이어 주어 뗌")
+    out = []
+    for sent in _split(t) or [t]:
+        lab = _drop_label(sent, items)
+        if lab != sent:
+            done.append("꼬리표 뗌")
+            sent = lab
+            sent = _PLAYER_HEAD.sub("", sent)          # '지표: 이 플레이어는 …'
+        for k, _, _ in items:   # v5.2: '블록당 공격량(APP)이 상대 대비 블록당 공격량(APP)에서 …' → 앞의 주어를 뗀다
+            name = NAMES[k]
+            m = re.match(rf"{re.escape(name)}\s*(?:이|가|은|는)\s+", sent)
+            if m and name in sent[m.end():]:
+                sent = sent[m.end():]
+                done.append("주어 반복 뗌")
+        if not _BASIS.search(sent):
+            for k, v, z in items:
+                if k in COMPARE_KEYS and _starts_with_name(sent, k):
+                    sent = f"{pick_phrase(state(k, v, z), rng)} {sent}"
+                    done.append(f"비교 기준 붙임({k})")
+                    break
+        out.append(sent)
+    return " ".join(out), done
 
 
 # =====================================================================================
@@ -273,6 +366,18 @@ def _common_issue(text: str, items: list[tuple[str, float, str]]) -> str | None:
         return "판정 정보 노출"
     if "상대적" in text:
         return "비교 기준 흐림(상대적)"
+    if "플레이어" in text or "레이어" in text:
+        return "플레이어 주어"
+    if re.search(r"(?:의|인)\s*값|값은|값이", text):      # '역전 경향의 값 -0.10은 …' — 값을 풀어 쓰지 않는다
+        return "값 풀이"
+    if re.search(r"수비적|공격적", text):                # '수비 비중이 작고, 수비적인 편' — 유형 규정·반대 해석
+        return "유형 규정(수비적·공격적)"
+    if "견해" in text:                                   # '매 경기 상대와 견해하면' (견줘 보면 오타)
+        return "비교 표현 오타"
+    if re.search(r"[+-]\s?\d+(?:\.\d+)?\s*(?:로|만큼)?\s*(?:더\s*)?(?:높|낮|증가|감소|많|적)", text):
+        return "부호 숫자로 비교"                         # '+0.08 높습니다' — 헤비 v4.3 과 같은 규칙
+    if re.search(r"약한 상대[^.]*?승률이[^.]*?강한 상대[^.]*?보다", text):
+        return "방향 반대(강한·약한 상대 순서)"
     if re.search(r"뺀 값|0과 1 사이|정규화", text):
         return "정의 풀이"
     if re.search(r"(?<![A-Za-z가-힣])TR(?![A-Za-z.])|티어|랭크|레이팅", text):
@@ -298,6 +403,8 @@ def check_sentence(text: str, k: str, v: float, zone: str) -> str | None:
     if why:
         return why
     st = state(k, v, zone)
+    if text.count(NAMES[k].split("(")[0].strip()) > 1:
+        return "지표 이름 반복"
     if k in COMPARE_KEYS and not _BASIS.search(text):
         return "비교 기준 누락"
     if k in ("strength_split", "delta_comeback") and re.search(r"상대\s*(보다|대비)", text):
@@ -348,6 +455,10 @@ def check_summary(text: str, items: list[tuple[str, float, str]]) -> str | None:
     keys = [k for k, _, _ in items]
     if any(k in COMPARE_KEYS for k in keys) and not _BASIS.search(text):
         return "비교 기준 누락"
+    for sent in _split(text):       # v5.1: 문장마다 — 상대와 비교하는 지표를 말하는 문장에는 비교 기준 (31번 1.3절)
+        named = [k for k in keys if k in COMPARE_KEYS and any(w in sent.lower() for w in STAT_WORDS[k])]
+        if named and not _BASIS.search(sent):
+            return f"비교 기준 누락(문장: {NAMES[named[0]]})"
     if "session_vs_slope" in keys and len(keys) == 1 and "상대" in text:
         return "비교 기준 잘못(상대)"
     if all(state(k, v, z) in ("mid+", "mid-", "zero", "hold") for k, v, z in items):
@@ -361,17 +472,21 @@ def check_summary(text: str, items: list[tuple[str, float, str]]) -> str | None:
     return None
 
 
-def parse_sentence(text: str, k: str, v: float, zone: str) -> tuple[str | None, str | None]:
-    s = clean_sentences(text, 1)
+def parse_sentence(text: str, k: str, v: float, zone: str,
+                   rng: random.Random | None = None) -> tuple[str | None, str | None]:
+    s = clean_text(text, 1)
     if not s:
         return None, "완성된 문장 없음"
+    s, _ = tidy(s, [(k, v, zone)], rng)
     why = check_sentence(s, k, v, zone)
     return (None, why) if why else (s, None)
 
 
-def parse_summary(text: str, items: list[tuple[str, float, str]]) -> tuple[str | None, str | None]:
-    s = clean_sentences(text, 3)
+def parse_summary(text: str, items: list[tuple[str, float, str]],
+                  rng: random.Random | None = None) -> tuple[str | None, str | None]:
+    s = clean_text(text, 3)
     if not s:
         return None, "완성된 문장 없음"
+    s, _ = tidy(s, items, rng)
     why = check_summary(s, items)
     return (None, why) if why else (s, None)

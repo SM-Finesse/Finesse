@@ -218,3 +218,111 @@ def test_차례가_오지_않으면_대체(monkeypatch):
     items = [{"stat": "delta_app", "value": 0.08, "zone": "높음"}]
     r = client.post("/v1/light/summary", json={"items": items})
     assert r.status_code == 200 and r.json()["fallback"] is True
+
+
+# ---------------- v5.1 (10/20 25번 측정 반영) ----------------
+def test_v51_꼬리표와_플레이어_주어_정리():
+    items = [("delta_app", 0.01, "보통"), ("delta_plonk", -0.05, "보통"), ("delta_vs_apm", 0.04, "보통")]
+    t = ("블록당 공격량(APP): 최근 대전 상대들보다 조금 앞서지만 차이는 크지 않습니다.\n"
+         "Plonk 성향: 맞붙은 상대들에 비해 약간 옅지만 차이는 크지 않습니다.\n"
+         "수비 비중(VS/APM): 매 경기 상대와 견줘 보면 약간 큰 편이지만 차이는 크지 않습니다.")
+    s, why = lc.parse_summary(t, items, random.Random(0))
+    assert why is None and s.startswith("블록당 공격량(APP)은 최근") and ":" not in s
+    items = [("strength_split", -0.25, "보통"), ("session_vs_slope", -0.3, "낮음"), ("delta_cheese_index", 3.4, "보통")]
+    t = ("이 플레이어는 강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 낮은 편입니다. "
+         "라운드별 공방 능력(VS) 변화: 라운드가 진행될수록 공방 능력(VS)이 처집니다. "
+         "가비지 처리 성향(Cheese Index): 가비지 처리 성향(Cheese Index)이 약간 짙지만 차이는 크지 않습니다.")
+    s, why = lc.parse_summary(t, items, random.Random(0))
+    assert why is None and "플레이어" not in s and ":" not in s
+    assert any(p + " 가비지" in s for p in lc.COMPARE_PHRASES)          # 비교 기준을 붙임
+
+
+def test_v51_비교_기준_보완():
+    s, why = lc.parse_sentence("보정 공격 효율(Weighted APP)은 비슷한 수준입니다.", "delta_weighted_app", 0.0, "보통",
+                               random.Random(0))
+    assert why is None and any(s.startswith(p) for p in lc._ZERO_PHRASES)
+    # 지표 이름으로 시작하지 않으면 붙이지 않는다 (뜻이 바뀔 수 있음)
+    _, why = lc.parse_sentence("이번에는 보정 공격 효율(Weighted APP)이 비슷한 수준입니다.", "delta_weighted_app", 0.0, "보통")
+    assert "비교 기준" in why
+
+
+def test_v51_강한_약한_순서_반대():
+    items = [("strength_split", -0.55, "낮음"), ("delta_comeback", -0.10, "낮음"), ("session_vs_slope", 2.1, "높음")]
+    t = ("약한 상대를 만났을 때의 승률이 강한 상대를 만났을 때보다 크게 낮습니다. "
+         "유리하다가 뒤집히는 경향이 불리할 때 뒤집는 경향보다 강합니다. 라운드가 진행될수록 공방 능력(VS)이 뚜렷하게 강해집니다.")
+    assert "방향 반대" in lc.parse_summary(t, items)[1]
+    assert "방향 반대" in lc.check_sentence("약한 상대를 만났을 때의 승률이 강한 상대를 만났을 때보다 크게 낮습니다.",
+                                          "strength_split", -0.55, "낮음")
+
+
+def test_v51_요약_문장마다_비교_기준():
+    items = [("strength_split", -0.10, "높음"), ("delta_stride", -0.30, "낮음"), ("delta_app", -0.02, "보통")]
+    t = ("강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 조금 낮지만 크게 떨어지지 않습니다. 이번 Stride 성향이 옅게 나타납니다. "
+         "맞붙은 상대들에 비해 블록당 공격량(APP)에서 조금 밀리지만 차이는 크지 않습니다.")
+    assert "비교 기준 누락" in lc.parse_summary(t, items)[1]
+
+
+def test_v51_지표_이름_반복():
+    why = lc.check_sentence("블록당 공격량(APP)이 대전 상대 평균 대비 블록당 공격량(APP)에서 앞섭니다.", "delta_app", 0.08, "높음")
+    assert why == "지표 이름 반복"
+
+
+def test_v51_수비_비중_서술어_규칙():
+    system = lc.build_sentence("delta_vs_apm", -0.2, "낮음", random.Random(0))[0]["content"]
+    assert "'짙게', '옅게'는 쓰지 않습니다" in system
+
+
+# ---------------- v5.2 (10/20 25번 v5.1 측정 반영) ----------------
+def test_v52_소수점에서_문장을_자르지_않음():
+    assert lc.clean_text("상대 대비 블록당 공격량(APP)에서 앞섭니다(+0.08). 둘째 문장입니다.", 1) == \
+        "상대 대비 블록당 공격량(APP)에서 앞섭니다(+0.08)."
+    assert "부호 숫자" in lc.parse_sentence("상대 대비 블록당 공격량(APP)에서 +0.08 높습니다.", "delta_app", 0.08, "높음")[1]
+
+
+def test_v52_주어_반복_정리():
+    s, why = lc.parse_sentence("블록당 공격량(APP)이 상대 대비 블록당 공격량(APP)에서 앞섭니다.", "delta_app", 0.08, "높음")
+    assert why is None and s == "상대 대비 블록당 공격량(APP)에서 앞섭니다."
+
+
+def test_v52_꼬리표_뒤_플레이어_주어():
+    items = [("strength_split", 0.12, "높음"), ("delta_comeback", 0.12, "높음"), ("delta_opener", -0.05, "보통")]
+    t = ("상대 강도별 승률 차: 이 레이어는 강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 오히려 높습니다. "
+         "불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 강합니다. 맞붙은 상대들에 비해 Opener 성향이 약간 옅지만 차이는 크지 않습니다.")
+    s, why = lc.parse_summary(t, items, random.Random(0))
+    assert why is None and s.startswith("강한 상대를")
+
+
+@pytest.mark.parametrize("text,k,v,z,why", [
+    ("매 경기 상대와 견해하면 블록당 공격량(APP)에서 조금 밀립니다만 차이는 크지 않습니다.", "delta_app", -0.02, "보통", "오타"),
+    ("역전 경향의 값 -0.10은 유리하다가 뒤집히는 경향이 불리할 때 뒤집는 경향보다 강합니다.", "delta_comeback", -0.10, "낮음", "값 풀이"),
+])
+def test_v52_추가_검사(text, k, v, z, why):
+    assert why in lc.check_sentence(text, k, v, z)
+
+
+def test_v52_수비적_공격적_금지():
+    why = lc.check_sentence("상대 대비 수비 비중(VS/APM)이 작고, 수비적인 편입니다.", "delta_vs_apm", -0.2, "낮음")
+    assert "유형 규정" in why
+
+
+def test_v52_범위_파일이_없어도_영역_판정(monkeypatch):
+    def missing(*a, **k):
+        raise FileNotFoundError("config/light_quartiles.json")
+    monkeypatch.setattr(lc, "load_quartiles", missing)
+    assert lc.resolve_zone("delta_comeback", 0.12, None) == "높음"
+    assert lc.resolve_zone("strength_split", -0.10, None) == "높음"
+
+
+def test_서비스_라이트는_기본_v2(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.delenv("LLM_LIGHT_PROMPT", raising=False)
+
+    def v2(req):
+        raise HTTPException(status_code=418, detail="v2")
+
+    monkeypatch.setattr(main_module, "_comment_light_v2", v2)
+    import json
+    from pathlib import Path
+    body = json.loads((Path(__file__).parent / "samples" / "l6_typical.json").read_text(encoding="utf-8"))
+    assert client.post("/v1/comment/light", json=body).status_code == 418
