@@ -13,16 +13,23 @@ heavy 대체 문장 (v3.4, 10/12)
   LLM_HEAVY_FALLBACK (기본 on): on 이면 모두 실패했을 때 서버가 만든 대체 문장으로 200, off 면 예전처럼 502
   LLM_HEAVY_TEMPLATE_CHAPTERS (기본 rivals, v3.5): LLM 을 부르지 않고 바로 서버 문장을 쓰는 챕터 (쉼표 구분,
       빈 값이면 모든 챕터에 LLM 사용). 10/12 실측에서 rivals 는 프롬프트를 바꿔도 2/10 이라 서버 문장으로 둔다.
+
+heavy 시간 예산 (10/20, 백엔드 회신: 챕터 호출 10초는 백엔드가 요청을 보낸 순간부터 — 서버 안 대기 포함)
+  LLM_HEAVY_DEADLINE_SEC (기본 9): 요청을 받은 시각부터 이 시간 안에 응답한다.
+  LLM_HEAVY_GEN_RESERVE_SEC (기본 3.5): 생성 1회에 남겨 둘 시간(최악 약 3초 + 여유). 남은 시간이 이보다 적으면
+      생성(재생성 포함)을 시작하지 않고, 다른 요청 때문에 그 전까지 차례가 오지 않아도 바로 대체 문장을 보낸다.
+  응답의 fallback: 서버 대체 문장이면 true (백엔드 요청, 캐시 제외용).
 """
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.fallback import build_fallback
-from app.generator import ContextOverflowError, build_generator
+from app.generator import ContextOverflowError, GeneratorBusyError, build_generator
 from app.prompt import build_heavy_messages, build_light_messages
 from app.schemas import HeavyRequest, LightRequest
 from app.validation import (
@@ -84,35 +91,57 @@ def comment_light(req: LightRequest):
 
 @app.post("/v1/comment/heavy-chapter", response_model=HeavyResponse)
 def comment_heavy_chapter(req: HeavyRequest):
+    t0 = time.monotonic()                       # 시간 예산은 요청을 받은 시각부터 (서버 안 대기 포함)
     # ① 요청 검증: chapter_id 가 8개 중 하나가 아니거나 data 가 객체가 아니면 422
     # ② 프롬프트 조립 (챕터별 용어·해석 + 입력 방향에 맞는 예시)
     template_chapters = {c.strip() for c in os.getenv("LLM_HEAVY_TEMPLATE_CHAPTERS", "rivals").split(",") if c.strip()}
     if req.chapter_id in template_chapters:
         logger.info("heavy 서버 문장 사용 chapter=%s (LLM_HEAVY_TEMPLATE_CHAPTERS)", req.chapter_id)
-        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data))
+        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data),
+                             fallback=True)
     messages = build_heavy_messages(req)
     attempts = max(1, int(os.getenv("LLM_HEAVY_ATTEMPTS", "2")))
     fallback = os.getenv("LLM_HEAVY_FALLBACK", "on").lower() != "off"
-    last_error: OutputFormatError | None = None
+    deadline = float(os.getenv("LLM_HEAVY_DEADLINE_SEC", "9"))
+    reserve = float(os.getenv("LLM_HEAVY_GEN_RESERVE_SEC", "3.5"))
+    last_error: Exception | None = None
+    reason = "검사 실패"
     for attempt in range(1, attempts + 1):
+        # 남은 시간 = 예산 - 지난 시간. 생성 1회(reserve)를 할 시간이 없으면 시작하지 않는다.
+        # 대체 문장이 꺼져 있으면(off) 예전처럼 시간과 상관없이 끝까지 시도한다.
+        wait_limit = deadline - (time.monotonic() - t0) - reserve
+        if fallback and wait_limit < 0:
+            reason = f"시간 예산 부족({time.monotonic() - t0:.1f}s 지남)"
+            logger.warning("heavy 재생성 건너뜀 %d/%d chapter=%s: %s", attempt, attempts, req.chapter_id, reason)
+            break
         # ③ 생성 → ④ 문장 다듬기·검사 (형식·숫자·방향·베낌)
-        result = _generate(generator.generate_heavy, req, messages)
         try:
-            return process_heavy_output(result.text, req.chapter_id, req.data)
+            result = _generate(generator.generate_heavy, req, messages,
+                               lock_timeout=wait_limit if fallback else None)
+        except GeneratorBusyError as e:
+            reason = f"차례 대기 초과({e})"
+            logger.warning("heavy 생성 못 함 %d/%d chapter=%s: %s", attempt, attempts, req.chapter_id, reason)
+            last_error = e
+            break
+        try:
+            resp = process_heavy_output(result.text, req.chapter_id, req.data)
+            logger.info("heavy 응답 chapter=%s %.1fs 시도 %d", req.chapter_id, time.monotonic() - t0, attempt)
+            return resp
         except OutputFormatError as e:
             last_error = e
             logger.warning("heavy 검사 실패 %d/%d chapter=%s generator=%s finish=%s: %s",
                            attempt, attempts, req.chapter_id, generator.name, result.finish_reason, e)
     if fallback:
-        # ⑤ 모두 실패 → 서버 대체 문장 (각주가 비지 않게). 파인튜닝 전후 비교용으로 로그를 남긴다.
-        logger.warning("heavy 대체 문장 사용 chapter=%s", req.chapter_id)
-        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data))
+        # ⑤ 모두 실패·시간 부족 → 서버 대체 문장 (각주가 비지 않게). 파인튜닝 전후 비교용으로 로그를 남긴다.
+        logger.warning("heavy 대체 문장 사용 chapter=%s %.1fs (%s)", req.chapter_id, time.monotonic() - t0, reason)
+        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data),
+                             fallback=True)
     raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from last_error
 
 
-def _generate(generate, req, messages):
+def _generate(generate, req, messages, **kwargs):
     try:
-        return generate(req, messages)
+        return generate(req, messages, **kwargs)
     except ContextOverflowError as e:
         # 같은 요청을 다시 보내도 결과가 같으므로 재요청 대상(502)과 구분한다 (10/7 백엔드 합의)
         logger.warning("입력 길이 초과 generator=%s: %s", generator.name, e)
