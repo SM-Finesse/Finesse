@@ -235,7 +235,9 @@ export interface CompareRow {
  */
 export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: string; opp: string; aria: string }) {
   const rowH = 76
-  const h = rows.length * rowH + 22
+  /* 첫 줄 위 '0' 글자가 위 끝에 붙지 않게 8만큼 띄운다 */
+  const top = 18
+  const h = rows.length * rowH + 30
   const labW = 210
   const valW = 150
   const x0 = labW
@@ -247,7 +249,7 @@ export function CompareBars({ rows, me, opp, aria }: { rows: CompareRow[]; me: s
     <Fit>
       <svg viewBox={`0 0 ${W} ${h}`} width="100%" role="img" aria-label={aria} className={cx('block', MIN_W)}>
         {rows.map((r, i) => {
-          const y = 10 + i * rowH
+          const y = top + i * rowH
           const lo = Math.min(0, r.mine, r.opp)
           const hi = Math.max(0, r.mine, r.opp)
           const a = lo * 1.18
@@ -428,9 +430,12 @@ export function ColumnChart({
   trend?: boolean
   onOpen?: () => void
 }) {
-  const m = { l: 48, r: 16, t: 16, b: mb }
+  /* 막대 위 값 글자 자리 — 100%(천장) 막대의 글자가 SVG 위 끝에 잘리지 않게 그림 높이를 그만큼 늘린다 */
+  const labelRoom = 22
+  const vh = h + labelRoom
+  const m = { l: 48, r: 16, t: 16 + labelRoom, b: mb }
   const iw = W - m.l - m.r
-  const ih = h - m.t - m.b
+  const ih = vh - m.t - m.b
   const slot = iw / items.length
   const bw = Math.min(bwMax, slot - 46)
   const cellH = 14
@@ -456,7 +461,7 @@ export function ColumnChart({
   return (
     <Fit>
       <svg
-        viewBox={`0 0 ${W} ${h}`}
+        viewBox={`0 0 ${W} ${vh}`}
         width="100%"
         role="img"
         aria-label={aria}
@@ -521,7 +526,7 @@ export function ColumnChart({
           />
         )}
         {note && (
-          <text x={m.l} y={h - 8} fontSize={11} fill="#6E7D88">
+          <text x={m.l} y={vh - 8} fontSize={11} fill="#6E7D88">
             {note}
           </text>
         )}

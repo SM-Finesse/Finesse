@@ -34,6 +34,12 @@ describe('ColumnChart', () => {
     expect(top).toBeCloseTo(Number(line20.getAttribute('y1')), 6)
   })
 
+  it('100% 막대 위 값 글자가 SVG 위 끝에 잘리지 않는다 — 글자 윗변(기준선 − 글자 크기)이 0보다 아래', () => {
+    const { container } = render(<ColumnChart aria="강도" h={250} mb={62} max={100} items={[{ k: 'Q1', v: 100 }]} />)
+    const label = [...container.querySelectorAll('text')].find((t) => t.textContent === '100.0%')!
+    expect(Number(label.getAttribute('y')) - Number(label.getAttribute('font-size'))).toBeGreaterThan(4)
+  })
+
   it('막대가 셋 이상이면 꼭대기를 점선으로 잇고, 둘이면 잇지 않는다', () => {
     const five = render(<ColumnChart aria="5구간" items={[80, 60, 60, 40, 60].map((v, i) => ({ k: `Q${i + 1}`, v }))} />)
     expect(five.container.querySelectorAll('path[stroke-dasharray="4 4"]')).toHaveLength(1)
