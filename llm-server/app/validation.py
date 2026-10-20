@@ -15,7 +15,6 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from app.prompt import HEAVY_CHAPTERS
 from app.schemas import CANDIDATE_KEYS
 
 
@@ -143,6 +142,8 @@ def check_light_output(resp: LightResponse, available: dict[str, float]) -> list
 class HeavyResponse(_StrictOut):
     chapter_id: str
     footnote: str = Field(min_length=1)
+    # 10/20 백엔드 요청: 서버 대체 문장이면 true (백엔드가 캐시 제외·로그에 사용). LLM 문장이면 false
+    fallback: bool = False
 
 
 def parse_heavy_output(text: str, chapter_id: str) -> HeavyResponse:
@@ -169,8 +170,9 @@ def parse_heavy_output(text: str, chapter_id: str) -> HeavyResponse:
 HEAVY_ECHO_MARKERS = (
     "당신은 테트리스", "어시스턴트입니다", "[규칙]", "[출력 형식]", "1-2문장", "입력과 같은 값",  # v1·v2
     "[용어]", "[해석]", "[예시]", "각주를 한국어로 씁니다", "값은 실제 입력과 다름", "챕터 아래에 붙는",  # v3
+    "문장마다 한 번", "비교 기준이 없는 문장",  # v4
 )
-_CJK = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")  # 일본어 가나 + 한자(중국어)
+_CJK = re.compile(r"[぀-ヿ一-鿿]")  # 일본어 가나 + 한자(중국어)
 # 문장 끝 = . ! ? 。 다음이 공백이거나 끝 (-62.87, TETR.IO 처럼 글자 사이의 점은 문장 끝이 아님)
 _SENTENCE = re.compile(r".+?[.!?。](?=\s|$)")
 _SNAKE = re.compile(r"(?<![A-Za-z0-9_*])[A-Za-z]+_[A-Za-z][A-Za-z_]*")  # weighted_app 같은 변수 이름 꼴
@@ -191,27 +193,51 @@ def _data_keys(data: object) -> set[str]:
     return keys
 
 
-# ---------- v3.2 내용 검사 ----------
+# ---------- 내용 검사 (v3.2~, v4 는 31번 가이드라인 1.2·1.3·3.2절) ----------
 _NUM = re.compile(r"\d+(?:\.\d+)?")
-_DECIMAL_PERCENT = re.compile(r"(?<![\d.])0\.\d+\s*%")  # "0.21%" — 0~1 비율에 % 를 붙인 꼴
-_POS = ("높", "많", "강해", "강한", "강합", "강함", "강하", "우위", "오르", "오릅", "올라", "상승", "늘")
-_NEG = ("낮", "적습", "적어", "적은", "약해", "약한", "약합", "약함", "약하", "떨어", "내리", "내립", "하락", "줄", "밀립", "뒤처")
-# 방향 검사 대상: 문장 속 용어 → data 키 (긴 이름 먼저 찾는다: "Weighted APP" 안에 "APP" 가 있음)
+# 방향 단어. v4: 우열 서술어(앞섭니다/밀립니다)·성향 서술어(짙게/옅게, 큰/작은 편) 추가 (31번 1.3절)
+_POS = ("높", "많", "강해", "강한", "강합", "강함", "강하", "우위", "오르", "오릅", "올라", "상승", "늘",
+        "앞섭", "앞서", "짙", "큰 편", "큽니", "크고")
+_NEG = ("낮", "적습", "적어", "적은", "약해", "약한", "약합", "약함", "약하", "떨어", "내리", "내립", "하락", "줄",
+        "밀립", "밀려", "밀리", "뒤처", "열세", "옅", "작은 편", "작습", "작고")
+# 방향 검사 대상: 문장 속 용어 → data 키 (긴 이름부터 찾는다: "Weighted APP" 안에 "APP" 가 있음)
 _DIRECTION_TERMS = {
-    "attack": [("Weighted APP", "delta_weighted_app"), ("APP", "delta_app")],
-    "defense": [("VS/APM", "delta_vs_apm"), ("Cheese Index", "delta_cheese_index")],
+    "attack": [("Weighted APP", "delta_weighted_app"), ("블록당 공격량", "delta_app"), ("APP", "delta_app")],
+    "defense": [("Cheese Index", "delta_cheese_index"), ("가비지 처리", "delta_cheese_index"),
+                ("VS/APM", "delta_vs_apm"), ("수비 비중", "delta_vs_apm")],
     "playstyle": [("Opener", "delta_opener"), ("Plonk", "delta_plonk"), ("Stride", "delta_stride"), ("Inf DS", "delta_inf_ds")],
 }
 _BADGES = ("천적", "우세", "접전")
 _MASKED = re.compile(r"[A-Za-z0-9_]*\*+[A-Za-z0-9_*]*[A-Za-z0-9_]|[A-Za-z0-9_]+\*+")  # 글자가 붙은 마스킹 닉네임
 
+# 31번 1.2·1.3절 금지 표현
+_RANK_WORDS = ("앞섭", "앞서", "밀립", "밀려", "우위", "열세")  # 우열 서술어 — 성향 지표에는 쓰지 않음
+_OTHER_USERS = ("다른 유저", "다른 플레이어", "다른 사람", "평균적인", "비슷한 실력", "일반적인 유저", "전체 유저",
+                "보통 수준", "드문", "평범", "흔한", "흔히", "대부분의 유저")  # v4.1: 분포를 문장에 섞지 않음 (1.3절)
+# v4.1: 보통 범위 안의 값에 쓰면 과장 (31번 2.2절 "상대 대비 공격 효율에서 크게 앞섭니다(+0.01)" ✗)
+# v4.3: 괄호 꼬리표를 명사형 그대로 옮긴 꼴 (v4.1~4.2 입력의 흔적, 10/16 실측 "옅음입니다", "앞섬하며")
+_LABEL_LEAK = ("차이 작음", "변화 작음", "앞섬", "밀림", "옅음", "짙음", "작음입", "큼입")
+# 정의 되풀이 ("…에서 …을 뺀 값입니다") — 규칙 "용어의 정의를 다시 설명하지 말 것"
+_DEFINITION = ("뺀 값", "빼면", "빼는 값", "0과 1 사이")
+# "-62.87 낮습니다"처럼 부호 붙은 숫자 + 높다/낮다 (이중 표현)
+_SIGNED_COMPARE = re.compile(r"[-+−]\d[\d.]*\s*(점\s*)?(더\s*)?(낮|높)")
+_INTENSIFIERS = ("크게", "뚜렷", "두드러", "매우", "훨씬", "압도", "확연", "현저")
+_RECENT_FORM = re.compile(r"연승|연패|최근\s*\d+\s*(경기|판|게임)")
+_EST_TR = ("Est", "추정 TR", "statrank")
+_SCORE_GAP = re.compile(r"\d+\s*(판|점|세트|라운드)\s*(이상\s*)?(차|뒤|앞)")  # "2판 이상 뒤진" (31번 1.2-4)
+_TYPED = ("플레이어", "공격형", "수비형", "유형의")  # 사람을 유형으로 규정 (C3)
+# strength_split: "상대보다", "상대 대비" 같은 상대 비교 (31번 1.2-7). "강한 상대 구간보다"는 허용
+# 상대 비교 챕터의 비교 기준: 1.3절 5개 표현과 "상대보다/상대와/상대에 비해" 꼴. "상대로 밀립니다"는 아님
+_BASIS = re.compile(r"상대들?\s*(보다|대비|와|에\s*비해|평균)")
+_VS_OPPONENT = re.compile(r"상대(보다|\s*대비|에\s*비해|들|와\s*비교|와\s*견|\s*평균)")
+
 
 def _numbers(values) -> set[float]:
-    """입력 값에서 문장에 나와도 되는 숫자들 (절대값, 반올림, ×100 백분율)."""
+    """입력 값에서 문장에 나와도 되는 숫자들 (절대값과 반올림). v4: ×100 백분율은 뺌 (%·%p 금지, D2)."""
     out: set[float] = set()
     for v in values:
         a = abs(float(v))
-        for c in (a, round(a), round(a, 1), round(a, 2), a * 100, round(a * 100), round(a * 100, 1)):
+        for c in (a, round(a), round(a, 1), round(a, 2), round(a, 3)):
             out.add(round(c, 4))
     return out
 
@@ -246,34 +272,129 @@ def _first_direction(segment: str) -> int:
     return sign
 
 
-def _check_direction(footnote: str, chapter_id: str, data: dict) -> None:
-    terms = _DIRECTION_TERMS.get(chapter_id)
-    if not terms:
-        return
-    masked = footnote
+def _sign(value: object) -> int | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    return 1 if value > 0 else -1 if value < 0 else 0
+
+
+def _sentences(footnote: str) -> list[str]:
+    return [s.strip() for s in _SENTENCE.findall(footnote)] or [footnote]
+
+
+def _term_spots(text: str, chapter_id: str) -> tuple[str, list[tuple[int, str]]]:
+    """문장 속 용어 위치. 긴 이름부터 찾고 지워서 "APP" 가 "Weighted APP" 안에서 다시 잡히지 않게."""
+    masked = text
     spots: list[tuple[int, str]] = []
-    for term, key in terms:  # 긴 이름부터 찾고 지워서 "APP" 가 "Weighted APP" 안에서 다시 잡히지 않게
+    for term, key in sorted(_DIRECTION_TERMS.get(chapter_id, []), key=lambda t: -len(t[0])):
         start = 0
         while (i := masked.find(term, start)) >= 0:
             spots.append((i, key))
             masked = masked[:i] + "#" * len(term) + masked[i + len(term):]
             start = i + len(term)
-    spots.sort()
-    for n, (i, key) in enumerate(spots):
-        end = spots[n + 1][0] if n + 1 < len(spots) else len(masked)
-        seg = masked[i:end]
-        cut = re.search(r"[.!?](?=\s|$)", seg)
-        seg = seg[: cut.end()] if cut else seg
-        value = data.get(key)
-        if not isinstance(value, (int, float)) or isinstance(value, bool) or value == 0:
+    return masked, sorted(spots)
+
+
+def _check_direction(footnote: str, chapter_id: str, data: dict) -> None:
+    if chapter_id not in _DIRECTION_TERMS:
+        return
+    for sentence in _sentences(footnote):
+        masked, spots = _term_spots(sentence, chapter_id)
+        if not spots:
             continue
-        d = _first_direction(seg)
-        if d and d != (1 if value > 0 else -1):
-            raise OutputFormatError(f"부호와 반대로 해석: {key}={value}")
+        # v4: "A와 B 모두 …" 로 묶었으면 두 값의 방향이 같아야 하고, 서술어도 그 방향이어야 한다
+        if "모두" in sentence:
+            keys = {k for _, k in spots}
+            signs = {_sign(data.get(k)) for k in keys} - {None}
+            d = _first_direction(masked[spots[0][0]:])
+            # "모두 차이가 크지 않습니다"처럼 방향 서술어가 없으면 부호가 달라도 된다
+            if d and len(keys) >= 2 and len(signs) > 1:
+                raise OutputFormatError(f"방향이 다른 두 지표를 '모두'로 묶음: {sorted(keys)}")
+            if len(signs) == 1 and d and (s := signs.pop()) and d != s:
+                raise OutputFormatError(f"'모두' 문장의 방향이 값과 반대: {sorted(keys)}")
+        for n, (i, key) in enumerate(spots):
+            end = spots[n + 1][0] if n + 1 < len(spots) else len(masked)
+            value = data.get(key)
+            if not _sign(value):
+                continue
+            d = _first_direction(masked[i:end])
+            if d and d != _sign(value):
+                raise OutputFormatError(f"부호와 반대로 해석: {key}={value}")
+
+
+def _check_intensity(footnote: str, chapter_id: str, data: dict) -> None:
+    """v4.1: 보통 범위(31번 2.3절) 안의 값에 '크게·뚜렷' 같은 강조를 쓰면 과장 (2.2절)."""
+    from app.prompt import heavy_zone, strength_level
+    if not any(w in footnote for w in _INTENSIFIERS):
+        return
+    if chapter_id == "strength_split":
+        v = data.get("strength_split")
+        if _sign(v) is not None and strength_level(v) != "low":
+            raise OutputFormatError(f"강조할 만큼 큰 차이가 아님(과장): strength_split={v}")
+        return
+    if chapter_id == "session_vs_slope":
+        v = data.get("session_vs_slope")
+        if _sign(v) and heavy_zone("session_vs_slope", v) == "mid":
+            raise OutputFormatError(f"강조할 만큼 큰 변화가 아님(과장): session_vs_slope={v}")
+        return
+    for sentence in _sentences(footnote):
+        hit = [w for w in _INTENSIFIERS if w in sentence]
+        if not hit:
+            continue
+        _, spots = _term_spots(sentence, chapter_id)
+        keys = {k for _, k in spots if _sign(data.get(k))}
+        if keys and all(heavy_zone(k, data[k]) == "mid" for k in keys):
+            raise OutputFormatError(f"강조할 만큼 큰 차이가 아님(과장): {sorted(keys)} {hit}")
+
+
+def _check_comeback_direction(footnote: str, data: dict) -> None:
+    """역전: "역전승률이 역전 허용률보다 높다/낮다"의 방향 (v4 — light 측정에서 역전 방향 오류가 가장 많았음)."""
+    a, b = data.get("comeback_rate"), data.get("comeback_rate_against")
+    if _sign(a) is None or _sign(b) is None:
+        return
+    expected = 1 if a > b else -1 if a < b else 0
+    for sentence in _sentences(footnote):
+        i, j, k = sentence.find("역전승률"), sentence.find("역전 허용률"), sentence.find("보다")
+        if i < 0 or j < 0 or k < 0:
+            continue
+        d = _first_direction(sentence[k:])
+        want = expected if i < j else -expected  # 역전 허용률을 주어로 쓰면 방향이 뒤집힘
+        if d and want and d != want:
+            raise OutputFormatError(f"역전승률·역전 허용률 비교 방향이 반대: {a} vs {b}")
+        if d and not want:
+            raise OutputFormatError("두 비율이 같은데 높다/낮다로 씀")
+
+
+def _check_compare_basis(footnote: str, chapter_id: str) -> None:
+    """31번 1.2-7·1.3절: 비교 기준."""
+    if chapter_id in ("playstyle", "attack", "defense"):
+        for sentence in _sentences(footnote):
+            # 지표 이름이나 방향 서술어가 있는 문장은 비교 기준이 있어야 한다.
+            # 5개 표현과 "상대보다" 모두 "상대"를 포함. ("공격 효율에서 앞섭니다." ✗ — 31번 1.3절 예시)
+            if "상대적" in sentence:  # "상대적으로 앞섭니다" — 누구보다인지 없음, 허용 표현 5개에 없음 (10/16 실측)
+                raise OutputFormatError(f"'상대적으로'는 비교 기준이 아님 (31번 1.3절): {sentence}")
+            _, spots = _term_spots(sentence, chapter_id)
+            if (spots or _first_direction(sentence)) and not _BASIS.search(sentence):
+                raise OutputFormatError(f"비교 기준(상대)이 빠진 문장 (C1 i): {sentence}")
+    elif chapter_id in ("tr_trend", "session_vs_slope") and "상대" in footnote:
+        raise OutputFormatError("상대와 비교하지 않는 지표에 '상대'를 씀")
+    elif chapter_id == "strength_split" and _VS_OPPONENT.search(footnote):
+        raise OutputFormatError("상대 강도별 승률에 '상대보다/상대 대비'를 씀")
+
+
+def _check_playstyle_compare(footnote: str) -> None:
+    """C2: 플레이스타일 4개끼리 비교·순위 금지."""
+    names = ("Opener", "Plonk", "Stride", "Inf DS")
+    for sentence in _sentences(footnote):
+        if "가장" in sentence:
+            raise OutputFormatError("플레이스타일 순위를 매김 (C2)")
+        rest = re.sub(r"상대[^\s]*\s*(평균\s*)?(보다|대비|에\s*비해)", "", sentence)
+        if "보다" in rest and sum(n in rest for n in names) >= 2:
+            raise OutputFormatError("플레이스타일 성향끼리 비교함 (C2)")
 
 
 def _check_rivals(footnote: str, data: dict) -> None:
-    """라이벌: 닉네임마다 그 뒤 구간의 배지·숫자가 그 상대의 값과 맞는지."""
+    """라이벌: 닉네임마다 그 뒤 구간의 배지·숫자가 그 상대의 값과 맞는지. v4: 승률 숫자는 받지 않음."""
     from app.prompt import _rival_badge
     info: dict[str, tuple[str, set[float]]] = {}
     for r in data.get("rivals") or []:
@@ -282,7 +403,7 @@ def _check_rivals(footnote: str, data: dict) -> None:
             continue
         m, w, lo = r.get("matches") or 0, r.get("wins") or 0, r.get("losses") or 0
         rate = w / m if m else 0.0
-        info[nick] = (_rival_badge(rate), _numbers([m, w, lo, rate]) | {5.0})  # 5 = "5경기 이상"
+        info[nick] = (_rival_badge(rate), _numbers([m, w, lo]) | {5.0})  # 5 = "5경기 이상"
     for token in _MASKED.findall(footnote):
         if not any(token in nick for nick in info):
             raise OutputFormatError(f"입력에 없는 닉네임: {token}")
@@ -313,20 +434,24 @@ _RULE_RESTATE = ("양수면", "음수면", "양수인 경우", "음수인 경우
 _RIVAL_DESCRIBE = ("선수", "전략", "투수", "성향")
 
 
-def _strength_percent_point(footnote: str, data: dict) -> str:
-    """상대 강도: 값과 같은 숫자에 붙은 "21%" 는 "21%p" 로 고친다 (v3.5, 10/12 실측에서 4/10 이 이 경우).
-    값과 다른 숫자의 % 는 그대로 두어 뒤의 검사에서 거절된다."""
+def _strip_strength_percent(footnote: str, data: dict) -> str:
+    """v4.2: 상대 강도별 승률 값과 같은 숫자에 % 를 붙인 꼴("0.21% 낮습니다", "21%p 낮습니다")은 숫자째 지운다.
+    %·%p 는 금지(31번 1.2-1, D2)라 고칠 수 없고, 방향 말("낮습니다")은 맞으므로 숫자만 빼면 옳은 문장이 된다.
+    값과 다른 숫자의 % 는 그대로 두어 뒤의 검사에서 거절된다. (10/16 실측 8/20 이 이 경우)"""
     v = data.get("strength_split")
-    if not isinstance(v, (int, float)) or isinstance(v, bool):
+    if _sign(v) is None:
         return footnote
-    p = round(abs(v) * 100)
-    return re.sub(rf"(?<![\d.]){p}\s*%(?!p)", f"{p}%p", footnote)
+    a = abs(v)
+    nums = {f"{a:g}", f"{round(a * 100):g}", f"{round(a * 100, 1):g}"}
+    pat = "|".join(re.escape(n) for n in sorted(nums, key=len, reverse=True))
+    out = re.sub(rf"\s*(?<![\d.])(?:{pat})\s*%p?(?=\s|\S)", "", footnote)
+    return re.sub(r"\s{2,}", " ", out).replace(" .", ".")
 
 
 def _check_single_direction(footnote: str, chapter_id: str, data: dict) -> None:
     key = _SINGLE_VALUE.get(chapter_id)
     value = data.get(key) if key else None
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or value == 0:
+    if not _sign(value):
         return
     wrong = _SINGLE_POS if value < 0 else _SINGLE_NEG
     hit = [w for w in wrong if w in footnote]
@@ -336,21 +461,34 @@ def _check_single_direction(footnote: str, chapter_id: str, data: dict) -> None:
 
 def _check_heavy_content(footnote: str, chapter_id: str, data: dict) -> None:
     from app.prompt import HEAVY_CHAPTERS as CH
-    if _DECIMAL_PERCENT.search(footnote):
-        raise OutputFormatError("0~1 비율에 % 를 붙임")
+    # --- 31번 1.2절 금지 규칙 (모든 챕터) ---
+    if "%" in footnote:
+        raise OutputFormatError("%·%p 를 씀 (31번 1.2-1, D2 금지)")
+    typed = [w for w in _TYPED if w in footnote]
+    if typed:
+        raise OutputFormatError(f"사람을 한 유형으로 규정함 (C3): {typed}")
+    others = [w for w in _OTHER_USERS if w in footnote]
+    if others:
+        raise OutputFormatError(f"다른 유저와 비교함 (31번 1.3절): {others}")
+    if _RECENT_FORM.search(footnote):
+        raise OutputFormatError("연승·연패·최근 N경기를 씀 (31번 1.2-8)")
+    if any(w in footnote for w in _EST_TR):
+        raise OutputFormatError("Est.TR·statrank 언급 (31번 1.2-5)")
+    if _SCORE_GAP.search(footnote):
+        raise OutputFormatError("점수 차를 단정함 (31번 1.2-4)")
     ch = CH.get(chapter_id, {})
     for line in (ch.get("rules", "") + "\n" + ch.get("terms", "")).split("\n"):
         line = line.strip().lstrip("- ").strip()
         if len(line) >= 25 and line[:25] in footnote:
             raise OutputFormatError("[해석]·[용어] 문장을 베낌")
-    if chapter_id == "strength_split" and re.search(r"약한 상대[^.]*?강한 상대[^.]*?보다", footnote):
-        # "약한 구간이 강한 구간보다 높다" 처럼 주어를 바꾸면 방향 검사가 거꾸로 된다 → 강한 구간을 주어로 쓴 문장만 받음
-        raise OutputFormatError("약한 상대 구간을 주어로 비교함")
-    if chapter_id == "strength_split" and re.search(r"\d\s*%(?!p)", footnote):
-        raise OutputFormatError("승률 차는 %p 로 써야 함")  # 21%p 는 되고 21% 는 안 됨 (비율의 차이)
-    typed = [w for w in ("플레이어", "공격형", "수비형") if w in footnote]
-    if typed:
-        raise OutputFormatError(f"플레이어를 한 유형으로 규정함: {typed}")  # 공통 규칙 (v3.6)
+    leak = [w for w in _LABEL_LEAK if w in footnote]
+    if leak:
+        raise OutputFormatError(f"입력 꼬리표를 명사형 그대로 옮김: {leak}")
+    defined = [w for w in _DEFINITION if w in footnote]
+    if defined:
+        raise OutputFormatError(f"지표 정의를 되풀이함: {defined}")
+    if _SIGNED_COMPARE.search(footnote):
+        raise OutputFormatError("부호 붙은 숫자에 높다/낮다를 붙임 (예: -62.87 낮습니다)")
     restate = [w for w in _RULE_RESTATE if w in footnote]
     if restate:
         raise OutputFormatError(f"[해석] 규칙을 되풀이함: {restate}")
@@ -358,20 +496,36 @@ def _check_heavy_content(footnote: str, chapter_id: str, data: dict) -> None:
         described = [w for w in _RIVAL_DESCRIBE if w in footnote]
         if described:
             raise OutputFormatError(f"상대를 지어내 묘사함: {described}")
+        if "승률" in footnote:
+            raise OutputFormatError("라이벌 승률을 씀 (31번 3.2절 승률 계산 금지)")
         _check_rivals(footnote, data)
         return
+    # --- 챕터별 ---
+    _check_compare_basis(footnote, chapter_id)
+    if chapter_id in ("playstyle", "defense"):
+        rank = [w for w in _RANK_WORDS if w in footnote]
+        if rank:
+            raise OutputFormatError(f"성향 지표에 우열 서술어를 씀 (31번 1.3절): {rank}")
+    if chapter_id == "playstyle":
+        _check_playstyle_compare(footnote)
+    if chapter_id == "strength_split" and re.search(r"약한 상대[^.]*?강한 상대[^.]*?보다", footnote):
+        # 주어를 바꾸면 방향 검사가 거꾸로 된다 → 강한 구간을 주어로 쓴 문장만 받음
+        raise OutputFormatError("약한 상대 구간을 주어로 비교함")
     _check_numbers(footnote, _numbers(_numeric_values(data)), "")
     _check_direction(footnote, chapter_id, data)
     _check_single_direction(footnote, chapter_id, data)
+    _check_intensity(footnote, chapter_id, data)
+    if chapter_id == "comeback_rate":
+        _check_comeback_direction(footnote, data)
 
 
 def process_heavy_output(text: str, chapter_id: str, data: dict) -> HeavyResponse:
-    """heavy-draft-v2: 모델이 쓴 각주 문장을 다듬고 검사해 응답 {chapter_id, footnote} 를 만든다.
+    """모델이 쓴 각주 문장을 다듬고 검사해 응답 {chapter_id, footnote} 를 만든다.
 
     다듬기: 앞뒤 공백·따옴표, "각주:" 같은 머리말을 지우고, 첫 문단에서 완성된 문장 최대 2개만 쓴다
             (v1.2 5.3절 footnote 1–2문장. 출력 한도에서 잘린 뒤쪽 미완성 문장은 버린다).
-    형식 오류(→ 502, 백엔드가 그 챕터만 재요청):
-      완성된 문장 없음 / 프롬프트 베낌 / 중국어·일본어 / data 키 이름(delta_app 등)이 문장에 그대로 나옴
+    형식·내용 오류(→ 서버가 다시 생성, 끝내 실패하면 대체 문장 또는 502):
+      완성된 문장 없음 / 프롬프트 베낌 / 중국어·일본어 / data 키 이름 노출 / 31번 가이드라인 금지 규칙
     예전 형식(JSON {"chapter_id","footnote"})으로 답해도 footnote 를 꺼내 같은 검사를 한다.
     """
     raw = text.strip()
@@ -391,17 +545,13 @@ def process_heavy_output(text: str, chapter_id: str, data: dict) -> HeavyRespons
         raise OutputFormatError("완성된 문장이 없음")
     footnote = " ".join(sentences[:2]).strip("\"'`“”‘’ ")
     if chapter_id == "strength_split":
-        footnote = _strength_percent_point(footnote, data)
+        footnote = _strip_strength_percent(footnote, data)
 
     echo = [m for m in HEAVY_ECHO_MARKERS if m in footnote]
     if echo:
         raise OutputFormatError(f"시스템 프롬프트를 베낀 출력: {echo}")
-    from app.prompt import pick_heavy_example
-    example = pick_heavy_example(chapter_id, data) if chapter_id in HEAVY_CHAPTERS else ""
-    example_first = _SENTENCE.findall(example)[0] if _SENTENCE.findall(example) else ""
-    # v3.4: 숫자가 없는 상황별 예시는 입력 방향과 같으므로 베껴도 틀리지 않는다 → 숫자가 든 예시만 검사
-    if example_first and re.search(r"\d", example_first) and example_first.strip() in footnote:
-        raise OutputFormatError("프롬프트의 예시 문장을 그대로 베낌")
+    # (v3.3~v4 의 "숫자가 든 예시 베낌" 검사는 v4.1 에서 뺌 — 예시가 입력과 같은 방향·강도의 숫자 없는 문장이라
+    #  베껴도 틀리지 않고, 숫자를 베끼면 아래 숫자 검사에 걸린다)
     if _CJK.search(footnote):
         raise OutputFormatError("중국어·일본어 문자가 섞임")
     leaked = sorted(k for k in _data_keys(data) | {"chapter_id", "footnote"} if k in footnote)

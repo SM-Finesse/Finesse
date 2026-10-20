@@ -1,0 +1,13 @@
+{
+  "_설명": "light-v5 측정용 — calc 가 고른 3개를 가정한 묶음 (31번 2.3절 Q1·Q3 로 영역 확인). 실제 유저 아님.",
+  "sets": {
+    "high_mix":      [["delta_app", 0.08, "높음"], ["delta_opener", 0.42, "높음"], ["delta_vs_apm", -0.20, "낮음"]],
+    "mixed":         [["delta_weighted_app", -0.05, "낮음"], ["delta_cheese_index", 25.3, "높음"], ["delta_comeback", 0.02, "보통"]],
+    "all_mid":       [["delta_app", 0.01, "보통"], ["delta_plonk", -0.05, "보통"], ["delta_vs_apm", 0.04, "보통"]],
+    "strength_hold": [["strength_split", -0.10, "높음"], ["delta_stride", -0.30, "낮음"], ["delta_app", -0.02, "보통"]],
+    "strength_low":  [["strength_split", -0.55, "낮음"], ["delta_comeback", -0.10, "낮음"], ["session_vs_slope", 2.1, "높음"]],
+    "zero":          [["session_vs_slope", 0.0, "보통"], ["delta_inf_ds", 0.40, "높음"], ["delta_weighted_app", 0.0, "보통"]],
+    "strength_mid":  [["strength_split", -0.25, "보통"], ["session_vs_slope", -0.3, "낮음"], ["delta_cheese_index", 3.4, "보통"]],
+    "strength_pos":  [["strength_split", 0.12, "높음"], ["delta_comeback", 0.12, "높음"], ["delta_opener", -0.05, "보통"]]
+  }
+}

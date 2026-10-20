@@ -171,7 +171,7 @@ class Scripted:
         self.outs = {k: list(v) for k, v in outs.items()}
         self.labels = []
 
-    def generate_text(self, label, messages, decoding):
+    def generate_text(self, label, messages, decoding, **kwargs):
         self.labels.append(label)
         stage = label.split(":")[1]
         return GenerationResult(text=self.outs[stage].pop(0), finish_reason="stop")
@@ -254,13 +254,16 @@ def test_엔드포인트_6회_연동(mock):
 
 def test_엔드포인트_검증_실패는_502(monkeypatch):
     monkeypatch.setattr(main_module, "generator", Scripted(judge=["[1] | 높음 | +9.9"], select=["[1]"],
-                                                           sentence=["Opener tendency is strong."],
-                                                           summary=["요약입니다."]))
+                                                           sentence=["Opener tendency is strong."] * 2,
+                                                           summary=["요약입니다."] * 2))
     assert client.post("/v1/light/judge", json=_judge_body("l6_typical")).status_code == 502
     jl = [{"stat": k, "zone": "보통", "deviation": 0.0} for k in CANDIDATE_KEYS]
     assert client.post("/v1/light/select", json={"judgments": jl}).status_code == 502          # 1개 < 3
-    assert client.post("/v1/light/sentence", json={"stat": "delta_opener", "value": 0.3}).status_code == 502
-    assert client.post("/v1/light/summary", json={"items": [{"stat": "delta_app", "value": 0.03}]}).status_code == 502
+    # light-v5: 개별·기본 코멘트는 검사에 실패하면 502 대신 대체 문장 (fallback=true)
+    r = client.post("/v1/light/sentence", json={"stat": "delta_opener", "value": 0.3})
+    assert r.status_code == 200 and r.json()["fallback"] is True
+    r = client.post("/v1/light/summary", json={"items": [{"stat": "delta_app", "value": 0.03}]})
+    assert r.status_code == 200 and r.json()["fallback"] is True
 
 
 def test_엔드포인트_요청_검증_422(mock):
@@ -278,7 +281,7 @@ def test_엔드포인트_입력_길이_초과는_413(monkeypatch):
     class Over:
         name = "over"
 
-        def generate_text(self, label, messages, decoding):
+        def generate_text(self, label, messages, decoding, **kwargs):
             raise ContextOverflowError("exceed context window")
 
     monkeypatch.setattr(main_module, "generator", Over())

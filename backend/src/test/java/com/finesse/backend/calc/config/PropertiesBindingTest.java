@@ -13,6 +13,7 @@ class PropertiesBindingTest {
     @Test
     void yml_값이_바인딩된다() {
         assertThat(analytics.coldStartThreshold()).isEqualTo(10);
+        assertThat(analytics.trTrendRatio()).isEqualTo(0.3);
         assertThat(collector.maxTotalMatches()).isEqualTo(300);
         assertThat(collector.maxAgeDays()).isEqualTo(365);
     }

@@ -6,5 +6,6 @@ public enum CalculatorKey {
     HIGHLIGHT,
     WIN_LOSS,
     PROFILE_DELTA,
-    RIVALRY
+    RIVALRY,
+    SERIES
 }

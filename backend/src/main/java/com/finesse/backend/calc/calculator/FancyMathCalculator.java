@@ -3,8 +3,6 @@ package com.finesse.backend.calc.calculator;
 import com.finesse.backend.calc.domain.AnalyticsContext;
 import com.finesse.backend.calc.domain.FancyStats;
 import com.finesse.backend.calc.domain.MatchHistory;
-import com.finesse.backend.calc.exception.AnalyticsErrorCode;
-import com.finesse.backend.calc.exception.InsufficientMatchException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -12,6 +10,8 @@ import java.util.List;
 /**
  * 본인의 APM/PPS/VS 원값만으로 계산하는 순수 수학 지표 (설계서 6장).
  * 매치별로 APP → VS/APM → DS/S → DS/P → Cheese → GbE → Weighted APP 순서로 계산한 뒤 산술 평균한다.
+ * APM = 0·PPS ≥ 0.2 매치는 정제를 통과하지만(5.7절) 0 나눗셈이 되므로 여기서 뺀다.
+ * 뺀 뒤 남는 매치가 없으면 null을 반환한다(StatResult.fancy = null).
  */
 @Component
 public class FancyMathCalculator implements AnalyticsCalculator<FancyStats> {
@@ -29,7 +29,7 @@ public class FancyMathCalculator implements AnalyticsCalculator<FancyStats> {
                 .filter(FancyMathCalculator::isComputable)
                 .toList();
         if (computable.isEmpty()) {
-            throw new InsufficientMatchException(AnalyticsErrorCode.ANALYTICS_NO_VALID_MATCH, 0, 1);
+            return null;   // 6.5절(v3.5): 계산 가능한 매치가 없으면 예외 대신 null
         }
 
         double sumApm = 0, sumPps = 0, sumVs = 0;
@@ -68,7 +68,7 @@ public class FancyMathCalculator implements AnalyticsCalculator<FancyStats> {
         );
     }
 
-    /** APM=0이면 APP·VS/APM이 0 나눗셈, PPS<0.1이면 비정상 매치 (설계서 6.4절). */
+    /** APM=0이면 APP·VS/APM이 0 나눗셈, PPS<0.1이면 비정상 매치 (설계서 6.4절) — 평균에서만 뺀다. */
     static boolean isComputable(MatchHistory m) {
         return m.myApm() > 0.0 && m.myPps() >= MIN_PPS;
     }

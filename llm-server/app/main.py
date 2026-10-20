@@ -27,27 +27,32 @@ light 6회 호출 (light-6call, 34번 「라이트 뷰 LLM 호출 구조」 PM �
   LLM_LIGHT6_ATTEMPTS (기본 1): 서버 안에서 다시 생성하는 횟수. 1 이면 재요청은 전부 백엔드가 한다.
   LLM_LIGHT_MODE=six : 기존 /v1/comment/light 한 번 호출로 6회 흐름을 서버 안에서 순서대로 실행 (임시·연동 시험용,
       Q1·Q3 는 config/light_quartiles.json, 3단계를 동시에 못 하므로 백엔드 구현보다 느림)
+
+heavy 시간 예산 (10/20, 백엔드 회신: 챕터 호출 10초는 백엔드가 요청을 보낸 순간부터 — 서버 안 대기 포함)
+  LLM_HEAVY_DEADLINE_SEC (기본 9): 요청을 받은 시각부터 이 시간 안에 응답한다.
+  LLM_HEAVY_GEN_RESERVE_SEC (기본 3.5): 생성 1회에 남겨 둘 시간(최악 약 3초 + 여유). 남은 시간이 이보다 적으면
+      생성(재생성 포함)을 시작하지 않고, 다른 요청 때문에 그 전까지 차례가 오지 않아도 바로 대체 문장을 보낸다.
+  응답의 fallback: 서버 대체 문장이면 true (백엔드 요청, 캐시 제외용).
 """
 import logging
 import os
+import random
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
+from app import light_comment as lc
 from app.fallback import build_fallback
-from app.generator import ContextOverflowError, build_generator
+from app.generator import ContextOverflowError, GeneratorBusyError, build_generator
 from app.light6 import (
     LIGHT6_DECODING,
     StageError,
     build_judge,
     build_select,
-    build_sentence,
-    build_summary,
     parse_judge,
     parse_select,
-    parse_sentence,
-    parse_summary,
 )
 from app.light6_flow import Flow6Settings, run_light6
 from app.light_pipeline import LightFailure, LightSettings, run_light
@@ -226,30 +231,75 @@ def light_select(req: SelectRequest):
     return _light6_generate("select", build_select(jl), parse)
 
 
+# ---- 개별·기본 코멘트 (light-v5, 31번 10/16 개정판: 판정·선정은 calc, LLM 은 설명만) ----
+def _light_comment_attempts() -> int:
+    return max(1, int(os.getenv("LLM_LIGHT_COMMENT_ATTEMPTS", "2")))
+
+
+def _light_comment(stage: str, messages, parse, fallback: str, t0: float) -> tuple[str, bool]:
+    """생성 → 검사. 통과하면 (문장, False). 정해진 횟수 모두 실패하거나 시간이 부족하면 대체 문장 (문장, True).
+
+    시간 예산은 헤비와 같은 방식 (요청을 받은 시각 t0 부터):
+      LLM_LIGHT_COMMENT_DEADLINE_SEC (기본 9) — 백엔드 호출 1회 제한이 정해지면 그보다 1초 짧게 맞춘다.
+      LLM_LIGHT_COMMENT_RESERVE_SEC (기본 sentence 3.5 / summary 4.5) — 생성 1회에 남길 시간 (max_tokens 119 / 160).
+    """
+    deadline = float(os.getenv("LLM_LIGHT_COMMENT_DEADLINE_SEC", "9"))
+    reserve = float(os.getenv("LLM_LIGHT_COMMENT_RESERVE_SEC", "3.5" if stage == "sentence" else "4.5"))
+    reason = "검사 실패"
+    for attempt in range(1, _light_comment_attempts() + 1):
+        wait_limit = deadline - (time.monotonic() - t0) - reserve
+        if wait_limit < 0:
+            reason = f"시간 예산 부족({time.monotonic() - t0:.1f}s 지남)"
+            break
+        try:
+            result = generator.generate_text(f"light5:{stage}", messages, lc.LIGHT_COMMENT_DECODING[stage],
+                                             lock_timeout=wait_limit)
+        except ContextOverflowError as e:
+            reason = f"입력 길이 초과({e})"
+            break
+        except GeneratorBusyError as e:
+            reason = f"차례 대기 초과({e})"
+            break
+        s, why = parse(result.text)
+        if s:
+            logger.info("light %s 응답 %.1fs 시도 %d", stage, time.monotonic() - t0, attempt)
+            return s, False
+        logger.warning("light %s 검사 실패 %d/%d finish=%s: %s | %r", stage, attempt, _light_comment_attempts(),
+                       result.finish_reason, why, result.text[:200])
+    logger.warning("light %s 대체 문장 사용 %.1fs (%s)", stage, time.monotonic() - t0, reason)
+    return fallback, True
+
+
+def _zone_or_422(stat: str, value: float, zone: str | None) -> str:
+    if zone == "없음":
+        raise HTTPException(status_code=422, detail=f"{stat}: 영역 '없음'은 코멘트를 쓸 수 없음")
+    return lc.resolve_zone(stat, value, zone)
+
+
 @app.post("/v1/light/sentence")
 def light_sentence(req: SentenceRequest):
-    def parse(text):
-        s, why = parse_sentence(text, req.stat, req.value)   # 검증 ③
-        if not s:
-            raise StageError(why)
-        return {"stat": req.stat, "sentence": s}
-
-    return _light6_generate("sentence", build_sentence(req.stat, req.value), parse)
+    t0 = time.monotonic()
+    zone = _zone_or_422(req.stat, req.value, req.zone)
+    rng = random.Random()
+    phrase = lc.pick_phrase(lc.state(req.stat, req.value, zone), rng)
+    s, used_fallback = _light_comment(
+        "sentence", lc.build_sentence(req.stat, req.value, zone, rng),
+        lambda t: lc.parse_sentence(t, req.stat, req.value, zone),
+        lc.build_sentence_text(req.stat, req.value, zone, phrase), t0)
+    return {"stat": req.stat, "sentence": s, "fallback": used_fallback}
 
 
 @app.post("/v1/light/summary")
 def light_summary(req: SummaryRequest):
-    items = [(i.stat, i.value) for i in req.items]
-    if len({k for k, _ in items}) != len(items):
+    t0 = time.monotonic()
+    if len({i.stat for i in req.items}) != len(req.items):
         raise HTTPException(status_code=422, detail="같은 stat 이 두 번 들어옴")
-
-    def parse(text):
-        s, why = parse_summary(text, items)                   # 검증 ③
-        if not s:
-            raise StageError(why)
-        return {"light_summary": s}
-
-    return _light6_generate("summary", build_summary(items), parse)
+    items = [(i.stat, i.value, _zone_or_422(i.stat, i.value, i.zone)) for i in req.items]
+    rng = random.Random()
+    s, used_fallback = _light_comment(
+        "summary", lc.build_summary(items, rng), lambda t: lc.parse_summary(t, items),
+        lc.build_summary_text(items, rng), t0)
+    return {"light_summary": s, "fallback": used_fallback}
 
 
 def _comment_light_six(req: LightRequest):
@@ -274,35 +324,57 @@ def _comment_light_six(req: LightRequest):
 
 @app.post("/v1/comment/heavy-chapter", response_model=HeavyResponse)
 def comment_heavy_chapter(req: HeavyRequest):
+    t0 = time.monotonic()                       # 시간 예산은 요청을 받은 시각부터 (서버 안 대기 포함)
     # ① 요청 검증: chapter_id 가 8개 중 하나가 아니거나 data 가 객체가 아니면 422
     # ② 프롬프트 조립 (챕터별 용어·해석 + 입력 방향에 맞는 예시)
     template_chapters = {c.strip() for c in os.getenv("LLM_HEAVY_TEMPLATE_CHAPTERS", "rivals").split(",") if c.strip()}
     if req.chapter_id in template_chapters:
         logger.info("heavy 서버 문장 사용 chapter=%s (LLM_HEAVY_TEMPLATE_CHAPTERS)", req.chapter_id)
-        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data))
+        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data),
+                             fallback=True)
     messages = build_heavy_messages(req)
     attempts = max(1, int(os.getenv("LLM_HEAVY_ATTEMPTS", "2")))
     fallback = os.getenv("LLM_HEAVY_FALLBACK", "on").lower() != "off"
-    last_error: OutputFormatError | None = None
+    deadline = float(os.getenv("LLM_HEAVY_DEADLINE_SEC", "9"))
+    reserve = float(os.getenv("LLM_HEAVY_GEN_RESERVE_SEC", "3.5"))
+    last_error: Exception | None = None
+    reason = "검사 실패"
     for attempt in range(1, attempts + 1):
+        # 남은 시간 = 예산 - 지난 시간. 생성 1회(reserve)를 할 시간이 없으면 시작하지 않는다.
+        # 대체 문장이 꺼져 있으면(off) 예전처럼 시간과 상관없이 끝까지 시도한다.
+        wait_limit = deadline - (time.monotonic() - t0) - reserve
+        if fallback and wait_limit < 0:
+            reason = f"시간 예산 부족({time.monotonic() - t0:.1f}s 지남)"
+            logger.warning("heavy 재생성 건너뜀 %d/%d chapter=%s: %s", attempt, attempts, req.chapter_id, reason)
+            break
         # ③ 생성 → ④ 문장 다듬기·검사 (형식·숫자·방향·베낌)
-        result = _generate(generator.generate_heavy, req, messages)
         try:
-            return process_heavy_output(result.text, req.chapter_id, req.data)
+            result = _generate(generator.generate_heavy, req, messages,
+                               lock_timeout=wait_limit if fallback else None)
+        except GeneratorBusyError as e:
+            reason = f"차례 대기 초과({e})"
+            logger.warning("heavy 생성 못 함 %d/%d chapter=%s: %s", attempt, attempts, req.chapter_id, reason)
+            last_error = e
+            break
+        try:
+            resp = process_heavy_output(result.text, req.chapter_id, req.data)
+            logger.info("heavy 응답 chapter=%s %.1fs 시도 %d", req.chapter_id, time.monotonic() - t0, attempt)
+            return resp
         except OutputFormatError as e:
             last_error = e
             logger.warning("heavy 검사 실패 %d/%d chapter=%s generator=%s finish=%s: %s",
                            attempt, attempts, req.chapter_id, generator.name, result.finish_reason, e)
     if fallback:
-        # ⑤ 모두 실패 → 서버 대체 문장 (각주가 비지 않게). 파인튜닝 전후 비교용으로 로그를 남긴다.
-        logger.warning("heavy 대체 문장 사용 chapter=%s", req.chapter_id)
-        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data))
+        # ⑤ 모두 실패·시간 부족 → 서버 대체 문장 (각주가 비지 않게). 파인튜닝 전후 비교용으로 로그를 남긴다.
+        logger.warning("heavy 대체 문장 사용 chapter=%s %.1fs (%s)", req.chapter_id, time.monotonic() - t0, reason)
+        return HeavyResponse(chapter_id=req.chapter_id, footnote=build_fallback(req.chapter_id, req.data),
+                             fallback=True)
     raise HTTPException(status_code=502, detail="LLM 출력 형식 오류") from last_error
 
 
-def _generate(generate, req, messages):
+def _generate(generate, req, messages, **kwargs):
     try:
-        return generate(req, messages)
+        return generate(req, messages, **kwargs)
     except ContextOverflowError as e:
         # 같은 요청을 다시 보내도 결과가 같으므로 재요청 대상(502)과 구분한다 (10/7 백엔드 합의)
         logger.warning("입력 길이 초과 generator=%s: %s", generator.name, e)

@@ -28,8 +28,8 @@ class TetrIoApiLiveTest {
         UserSummary summary = collector.fetchSummary(username, session);
         CollectionResult result = collector.collectMatches(username, session, Instant.now());
 
-        System.out.printf("gamesPlayed=%d, 현재 구간=%d판, 이전 구간=%d판, 상태=%s, 버린 레코드=%d%n",
-                summary.gamesPlayed(), result.matches().size(), result.previousWindowMatches().size(),
+        System.out.printf("gamesPlayed=%d, 수집=%d판, 페이지 호출=%d회, 상태=%s, 버린 레코드=%d%n",
+                summary.gamesPlayed(), result.matches().size(), result.requestedPages(),
                 result.status(), result.droppedRecords());
         assertThat(result.status()).isNotEqualTo(CollectionStatus.FAILED);
     }

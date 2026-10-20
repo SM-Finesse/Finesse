@@ -42,6 +42,10 @@ class GenerationResult:
     finish_reason: str  # "stop" 정상 종료 / "length" 출력 예산에서 잘림 (v1.2 12.1절 기록 대상)
 
 
+class GeneratorBusyError(Exception):
+    """정해진 시간 안에 생성기(서버당 1건 잠금)를 얻지 못함 — 다른 요청이 생성 중 (헤비 시간 예산, 10/20)."""
+
+
 class ContextOverflowError(Exception):
     """프롬프트 + 출력 예산이 n_ctx 를 넘어 생성을 시작할 수 없음."""
 
@@ -74,14 +78,18 @@ class MockGenerator:
         lines.append("총평 | 모의 응답입니다. 실제 모델이 만든 총평이 아닙니다.")
         return GenerationResult(text="\n".join(lines), finish_reason="stop")
 
-    def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict) -> GenerationResult:
+    def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict,
+                      lock_timeout: float | None = None) -> GenerationResult:
         """light-v4 (A/B/C)·light-6call 공통 호출. label 로 어떤 단계인지 구분해 모양만 흉내 낸다."""
         user = messages[-1]["content"]
+        if label.startswith("light5:"):
+            # light-v5 Mock: 프롬프트의 예시 문장을 그대로 낸다 (흐름·연동 시험용, 실제 모델 아님)
+            return GenerationResult(text=re.search(r"^예시: (.+)$", user, re.MULTILINE).group(1), finish_reason="stop")
         if label.startswith("light6:"):
             return GenerationResult(text=_mock_light6(label, user), finish_reason="stop")
         if label == "light:comment":
-            name = re.search(r"^지표: ([^(]+)", user, re.M).group(1).strip()
-            direction = re.search(r"^방향: (.+)$", user, re.M).group(1).strip()
+            name = re.search(r"^지표: ([^(]+)", user, re.MULTILINE).group(1).strip()
+            direction = re.search(r"^방향: (.+)$", user, re.MULTILINE).group(1).strip()
             return GenerationResult(text=f"모의 응답 {name}, {direction}.", finish_reason="stop")
         if label == "light:summary":
             return GenerationResult(text="모의 응답입니다. 실제 모델이 만든 총평이 아닙니다.", finish_reason="stop")
@@ -100,8 +108,9 @@ class MockGenerator:
         lines.append("총평 | 모의 응답입니다. 실제 모델이 만든 총평이 아닙니다.")
         return GenerationResult(text="\n".join(lines), finish_reason="stop")
 
-    def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
-        # heavy-draft-v2: 모델은 각주 문장만 쓴다 (JSON 은 서버가 만든다)
+    def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]],
+                       lock_timeout: float | None = None) -> GenerationResult:
+        # heavy-draft-v2: 모델은 각주 문장만 쓴다 (JSON 은 서버가 만든다). Mock 은 잠금이 없어 lock_timeout 무시
         return GenerationResult(text="[Mock] 실제 모델이 만든 각주가 아닙니다.", finish_reason="stop")
 
 
@@ -128,10 +137,10 @@ def _mock_light6(label: str, user: str) -> str:
                 num[k] = m.group(1)
         return ", ".join(f"[{num[k]}]" for k in expected_selection(judged))
     if label == "light6:sentence":
-        k = by_name[re.search(r"^지표: (.+)$", user, re.M).group(1)]
-        v = float(re.search(r"^값: (\S+)$", user, re.M).group(1))
+        k = by_name[re.search(r"^지표: (.+)$", user, re.MULTILINE).group(1)]
+        v = float(re.search(r"^값: (\S+)$", user, re.MULTILINE).group(1))
         return example_sentence(k, v)
-    names = re.findall(r"^- (.+?): 값", user, re.M)
+    names = re.findall(r"^- (.+?): 값", user, re.MULTILINE)
     return f"맞붙은 상대들에 비해 {', '.join(names)} 쪽이 두드러집니다. 모의 응답이라 실제 모델의 요약이 아닙니다."
 
 
@@ -203,16 +212,20 @@ class LlamaGenerator:
         # light-v3 는 "번호 | 문장" 줄만 쓰고 JSON 은 서버가 만든다 → JSON 모드를 적용하지 않음
         return self._complete("light", messages, LIGHT_V3_DECODING, None, text_only=True)
 
-    def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict) -> GenerationResult:
+    def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict,
+                      lock_timeout: float | None = None) -> GenerationResult:
         """light-v4 (A/B/C) 공통 호출: 줄·번호·문장만 쓰고 JSON 은 서버가 만든다 → JSON 모드 적용 안 함."""
-        return self._complete(label, messages, decoding, None, text_only=True)
+        return self._complete(label, messages, decoding, None, text_only=True, lock_timeout=lock_timeout)
 
-    def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]]) -> GenerationResult:
+    def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]],
+                       lock_timeout: float | None = None) -> GenerationResult:
         # heavy-draft-v2 는 문장만 쓰므로 JSON 모드(json/schema)를 적용하지 않는다
-        return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, None, text_only=True)
+        return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, None, text_only=True,
+                              lock_timeout=lock_timeout)
 
     def _complete(self, label: str, messages: list[dict[str, str]], decoding: dict,
-                  schema: dict | None, text_only: bool = False) -> GenerationResult:
+                  schema: dict | None, text_only: bool = False,
+                  lock_timeout: float | None = None) -> GenerationResult:
         kwargs = dict(decoding)
         # 요청마다 다른 seed. 지정하지 않으면 서버를 켤 때마다 같은 순서의 출력이 나와서,
         # 같은 시점에 켠 11번·13번이 똑같은 출력을 낸다 (10/8 두 서버 로그의 gen 토큰 수가 순서대로 일치).
@@ -227,7 +240,12 @@ class LlamaGenerator:
         elif self.json_mode == "schema":
             kwargs["response_format"] = {"type": "json_object", "schema": schema}
 
-        with self._lock:
+        # lock_timeout: 이 시간 안에 차례가 오지 않으면 생성하지 않고 GeneratorBusyError (헤비 시간 예산)
+        t_wait = time.perf_counter()
+        if not self._lock.acquire(timeout=-1 if lock_timeout is None else max(0.0, lock_timeout)):
+            raise GeneratorBusyError(f"{label}: {time.perf_counter() - t_wait:.1f}s 기다려도 차례가 오지 않음")
+        try:
+            waited = time.perf_counter() - t_wait
             t = time.perf_counter()
             try:
                 out = self._llm.create_chat_completion(messages=messages, **kwargs)
@@ -237,13 +255,15 @@ class LlamaGenerator:
                     raise ContextOverflowError(str(e)) from e
                 raise
             elapsed = time.perf_counter() - t
+        finally:
+            self._lock.release()
 
         choice = out["choices"][0]
         usage = out.get("usage", {})
         finish = choice.get("finish_reason") or ""
         logger.info(
-            "%s 생성 %.1fs finish=%s prompt=%s gen=%s seed=%s json_mode=%s",
-            label, elapsed, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), kwargs["seed"],
+            "%s 생성 %.1fs (대기 %.1fs) finish=%s prompt=%s gen=%s seed=%s json_mode=%s",
+            label, elapsed, waited, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), kwargs["seed"],
             self.json_mode,
         )
         return GenerationResult(text=choice["message"]["content"] or "", finish_reason=finish)
