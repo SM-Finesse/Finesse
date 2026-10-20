@@ -172,6 +172,19 @@ class StatCalculatorFacadeTest {
     }
 
     @Test
+    void 정상_분석은_조회_시점_등급의_묶음_범위로_하이라이트를_판정하고_최대_3개를_고른다() {
+        // 가짜 API의 등급은 "s" → S-~S+ 묶음(t4)
+        AnalysisOutcome outcome = facade(api(50, matches(12, 0), false, false)).analyze("user");
+
+        assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.Analyzed.class, a -> {
+            assertThat(a.result().highlightJudgement()).isNotNull();
+            assertThat(a.result().highlightJudgement().rangeGroup()).isEqualTo("t4");
+            assertThat(a.result().highlightJudgement().metrics()).hasSize(11);
+            assertThat(a.result().highlightJudgement().picks().size()).isLessThanOrEqualTo(3);
+        });
+    }
+
+    @Test
     void 빈_유저_이름은_거부한다() {
         assertThatThrownBy(() -> facade(api(50, List.of(), false, false)).analyze(" "))
                 .isInstanceOf(IllegalArgumentException.class);
