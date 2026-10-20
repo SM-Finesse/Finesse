@@ -299,7 +299,8 @@ public class LlmClient {
                     && !resp.footnote().isBlank();
             if (valid) {
                 return new HeavyCommentResponse.ChapterResult(
-                        chapterId, HeavyCommentResponse.STATUS_OK, resp.footnote(), attempt);
+                        chapterId, HeavyCommentResponse.STATUS_OK, resp.footnote(), attempt,
+                        Boolean.TRUE.equals(resp.fallback()));
             }
             attempt++;
         }

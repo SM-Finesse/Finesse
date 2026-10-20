@@ -346,8 +346,9 @@ public class CommentService {
                 .whenComplete((ignored, error) -> {
                     heartbeat.cancel(false);
                     long elapsedMs = System.currentTimeMillis() - startedAt;
-                    log.info("heavy 코멘트 처리 종료: {}ms (한도 {}s, 서버 {}대, 캐시 재사용 {}챕터) ({})",
-                            elapsedMs, heavyTimeoutSeconds, serverCount, cachedOk.size(), normalized);
+                    long fallbacks = collected.values().stream().filter(CommentService::isLlmFallback).count();
+                    log.info("heavy 코멘트 처리 종료: {}ms (한도 {}s, 서버 {}대, 캐시 재사용 {}챕터, 대체 문장 {}챕터) ({})",
+                            elapsedMs, heavyTimeoutSeconds, serverCount, cachedOk.size(), fallbacks, normalized);
                     finishHeavyStream(normalized, emitter, cache, collected, clientGone, streamLock, elapsedMs);
                 });
     }
@@ -375,7 +376,8 @@ public class CommentService {
 
         Map<String, HeavyCommentResponse.ChapterResult> ok = new LinkedHashMap<>();
         for (HeavyCommentResponse.ChapterResult r : finalResults) {
-            if (HeavyCommentResponse.STATUS_OK.equals(r.status())) {
+            // LLM 서버 대체 문장은 status=ok여도 저장하지 않는다 — 10분 동안 대체 문장이 고정되지 않도록 다음 요청 때 다시 시도
+            if (HeavyCommentResponse.STATUS_OK.equals(r.status()) && !isLlmFallback(r)) {
                 ok.put(r.chapterId(), r);
             }
         }
@@ -383,6 +385,14 @@ public class CommentService {
             cache.put(normalized, new HeavyChapterCache(Map.copyOf(ok)));
         }
         emitter.complete();
+    }
+
+    /**
+     * LLM 서버가 대체 문장을 보냈는지 (fallback=true). rivals는 처음부터 서버 문장을 쓰는 챕터라(LLM_HEAVY_TEMPLATE_CHAPTERS)
+     * 대체 문장으로 치지 않는다 — 다시 불러도 같은 문장이므로 캐시해도 된다.
+     */
+    static boolean isLlmFallback(HeavyCommentResponse.ChapterResult r) {
+        return r.fallback() && !"rivals".equals(r.chapterId());
     }
 
     /**

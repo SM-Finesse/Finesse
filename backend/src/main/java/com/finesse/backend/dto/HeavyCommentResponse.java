@@ -1,5 +1,7 @@
 package com.finesse.backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.List;
 
 /**
@@ -13,6 +15,14 @@ public record HeavyCommentResponse(List<ChapterResult> chapters) {
     public static final String STATUS_FAILED = "failed";
     public static final String STATUS_TIMEOUT = "timeout";
 
-    public record ChapterResult(String chapterId, String status, String footnote, Integer attemptCount) {
+    /**
+     * fallback은 응답에 넣지 않는다(내부용) — LLM 서버 대체 문장이면 true, 캐시에서 빼서 다음 요청 때 LLM으로 다시 시도한다.
+     */
+    public record ChapterResult(String chapterId, String status, String footnote, Integer attemptCount,
+                                @JsonIgnore boolean fallback) {
+
+        public ChapterResult(String chapterId, String status, String footnote, Integer attemptCount) {
+            this(chapterId, status, footnote, attemptCount, false);
+        }
     }
 }
