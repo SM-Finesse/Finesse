@@ -30,9 +30,10 @@ light 6회 호출 (light-6call, 34번 「라이트 뷰 LLM 호출 구조」 PM �
       Q1·Q3 는 config/light_quartiles.json, 3단계를 동시에 못 하므로 백엔드 구현보다 느림)
 
 heavy 시간 예산 (10/20, 백엔드 회신: 챕터 호출 10초는 백엔드가 요청을 보낸 순간부터 — 서버 안 대기 포함)
-  LLM_HEAVY_DEADLINE_SEC (기본 9): 요청을 받은 시각부터 이 시간 안에 응답한다.
-  LLM_HEAVY_GEN_RESERVE_SEC (기본 3.5): 생성 1회에 남겨 둘 시간(최악 약 3초 + 여유). 남은 시간이 이보다 적으면
-      생성(재생성 포함)을 시작하지 않고, 다른 요청 때문에 그 전까지 차례가 오지 않아도 바로 대체 문장을 보낸다.
+  LLM_HEAVY_DEADLINE_SEC (기본 9): 요청을 받은 시각부터 이 시간 안에 응답한다. 10/21: 생성 도중에도 마감
+      0.2초 전에 강제로 끊는다(강제 마감, generator._stream_until) — 잘린 문장은 검사에서 걸러져 대체 문장.
+  LLM_HEAVY_GEN_RESERVE_SEC (기본 2.0): 생성을 새로 시작하려면 남아 있어야 하는 시간. 이보다 적으면 생성(재생성
+      포함)을 시작하지 않고, 다른 요청 때문에 그 전까지 차례가 오지 않아도 바로 대체 문장을 보낸다.
   응답의 fallback: 서버 대체 문장이면 true (백엔드 요청, 캐시 제외용).
 """
 import logging
@@ -233,6 +234,9 @@ def light_select(req: SelectRequest):
 
 
 # ---- 개별·기본 코멘트 (light-v5, 31번 10/16 개정판: 판정·선정은 calc, LLM 은 설명만) ----
+_MARGIN_SEC = 0.2          # 강제 마감은 예산보다 0.2초 앞 — 응답을 만들어 보낼 시간
+
+
 def _light_comment_attempts() -> int:
     return max(1, int(os.getenv("LLM_LIGHT_COMMENT_ATTEMPTS", "2")))
 
@@ -241,11 +245,12 @@ def _light_comment(stage: str, messages, parse, fallback: str, t0: float) -> tup
     """생성 → 검사. 통과하면 (문장, False). 정해진 횟수 모두 실패하거나 시간이 부족하면 대체 문장 (문장, True).
 
     시간 예산은 헤비와 같은 방식 (요청을 받은 시각 t0 부터):
-      LLM_LIGHT_COMMENT_DEADLINE_SEC (기본 9) — 백엔드 호출 1회 제한이 정해지면 그보다 1초 짧게 맞춘다.
-      LLM_LIGHT_COMMENT_RESERVE_SEC (기본 sentence 3.5 / summary 4.5) — 생성 1회에 남길 시간 (max_tokens 119 / 160).
+      LLM_LIGHT_COMMENT_DEADLINE_SEC (기본 9) — 생성 도중에도 마감 0.2초 전에 강제로 끊는다(10/21).
+      LLM_LIGHT_COMMENT_RESERVE_SEC (기본 sentence 1.5 / summary 3.0) — 생성을 새로 시작하려면 남아 있어야 하는 시간.
     """
     deadline = float(os.getenv("LLM_LIGHT_COMMENT_DEADLINE_SEC", "9"))
-    reserve = float(os.getenv("LLM_LIGHT_COMMENT_RESERVE_SEC", "3.5" if stage == "sentence" else "4.5"))
+    reserve = float(os.getenv("LLM_LIGHT_COMMENT_RESERVE_SEC", "1.5" if stage == "sentence" else "3.0"))
+    stop_at = t0 + deadline - _MARGIN_SEC
     reason = "검사 실패"
     for attempt in range(1, _light_comment_attempts() + 1):
         wait_limit = deadline - (time.monotonic() - t0) - reserve
@@ -254,7 +259,7 @@ def _light_comment(stage: str, messages, parse, fallback: str, t0: float) -> tup
             break
         try:
             result = generator.generate_text(f"light5:{stage}", messages, lc.LIGHT_COMMENT_DECODING[stage],
-                                             lock_timeout=wait_limit)
+                                             lock_timeout=wait_limit, stop_at=stop_at)
         except ContextOverflowError as e:
             reason = f"입력 길이 초과({e})"
             break
@@ -287,7 +292,7 @@ def light_sentence(req: SentenceRequest):
         "sentence", lc.build_sentence(req.stat, req.value, zone, rng),
         lambda t: lc.parse_sentence(t, req.stat, req.value, zone),
         lc.build_sentence_text(req.stat, req.value, zone, phrase), t0)
-    return {"stat": req.stat, "sentence": s, "fallback": used_fallback}
+    return {"stat": req.stat, "sentence": s, "fallback": used_fallback, "version": lc.LIGHT_COMMENT_VERSION}
 
 
 @app.post("/v1/light/summary")
@@ -300,7 +305,7 @@ def light_summary(req: SummaryRequest):
     s, used_fallback = _light_comment(
         "summary", lc.build_summary(items, rng), lambda t: lc.parse_summary(t, items),
         lc.build_summary_text(items, rng), t0)
-    return {"light_summary": s, "fallback": used_fallback}
+    return {"light_summary": s, "fallback": used_fallback, "version": lc.LIGHT_COMMENT_VERSION}
 
 
 def _comment_light_six(req: LightRequest):
@@ -337,7 +342,8 @@ def comment_heavy_chapter(req: HeavyRequest):
     attempts = max(1, int(os.getenv("LLM_HEAVY_ATTEMPTS", "2")))
     fallback = os.getenv("LLM_HEAVY_FALLBACK", "on").lower() != "off"
     deadline = float(os.getenv("LLM_HEAVY_DEADLINE_SEC", "9"))
-    reserve = float(os.getenv("LLM_HEAVY_GEN_RESERVE_SEC", "3.5"))
+    reserve = float(os.getenv("LLM_HEAVY_GEN_RESERVE_SEC", "2.0"))
+    stop_at = t0 + deadline - _MARGIN_SEC
     last_error: Exception | None = None
     reason = "검사 실패"
     for attempt in range(1, attempts + 1):
@@ -351,7 +357,7 @@ def comment_heavy_chapter(req: HeavyRequest):
         # ③ 생성 → ④ 문장 다듬기·검사 (형식·숫자·방향·베낌)
         try:
             result = _generate(generator.generate_heavy, req, messages,
-                               lock_timeout=wait_limit if fallback else None)
+                               lock_timeout=wait_limit if fallback else None, stop_at=stop_at if fallback else None)
         except GeneratorBusyError as e:
             reason = f"차례 대기 초과({e})"
             logger.warning("heavy 생성 못 함 %d/%d chapter=%s: %s", attempt, attempts, req.chapter_id, reason)

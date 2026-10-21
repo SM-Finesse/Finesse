@@ -523,7 +523,7 @@ def test_v44_시간_예산_남은_시간이_부족하면_재생성하지_않음(
     class Slow(BadGenerator):
         def generate_heavy(self, req, messages, **kwargs):
             self.kwargs = kwargs
-            clock.t += 6.0                                  # 첫 생성 6초 → 남은 3초 < 예비 3.5초
+            clock.t += 7.2                                  # 첫 생성 7.2초 → 남은 1.8초 < 2.0초
             return super().generate_heavy(req, messages)
 
     gen = Slow()
@@ -531,7 +531,8 @@ def test_v44_시간_예산_남은_시간이_부족하면_재생성하지_않음(
     r = client.post("/v1/comment/heavy-chapter", json=body("attack"))
     assert r.status_code == 200 and r.json()["fallback"] is True
     assert gen.calls == 1                                   # 재생성 건너뜀
-    assert gen.kwargs["lock_timeout"] == pytest.approx(9 - 3.5)
+    assert gen.kwargs["lock_timeout"] == pytest.approx(9 - 2.0)
+    assert gen.kwargs["stop_at"] == pytest.approx(100.0 + 9 - 0.2)
 
 
 def test_v44_시간_예산_여유가_있으면_재생성(monkeypatch):

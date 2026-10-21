@@ -171,7 +171,8 @@ def test_엔드포인트_재시도_후_대체(monkeypatch):
     gen = Scripted("상대 대비 블록당 공격량(APP)이 크지 않습니다.", "상대 대비 블록당 공격량(APP)에서 앞섭니다.")
     monkeypatch.setattr(main_module, "generator", gen)
     r = client.post("/v1/light/sentence", json={"stat": "delta_app", "value": 0.08, "zone": "높음"})
-    assert r.json() == {"stat": "delta_app", "sentence": "상대 대비 블록당 공격량(APP)에서 앞섭니다.", "fallback": False}
+    assert r.json() == {"stat": "delta_app", "sentence": "상대 대비 블록당 공격량(APP)에서 앞섭니다.", "fallback": False,
+                        "version": lc.LIGHT_COMMENT_VERSION}
     assert gen.labels == ["light5:sentence", "light5:sentence"]
     monkeypatch.setattr(main_module, "generator", Scripted("Bad.", "Bad."))
     r = client.post("/v1/light/sentence", json={"stat": "delta_app", "value": 0.08, "zone": "높음"})
@@ -195,14 +196,15 @@ def test_시간_예산(monkeypatch):
         def generate_text(self, label, messages, decoding, **kwargs):
             self.calls += 1
             self.kwargs = kwargs
-            clock["t"] += 6.0                              # 첫 생성 6초 → 남은 3초 < 3.5초
+            clock["t"] += 7.6                              # 첫 생성 7.6초 → 남은 1.4초 < 1.5초
             return GenerationResult(text="Bad.", finish_reason="stop")
 
     gen = Slow()
     monkeypatch.setattr(main_module, "generator", gen)
     r = client.post("/v1/light/sentence", json={"stat": "delta_app", "value": 0.08, "zone": "높음"})
     assert r.json()["fallback"] is True and gen.calls == 1
-    assert gen.kwargs["lock_timeout"] == pytest.approx(9 - 3.5)
+    assert gen.kwargs["lock_timeout"] == pytest.approx(9 - 1.5)
+    assert gen.kwargs["stop_at"] == pytest.approx(100.0 + 9 - 0.2)          # 강제 마감 시각
 
 
 def test_차례가_오지_않으면_대체(monkeypatch):

@@ -79,7 +79,7 @@ class MockGenerator:
         return GenerationResult(text="\n".join(lines), finish_reason="stop")
 
     def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict,
-                      lock_timeout: float | None = None) -> GenerationResult:
+                      lock_timeout: float | None = None, stop_at: float | None = None) -> GenerationResult:
         """light-v4 (A/B/C)·light-6call 공통 호출. label 로 어떤 단계인지 구분해 모양만 흉내 낸다."""
         user = messages[-1]["content"]
         if label.startswith("light5:"):
@@ -109,8 +109,8 @@ class MockGenerator:
         return GenerationResult(text="\n".join(lines), finish_reason="stop")
 
     def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]],
-                       lock_timeout: float | None = None) -> GenerationResult:
-        # heavy-draft-v2: 모델은 각주 문장만 쓴다 (JSON 은 서버가 만든다). Mock 은 잠금이 없어 lock_timeout 무시
+                       lock_timeout: float | None = None, stop_at: float | None = None) -> GenerationResult:
+        # heavy-draft-v2: 모델은 각주 문장만 쓴다 (JSON 은 서버가 만든다). Mock 은 잠금이 없어 lock_timeout·stop_at 무시
         return GenerationResult(text="[Mock] 실제 모델이 만든 각주가 아닙니다.", finish_reason="stop")
 
 
@@ -213,19 +213,20 @@ class LlamaGenerator:
         return self._complete("light", messages, LIGHT_V3_DECODING, None, text_only=True)
 
     def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict,
-                      lock_timeout: float | None = None) -> GenerationResult:
+                      lock_timeout: float | None = None, stop_at: float | None = None) -> GenerationResult:
         """light-v4 (A/B/C) 공통 호출: 줄·번호·문장만 쓰고 JSON 은 서버가 만든다 → JSON 모드 적용 안 함."""
-        return self._complete(label, messages, decoding, None, text_only=True, lock_timeout=lock_timeout)
+        return self._complete(label, messages, decoding, None, text_only=True, lock_timeout=lock_timeout,
+                              stop_at=stop_at)
 
     def generate_heavy(self, req: HeavyRequest, messages: list[dict[str, str]],
-                       lock_timeout: float | None = None) -> GenerationResult:
+                       lock_timeout: float | None = None, stop_at: float | None = None) -> GenerationResult:
         # heavy-draft-v2 는 문장만 쓰므로 JSON 모드(json/schema)를 적용하지 않는다
         return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, None, text_only=True,
-                              lock_timeout=lock_timeout)
+                              lock_timeout=lock_timeout, stop_at=stop_at)
 
     def _complete(self, label: str, messages: list[dict[str, str]], decoding: dict,
                   schema: dict | None, text_only: bool = False,
-                  lock_timeout: float | None = None) -> GenerationResult:
+                  lock_timeout: float | None = None, stop_at: float | None = None) -> GenerationResult:
         kwargs = dict(decoding)
         # 요청마다 다른 seed. 지정하지 않으면 서버를 켤 때마다 같은 순서의 출력이 나와서,
         # 같은 시점에 켠 11번·13번이 똑같은 출력을 낸다 (10/8 두 서버 로그의 gen 토큰 수가 순서대로 일치).
@@ -248,7 +249,15 @@ class LlamaGenerator:
             waited = time.perf_counter() - t_wait
             t = time.perf_counter()
             try:
-                out = self._llm.create_chat_completion(messages=messages, **kwargs)
+                if stop_at is None:
+                    out = self._llm.create_chat_completion(messages=messages, **kwargs)
+                    choice = out["choices"][0]
+                    usage = out.get("usage", {})
+                    text, finish = choice["message"]["content"] or "", choice.get("finish_reason") or ""
+                    gen = usage.get("completion_tokens")
+                else:
+                    text, finish, gen = self._stream_until(messages, kwargs, stop_at)
+                    usage = {}
             except ValueError as e:
                 # llama-cpp-python 은 길이 초과를 ValueError("... exceed context window ...")로 알린다
                 if "context window" in str(e):
@@ -258,15 +267,36 @@ class LlamaGenerator:
         finally:
             self._lock.release()
 
-        choice = out["choices"][0]
-        usage = out.get("usage", {})
-        finish = choice.get("finish_reason") or ""
         logger.info(
             "%s 생성 %.1fs (대기 %.1fs) finish=%s prompt=%s gen=%s seed=%s json_mode=%s",
-            label, elapsed, waited, finish, usage.get("prompt_tokens"), usage.get("completion_tokens"), kwargs["seed"],
-            self.json_mode,
+            label, elapsed, waited, finish, usage.get("prompt_tokens"), gen, kwargs["seed"], self.json_mode,
         )
-        return GenerationResult(text=choice["message"]["content"] or "", finish_reason=finish)
+        return GenerationResult(text=text, finish_reason=finish)
+
+    def _stream_until(self, messages, kwargs, stop_at: float) -> tuple[str, str, int]:
+        """시간 예산용 강제 마감 (10/21 백엔드 검토: 9초는 생성 도중에도 끊어야 함).
+        토큰을 하나씩 받다가 stop_at(time.monotonic 기준)을 넘으면 생성을 멈춘다. finish_reason = "time".
+        잘린 문장은 검사에서 걸러져 대체 문장이 나간다."""
+        parts: list[str] = []
+        finish, n = "", 0
+        stream = self._llm.create_chat_completion(messages=messages, stream=True, **kwargs)
+        try:
+            for chunk in stream:
+                c = chunk["choices"][0]
+                piece = (c.get("delta") or {}).get("content")
+                if piece:
+                    parts.append(piece)
+                    n += 1
+                if c.get("finish_reason"):
+                    finish = c["finish_reason"]
+                if time.monotonic() >= stop_at and not finish:
+                    finish = "time"
+                    break
+        finally:
+            close = getattr(stream, "close", None)
+            if close:
+                close()                       # 생성 중단 — 다음 요청은 새로 프롬프트를 처리한다
+        return "".join(parts), finish, n
 
 
 def build_generator() -> MockGenerator | LlamaGenerator:
