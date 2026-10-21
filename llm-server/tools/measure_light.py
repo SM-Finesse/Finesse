@@ -92,8 +92,8 @@ def main() -> None:
     load_sec = time.perf_counter() - t0
 
     stem = args.out or f"결과_light_비교_{time.strftime('%Y%m%d_%H%M')}"
-    txt = open(f"{stem}.txt", "w", encoding="utf-8")
-    jl = open(f"{stem}.jsonl", "w", encoding="utf-8")
+    txt = open(f"{stem}.txt", "w", encoding="utf-8")  # noqa: SIM115
+    jl = open(f"{stem}.jsonl", "w", encoding="utf-8")  # noqa: SIM115
 
     def say(line: str = "") -> None:
         print(line)
@@ -177,7 +177,7 @@ def _summary(say, rows, modes, samples) -> None:
             rs = rows[(mode, name)]
             n = len(rs)
             t = [r["elapsed"] for r in rs]
-            frac = lambda c: f"{c}/{n}"   # noqa: E731
+            frac = lambda c, n=n: f"{c}/{n}"
             say(f"{mode.upper():<4} {name:<7} {frac(sum(r['status'] == 200 for r in rs)):>6} "
                 f"{frac(sum(len(r['highlights']) == 3 for r in rs)):>6} "
                 f"{frac(sum(r['first_attempt_full'] for r in rs)):>7} "

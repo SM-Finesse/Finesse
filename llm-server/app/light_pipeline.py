@@ -19,8 +19,8 @@
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from app.light_rules import RangeConfig, expected_picks, target_count
 from app.light_v3 import (

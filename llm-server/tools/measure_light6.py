@@ -38,7 +38,13 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from app.light6 import LIGHT6_VERSION, check_comment, expected_selection, judge_one, load_quartiles
+from app.light6 import (
+    LIGHT6_VERSION,
+    check_comment,
+    expected_selection,
+    judge_one,
+    load_quartiles,
+)
 from app.light6_flow import Flow6Settings, run_light6
 from app.prompt import LIGHT_DECODING, PROMPT_VERSION, build_light_messages
 from app.schemas import CANDIDATE_KEYS, LightRequest
@@ -81,8 +87,8 @@ def main() -> None:
     q = load_quartiles()
 
     stem = args.out or f"결과_light6_{time.strftime('%Y%m%d_%H%M')}"
-    txt = open(f"{stem}.txt", "w", encoding="utf-8")
-    jl = open(f"{stem}.jsonl", "w", encoding="utf-8")
+    txt = open(f"{stem}.txt", "w", encoding="utf-8")  # noqa: SIM115
+    jl = open(f"{stem}.jsonl", "w", encoding="utf-8")  # noqa: SIM115
 
     def say(line: str = "") -> None:
         print(line)

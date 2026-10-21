@@ -38,7 +38,14 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from app.light_rules import LIGHT_GROUPS, RangeConfig, Standing, apply_rules, check_pick, load_ranges, rank
+from app.light_rules import (
+    RangeConfig,
+    Standing,
+    apply_rules,
+    check_pick,
+    load_ranges,
+    rank,
+)
 from app.schemas import LightRequest
 
 LIGHT_V3_VERSION = "light-v3-lines"

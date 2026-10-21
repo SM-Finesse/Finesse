@@ -13,8 +13,8 @@
   - 3단계 4회는 서로 독립 — 동시에 보낼 수 있다. 시간 환산(est_2·est_4)은 이 독립성으로 계산한다.
 """
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from app.light6 import (
     LIGHT6_DECODING,

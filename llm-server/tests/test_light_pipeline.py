@@ -150,8 +150,8 @@ def test_A_숫자를_쓰면_뺌():
 
 def test_A_모자라면_재시도해서_더_나은_쪽():
     gen = Scripted(a=["1 | 보정 후에도 상대보다 공격 효율이 높습니다.",
-                      "1 | 보정 후에도 상대보다 공격 효율이 높습니다.\n2 | 상대보다 초반 공격 성향이 강합니다.\n"
-                      "3 | 라운드가 진행될수록 처집니다.\n총평 | 공격 효율은 높고 후반에는 처집니다. 초반 공격 성향도 강합니다."])
+                      ("1 | 보정 후에도 상대보다 공격 효율이 높습니다.\n2 | 상대보다 초반 공격 성향이 강합니다.\n"
+                       "3 | 라운드가 진행될수록 처집니다.\n총평 | 공격 효율은 높고 후반에는 처집니다. 초반 공격 성향도 강합니다.")])
     out = run_light(_req(), gen, _st("a"))
     assert len(gen.labels) == 2 and len(out.highlights) == 3 and not out.summary_fallback
     assert out.picks == out.expected
@@ -174,9 +174,9 @@ def test_A_쓸_줄이_없으면_실패():
 # ---------- B ----------
 def test_B_선정_위반을_다시_고르고_문장은_고른_순서로():
     gen = Scripted(select=["1, 4, 2", "1, 2, 3"],
-                   write=["3 | 라운드가 진행될수록 처집니다.\n1 | 보정 후에도 상대보다 공격 효율이 높습니다.\n"
-                          "2 | 상대보다 초반 공격 성향이 강합니다.\n5 | 고르지 않은 줄입니다.\n"
-                          "총평 | 공격 효율이 높고 초반 공격 성향이 강합니다. 후반에는 처집니다."])
+                   write=[("3 | 라운드가 진행될수록 처집니다.\n1 | 보정 후에도 상대보다 공격 효율이 높습니다.\n"
+                           "2 | 상대보다 초반 공격 성향이 강합니다.\n5 | 고르지 않은 줄입니다.\n"
+                           "총평 | 공격 효율이 높고 초반 공격 성향이 강합니다. 후반에는 처집니다.")])
     out = run_light(_req(), gen, _st("b"))
     assert gen.labels == ["light:select", "light:select", "light:write"]
     assert out.attempts[0]["picks"] == ["delta_weighted_app", "delta_opener"]
@@ -321,8 +321,8 @@ def test_C_v2_문장_프롬프트는_해석과_전체기준_없음():
 
 def test_D_3회_선정_문장3_총평():
     gen = Scripted(select=["[1] [2] [3]"],
-                   write=["[1] | 보정 후에도 상대보다 공격 효율이 높습니다.\n[2] | 상대보다 초반 공격 성향이 강합니다.\n"
-                          "[3] | 라운드가 진행될수록 공방 능력이 떨어집니다."],
+                   write=[("[1] | 보정 후에도 상대보다 공격 효율이 높습니다.\n[2] | 상대보다 초반 공격 성향이 강합니다.\n"
+                           "[3] | 라운드가 진행될수록 공방 능력이 떨어집니다.")],
                    summary=["공격 효율과 초반 공격 성향은 상대보다 강합니다. 다만 라운드 후반에는 처집니다."])
     out = run_light(_req(), gen, _st("d"))
     assert gen.labels == ["light:select", "light:write", "light:summary"]
