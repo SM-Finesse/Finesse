@@ -142,6 +142,8 @@ def check_light_output(resp: LightResponse, available: dict[str, float]) -> list
 class HeavyResponse(_StrictOut):
     chapter_id: str
     footnote: str = Field(min_length=1)
+    # 10/20 백엔드 요청: 서버 대체 문장이면 true (백엔드가 캐시 제외·로그에 사용). LLM 문장이면 false
+    fallback: bool = False
 
 
 def parse_heavy_output(text: str, chapter_id: str) -> HeavyResponse:

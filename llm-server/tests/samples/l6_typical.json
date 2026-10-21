@@ -1,0 +1,30 @@
+{
+  "fixed_metrics": {
+    "win_rate": 0.55,
+    "tr_trend": [
+      21000,
+      21080,
+      21150,
+      21120
+    ]
+  },
+  "delta_metrics": {
+    "playstyle_relative": {
+      "delta_opener": 0.05,
+      "delta_plonk": -0.03,
+      "delta_stride": 0.31,
+      "delta_inf_ds": -0.05
+    },
+    "attack": {
+      "delta_app": 0.012,
+      "delta_weighted_app": 0.041
+    },
+    "defense": {
+      "delta_vs_apm": -0.02,
+      "delta_cheese_index": 4.1
+    },
+    "strength_split": -0.28,
+    "session_vs_slope": 0.62,
+    "delta_comeback": 0.12
+  }
+}

@@ -123,3 +123,58 @@ def test_길이_초과는_ContextOverflowError로_바꿈(monkeypatch, req):
     gen = LlamaGenerator(model_path="fake.gguf")
     with pytest.raises(ContextOverflowError):
         gen.generate_light(req, build_light_messages(req))
+
+
+# ---------------- 10/21 강제 마감 (스트리밍으로 받다가 시간이 되면 멈춤) ----------------
+def _fake_llama(chunks, clock, step):
+    import threading
+
+    from app.generator import LlamaGenerator
+
+    class FakeStream:
+        def __init__(self):
+            self.closed = False
+
+        def __iter__(self):
+            for ch in chunks:
+                clock["t"] += step
+                yield ch
+
+        def close(self):
+            self.closed = True
+
+    class FakeLlm:
+        def create_chat_completion(self, messages, stream=False, **kw):
+            assert stream is True
+            self.stream = FakeStream()
+            return self.stream
+
+    gen = LlamaGenerator.__new__(LlamaGenerator)
+    gen._lock, gen.json_mode, gen.repeat_penalty, gen._llm = threading.Lock(), "off", None, FakeLlm()
+    return gen
+
+
+def _chunks(words, finish="stop"):
+    out = [{"choices": [{"delta": {"role": "assistant"}, "finish_reason": None}]}]
+    out += [{"choices": [{"delta": {"content": w}, "finish_reason": None}]} for w in words]
+    out.append({"choices": [{"delta": {}, "finish_reason": finish}]})
+    return out
+
+
+def test_강제_마감_시간이_되면_끊음(monkeypatch):
+    import app.generator as g
+    clock = {"t": 0.0}
+    monkeypatch.setattr(g.time, "monotonic", lambda: clock["t"])
+    gen = _fake_llama(_chunks(["가", "나", "다", "라", "마"]), clock, step=1.0)
+    r = gen.generate_text("light5:sentence", [{"role": "user", "content": "x"}], {"max_tokens": 10}, stop_at=2.5)
+    assert r.text == "가나" and r.finish_reason == "time"
+    assert gen._llm.stream.closed and not gen._lock.locked()
+
+
+def test_강제_마감_전에_끝나면_그대로(monkeypatch):
+    import app.generator as g
+    clock = {"t": 0.0}
+    monkeypatch.setattr(g.time, "monotonic", lambda: clock["t"])
+    gen = _fake_llama(_chunks(["상대 대비 ", "앞섭니다."]), clock, step=0.1)
+    r = gen.generate_text("light5:sentence", [{"role": "user", "content": "x"}], {"max_tokens": 10}, stop_at=9.0)
+    assert r.text == "상대 대비 앞섭니다." and r.finish_reason == "stop"

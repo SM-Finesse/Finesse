@@ -17,6 +17,7 @@
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -34,6 +35,9 @@ SAMPLE = Path(__file__).resolve().parent.parent / "tests" / "samples" / "light_t
 
 
 def main() -> None:
+    # Windows 콘솔(cp949)에서 한글·특수문자 출력 오류 방지 (try_heavy 와 같음)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", type=int, default=5, help="같은 요청을 몇 번 돌릴지")
     parser.add_argument("--sample", default=str(SAMPLE), help="입력 JSON 파일 경로")
@@ -85,7 +89,7 @@ def main() -> None:
               f"기존={'O' if old_ok else 'X'} 새={'O' if new_ok else 'X'} -> {verdict}")
         print(result.text)
 
-    print(f"\n통과 — 기존 기준 {old_pass}/{args.runs}, 새 기준 {new_pass}/{args.runs}"
+    print(f"\n통과: 기존 기준 {old_pass}/{args.runs}, 새 기준 {new_pass}/{args.runs}"
           "  (문장 내용의 정확성은 사람이 따로 확인)")
 
 if __name__ == "__main__":
