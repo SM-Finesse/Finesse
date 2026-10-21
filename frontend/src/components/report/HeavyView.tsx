@@ -199,7 +199,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     ],
   })
 
-  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; tail?: ReactNode; body: ReactNode }> = {
+  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; ai?: boolean; tail?: ReactNode; body: ReactNode }> = {
     tr_trend: {
       right: pill(tr, h.trend.deltaInfo(basis?.recent_matches, basis?.total_matches)),
       detail: buckets.length > 0,
@@ -322,11 +322,9 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     },
     rivals: {
       right: <Caption>{r.right(rivals.length)}</Caption>,
-      chips: [
-        { k: r.nemesis, v: r.nemesisRule },
-        { k: r.edge, v: r.edgeRule },
-        { k: r.repeat, v: r.repeatSub },
-      ],
+      /* AI 코멘트 · 근거 칸 없음 — 천적 · 우세 기준은 순위표 위 범례에 있다 */
+      chips: [],
+      ai: false,
       tail: <RivalPolicy />,
       body: rivals.length ? <RivalBoard items={rivals} /> : <Notice title={r.empty} />,
     },
@@ -411,6 +409,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
               chips={c.chips}
               result={heavy.chapters[id]}
               foot={footStateOf(heavy.chapters[id], heavy.status)}
+              ai={c.ai}
               tail={c.tail}
             >
               {c.body}

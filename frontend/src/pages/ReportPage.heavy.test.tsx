@@ -295,7 +295,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(rv).getByText('2명 · 20명/페이지')).toBeInTheDocument()
     /* 5경기 이상 만난 상대가 5명이 안 되지만, 10판 이상이면 표본 안내를 따로 붙이지 않는다 */
     expect(within(rv).queryByRole('img', { name: '주의' })).not.toBeInTheDocument()
-    expect(within(rv).getByText('아직 상성을 말하기 이릅니다.')).toBeInTheDocument()
+    /* AI 코멘트 · 근거 칸은 없다 — 코멘트가 와도 보이지 않는다 */
+    expect(within(rv).queryByText('아직 상성을 말하기 이릅니다.')).not.toBeInTheDocument()
+    expect(within(rv).queryByText('AI')).not.toBeInTheDocument()
   })
 
   it('상대 데이터 취급 방식은 제목만 보이다가 누르면 펼쳐진다', async () => {
