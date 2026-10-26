@@ -5,6 +5,7 @@ Finesse LLM 추론 서버 (FastAPI + llama-cpp-python, Vulkan). 라이트·헤�
 - 담당 브랜치: `llm` (윤세연)
 - 설계 기준: Finesse — LLM/AI 파트 설계 v1.2
 - API: `GET /health`, `POST /v1/comment/light`, `POST /v1/comment/heavy-chapter` (포트 8081)
+- 라이트 6회 호출(34번 문서, 브랜치 `light-6call`): `POST /v1/light/judge` · `/v1/light/select` · `/v1/light/sentence` · `/v1/light/summary` — 백엔드 연동 명세 `docs/light6-backend.md`, 측정 `python -m tools.measure_light6`
 
 ## 재현 기준 버전 — `llm-base-v2` (파인튜닝 전 베이스 모델)
 
@@ -28,7 +29,8 @@ Finesse LLM 추론 서버 (FastAPI + llama-cpp-python, Vulkan). 라이트·헤�
 | Python | 3.11.9 (64bit) |
 | 확인 환경 | Windows, GTX 1050 (VRAM 2GB), NVIDIA 드라이버 582.42 — 학교 11번·13번 PC |
 | 실행 설정 | `LLM_JSON_MODE=off`, `LLM_REPEAT_PENALTY=1.1`, n_ctx 2048, 디코딩 temperature 0.4 / top_p 0.9 / max_tokens light 377·heavy 119 |
-| 헤비 설정 (v1~, 기본값) | `LLM_HEAVY_ATTEMPTS=2`(검사 실패 시 재생성 횟수), `LLM_HEAVY_FALLBACK=on`(모두 실패하면 서버 대체 문장), `LLM_HEAVY_TEMPLATE_CHAPTERS=rivals`(LLM 없이 서버 문장) — 설명은 `app/main.py` |
+| 헤비 설정 (v1~, 기본값) | `LLM_HEAVY_ATTEMPTS=2`(검사 실패 시 재생성 횟수), `LLM_HEAVY_FALLBACK=on`(모두 실패하면 서버 대체 문장), `LLM_HEAVY_TEMPLATE_CHAPTERS=rivals`(LLM 없이 서버 문장) — 설명은 `app/main.py` 
+| 헤비 시간 예산 (10/20~, 기본값) | `LLM_HEAVY_DEADLINE_SEC=9`(요청을 받은 시각부터 이 안에 응답 — 백엔드 챕터 제한 10초), `LLM_HEAVY_GEN_RESERVE_SEC=3.5`(생성 1회에 남길 시간. 부족하면 재생성하지 않고 대체 문장). 응답의 `fallback`: 서버 대체 문장이면 true |
 
 모델 파일과 wheel 백업본은 담당자 Google Drive에 있다 (링크는 재현 가이드 문서 참고, 레포에는 넣지 않음).
 

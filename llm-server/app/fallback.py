@@ -34,8 +34,23 @@ def _g(v: float) -> str:
     return f"{abs(v):g}"
 
 
-def _s(v: float) -> str:
-    return f"{v:+g}"
+def _s(v: float, nd: int = 2) -> str:
+    """부호 있는 숫자. 10/20 백엔드 요청: 원값(-10.128) 대신 소수 둘째 자리(Cheese Index 는 첫째, 31번 2.1절).
+    반올림하면 0 이 되는 작은 값(-0.004)은 0 으로 보이지 않게 한 자리 더 쓴다."""
+    r = round(v, nd)
+    while r == 0 and v != 0 and nd < 4:
+        nd += 1
+        r = round(v, nd)
+    return f"{r:+.{nd}f}" if v != 0 else "0"
+
+
+def _nd(key: str | None) -> int:
+    return 1 if key == "delta_cheese_index" else 2
+
+
+def _rate(x: float) -> str:
+    """역전승률 등 0~1 비율 — 소수 둘째 자리."""
+    return _s(x).lstrip("+")
 
 
 def _pick(options: list[str], rng: random.Random) -> str:
@@ -71,15 +86,19 @@ class _V:
     def __init__(self, show: bool):
         self.show = show
 
-    def __call__(self, *values: float) -> str:
-        return f"({', '.join(_s(v) for v in values)})" if self.show else ""
+    def __call__(self, *values: float, keys: tuple = ()) -> str:
+        if not self.show:
+            return ""
+        keys = tuple(keys) + (None,) * (len(values) - len(keys))
+        return f"({', '.join(_s(v, _nd(k)) for v, k in zip(values, keys))})"
 
 
 def _tr_trend(d, rng, base, show):
     v = d.get("tr_trend_delta")
     if not _num(v):
         return None
-    pts = f" {_g(v)}점" if show else ""
+    r = round(abs(v))                                   # TR 은 정수 점수 (10/20 백엔드 요청)
+    pts = (f" {r}점" if r else f" {abs(v):.1f}점") if show else ""
     if v > 0:
         return _pick([f"최근 구간 TR이 전체 평균보다{pts} 높습니다. 최근 들어 점수가 오르는 흐름입니다.",
                       f"최근 구간 TR이 전체 평균보다{pts} 높아, 오르는 흐름을 보입니다."], rng)
@@ -94,7 +113,7 @@ def _playstyle(d, rng, base, show):
     if not vals:
         return None
     v_ = _V(show)
-    fmt = (lambda items: ", ".join(f"{n}{v_(v)}" for (_, n), v in items))
+    fmt = (lambda items: ", ".join(f"{n}{v_(v, keys=(k,))}" for (k, n), v in items))
     high = [(kn, v) for kn, v in vals.items() if heavy_zone(kn[0], v) == "high"]
     low = [(kn, v) for kn, v in vals.items() if heavy_zone(kn[0], v) == "low"]
     mid = [(kn, v) for kn, v in vals.items() if heavy_zone(kn[0], v) not in ("high", "low")]
@@ -138,12 +157,12 @@ def _pair(d, chapter, rng, base, show):
     if _num(a) and _num(b) and a and b:
         za, zb = _zone_key(k1, a), _zone_key(k2, b)
         if za.startswith("mid") and zb.startswith("mid"):  # 둘 다 보통 범위 안 → 묶어서 약하게 (2.2절)
-            return f"{base} {n1}{_and(n1)} {n2} 모두 차이가 크지 않습니다{v_(a, b)}."
+            return f"{base} {n1}{_and(n1)} {n2} 모두 차이가 크지 않습니다{v_(a, b, keys=(k1, k2))}."
         if za == zb and za in ("high", "low"):
             if chapter == "attack":
-                return f"{base} {n1}{_and(n1)} {n2} 모두에서 {_ATTACK_VERB[za]}{v_(a, b)}."
+                return f"{base} {n1}{_and(n1)} {n2} 모두에서 {_ATTACK_VERB[za]}{v_(a, b, keys=(k1, k2))}."
             size = "큰" if za == "high" else "작은"
-            return f"{base} {n1}{_and(n1)} {n2}{_subject(n2)} 모두 {size} 편입니다{v_(a, b)}."
+            return f"{base} {n1}{_and(n1)} {n2}{_subject(n2)} 모두 {size} 편입니다{v_(a, b, keys=(k1, k2))}."
     parts = []
     for k, n, verbs, v in ((k1, n1, verbs1, a), (k2, n2, verbs2, b)):
         if not _num(v):
@@ -157,11 +176,11 @@ def _pair(d, chapter, rng, base, show):
         else:
             subj = f"{n}{_subject(n) if not parts else _topic(n)}"
         if not parts:
-            parts.append(f"{base} {subj} {verb}{v_(v)}.")
+            parts.append(f"{base} {subj} {verb}{v_(v, keys=(k,))}.")
         else:
             same = _num(a) and _num(b) and a * b > 0  # 방향이 같으면 '반면'이 아니라 '또'
             joiner = "또" if same else _pick(["반면", "하지만"], rng)
-            parts.append(f"{joiner} {subj} 상대보다 {verb}{v_(v)}.")
+            parts.append(f"{joiner} {subj} 상대보다 {verb}{v_(v, keys=(k,))}.")
     return " ".join(parts) or None
 
 
@@ -202,9 +221,11 @@ def _comeback(d, rng, base, show):
     opp, won = d.get("comeback_opportunities"), d.get("comeback_won")
     if not (_num(a) and _num(b)):
         if _num(a):
-            return f"역전승률은 {a:g}입니다." if show else None
+            return f"역전승률은 {_rate(a)}입니다." if show else None
         return None
-    pa, pb = (f"({a:g})", f"({b:g})") if show else ("", "")
+    # 0 은 괄호로 쓰지 않는다 — "역전승률(0)" 이 어색함 (10/20 백엔드 요청)
+    pa = f"({_rate(a)})" if show and a else ""
+    pb = f"({_rate(b)})" if show and b else ""
     if a > b:
         lead = f"역전승률{pa}이 역전 허용률{pb}보다 높습니다."
         tail = "불리한 경기를 뒤집는 힘이 유리한 경기를 내주는 경향보다 강합니다."
@@ -212,10 +233,13 @@ def _comeback(d, rng, base, show):
         lead = f"역전승률{pa}이 역전 허용률{pb}보다 낮습니다."
         tail = "불리한 경기를 뒤집는 힘이 유리한 경기를 내주는 경향보다 약합니다."
     else:
-        lead = f"역전승률과 역전 허용률이 {a:g}로 같습니다." if show else "역전승률과 역전 허용률이 같습니다."
+        lead = (f"역전승률과 역전 허용률이 {_rate(a)}로 같습니다." if show and a
+                else "역전승률과 역전 허용률이 같습니다.")
         tail = "뒤진 경기를 뒤집는 힘과 앞선 경기를 내주는 경향이 비슷합니다."
     if show and _num(opp) and _num(won) and opp:  # 표본 수 인용 가능 (3.1절)
-        tail = _pick([tail, f"점수가 뒤졌던 {opp:g}경기 중 {won:g}경기를 뒤집었습니다."], rng)
+        count = (f"점수가 뒤졌던 {opp:g}경기를 한 번도 뒤집지 못했습니다." if not won
+                 else f"점수가 뒤졌던 {opp:g}경기 중 {won:g}경기를 뒤집었습니다.")
+        tail = _pick([tail, count], rng)
     return f"{lead} {tail}"
 
 
@@ -223,7 +247,7 @@ def _session(d, rng, base, show):
     v = d.get("session_vs_slope")
     if not _num(v):
         return None
-    per = f" 라운드당 약 {_g(v)}씩" if show else ""
+    per = f" 라운드당 약 {_s(v, 1).lstrip('+-')}씩" if show else ""   # 약 6.55 → 약 6.6 (10/20)
     z = heavy_zone("session_vs_slope", v)
     # 2.3절: 보통 범위가 거의 양수(중앙값 +0.557) — +0.5 정도는 평범한 값이라 강조하지 않는다
     if v == 0:

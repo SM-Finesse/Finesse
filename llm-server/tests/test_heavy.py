@@ -270,7 +270,7 @@ class BadGenerator:
     def __init__(self):
         self.calls = 0
 
-    def generate_heavy(self, req, messages):
+    def generate_heavy(self, req, messages, **kwargs):
         from app.generator import GenerationResult
         self.calls += 1
         return GenerationResult(text="防御 성능이 약합니다.", finish_reason="stop")
@@ -340,7 +340,7 @@ def test_heavy_길이_초과는_413(monkeypatch):
     class OverflowGenerator:
         name = "overflow"
 
-        def generate_heavy(self, req, messages):
+        def generate_heavy(self, req, messages, **kwargs):
             raise ContextOverflowError("exceed context window")
 
     monkeypatch.setattr(main_module, "generator", OverflowGenerator())
@@ -467,7 +467,149 @@ def test_v34_대체_문장_내용():
     assert "ab***_12에게는 15경기 5승 10패로 내가 자주 져서 천적입니다." in build_fallback("rivals", CHAPTERS["rivals"])
     assert "te**er와는 7경기 4승 3패입니다." in build_fallback("rivals", CHAPTERS["rivals"])
     text = build_fallback("attack", POS["attack"], rng)
-    assert "앞섭니다(+0.06)" in text and "Weighted APP에서는 상대보다 밀립니다(-0.8)" in text
+    assert "앞섭니다(+0.06)" in text and "Weighted APP에서는 상대보다 밀립니다(-0.80)" in text
+
+
+# ---------------- 10/20 백엔드 회신 반영: 숫자 반올림·0승 문장·fallback 표시·시간 예산 ----------------
+def test_v44_대체_문장_숫자_반올림():
+    rng = _random.Random(1)
+    assert "367점 높습니다" in build_fallback("tr_trend", {"tr_trend_delta": 366.954}, rng)
+    assert "0.4점" in build_fallback("tr_trend", {"tr_trend_delta": -0.4}, rng)
+    t = build_fallback("defense", {"delta_vs_apm": -0.102, "delta_cheese_index": -10.128}, rng)
+    assert "(-0.10, -10.1)" in t, t
+    process_heavy_output(t, "defense", {"delta_vs_apm": -0.102, "delta_cheese_index": -10.128})
+    t = build_fallback("attack", {"delta_app": 0.026, "delta_weighted_app": -0.004}, rng)
+    assert "(+0.03)" in t and "(-0.004)" in t, t                       # 0 으로 보이지 않게 한 자리 더
+    process_heavy_output(t, "attack", {"delta_app": 0.026, "delta_weighted_app": -0.004})
+    t = build_fallback("session_vs_slope", {"session_vs_slope": 6.55}, rng)
+    assert "약 6.5씩" in t or "약 6.6씩" in t, t
+    process_heavy_output(t, "session_vs_slope", {"session_vs_slope": 6.55})
+
+
+def test_v44_역전_0승_문장():
+    d = {"comeback_rate": 0, "comeback_rate_against": 0.037, "comeback_opportunities": 10, "comeback_won": 0}
+    texts = {build_fallback("comeback_rate", d, _random.Random(i)) for i in range(20)}
+    for t in texts:
+        assert "(0)" not in t and "0경기를 뒤집었" not in t, t
+        process_heavy_output(t, "comeback_rate", d)
+    assert any("뒤졌던 10경기를 한 번도 뒤집지 못했습니다" in t for t in texts)
+    assert all("(0.04)" in t for t in texts)
+
+
+def test_v44_응답에_fallback_표시(monkeypatch):
+    monkeypatch.setattr(main_module, "generator", MockGenerator())
+    r = client.post("/v1/comment/heavy-chapter", json=body("rivals"))
+    assert r.status_code == 200 and r.json()["fallback"] is True              # 서버 문장 챕터
+    bad = BadGenerator()
+    monkeypatch.setattr(main_module, "generator", bad)
+    r = client.post("/v1/comment/heavy-chapter", json=body("attack"))
+    assert r.status_code == 200 and r.json()["fallback"] is True and bad.calls == 2
+
+
+class _Clock:
+    """time.monotonic 대신 — 생성 1회에 sec 초가 걸린 것처럼."""
+
+    def __init__(self):
+        self.t = 100.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_v44_시간_예산_남은_시간이_부족하면_재생성하지_않음(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(main_module.time, "monotonic", clock)
+
+    class Slow(BadGenerator):
+        def generate_heavy(self, req, messages, **kwargs):
+            self.kwargs = kwargs
+            clock.t += 7.2                                  # 첫 생성 7.2초 → 남은 1.8초 < 2.0초
+            return super().generate_heavy(req, messages)
+
+    gen = Slow()
+    monkeypatch.setattr(main_module, "generator", gen)
+    r = client.post("/v1/comment/heavy-chapter", json=body("attack"))
+    assert r.status_code == 200 and r.json()["fallback"] is True
+    assert gen.calls == 1                                   # 재생성 건너뜀
+    assert gen.kwargs["lock_timeout"] == pytest.approx(9 - 2.0)
+    assert gen.kwargs["stop_at"] == pytest.approx(100.0 + 9 - 0.2)
+
+
+def test_v44_시간_예산_여유가_있으면_재생성(monkeypatch):
+    clock = _Clock()
+    monkeypatch.setattr(main_module.time, "monotonic", clock)
+
+    class Fast(BadGenerator):
+        def generate_heavy(self, req, messages, **kwargs):
+            clock.t += 2.0
+            return super().generate_heavy(req, messages)
+
+    gen = Fast()
+    monkeypatch.setattr(main_module, "generator", gen)
+    assert client.post("/v1/comment/heavy-chapter", json=body("attack")).json()["fallback"] is True
+    assert gen.calls == 2
+
+
+def test_v44_차례가_오지_않으면_바로_대체_문장(monkeypatch):
+    from app.generator import GeneratorBusyError
+
+    class Busy:
+        name = "busy"
+        calls = 0
+
+        def generate_heavy(self, req, messages, **kwargs):
+            self.calls += 1
+            raise GeneratorBusyError("다른 요청 생성 중")
+
+    gen = Busy()
+    monkeypatch.setattr(main_module, "generator", gen)
+    r = client.post("/v1/comment/heavy-chapter", json=body("attack"))
+    assert r.status_code == 200 and r.json()["fallback"] is True and gen.calls == 1
+
+
+def test_v44_대체_문장을_끄면_시간_예산도_쓰지_않음(monkeypatch):
+    monkeypatch.setenv("LLM_HEAVY_FALLBACK", "off")
+    clock = _Clock()
+    monkeypatch.setattr(main_module.time, "monotonic", clock)
+
+    class Slow(BadGenerator):
+        def generate_heavy(self, req, messages, **kwargs):
+            self.kwargs = kwargs
+            clock.t += 6.0
+            return super().generate_heavy(req, messages)
+
+    gen = Slow()
+    monkeypatch.setattr(main_module, "generator", gen)
+    assert client.post("/v1/comment/heavy-chapter", json=body("attack")).status_code == 502
+    assert gen.calls == 2 and gen.kwargs["lock_timeout"] is None
+
+
+def test_v44_LLM_문장은_fallback_false(monkeypatch):
+    class Good:
+        name = "good"
+
+        def generate_heavy(self, req, messages, **kwargs):
+            from app.generator import GenerationResult
+            return GenerationResult(text=build_fallback("attack", req.data, _random.Random(0)), finish_reason="stop")
+
+    monkeypatch.setattr(main_module, "generator", Good())
+    r = client.post("/v1/comment/heavy-chapter", json=body("attack"))
+    assert r.status_code == 200 and r.json()["fallback"] is False
+
+
+def test_v44_잠금_시간_초과(monkeypatch):
+    import threading
+
+    from app.generator import GeneratorBusyError, LlamaGenerator
+
+    gen = LlamaGenerator.__new__(LlamaGenerator)
+    gen._lock = threading.Lock()
+    gen.json_mode, gen.repeat_penalty = "off", None
+    gen._lock.acquire()                                     # 다른 요청이 생성 중
+    req = HeavyRequest.model_validate(body("attack"))
+    with pytest.raises(GeneratorBusyError):
+        gen.generate_heavy(req, build_heavy_messages(req), lock_timeout=0.05)
+    gen._lock.release()
 
 
 @pytest.mark.parametrize("ch, text", [
