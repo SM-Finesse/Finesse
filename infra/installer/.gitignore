@@ -1,0 +1,3 @@
+# 비밀값(터널 토큰, Healthchecks Ping URL, Push 토큰)이 들어 있는 백업 — 절대 커밋하지 않음
+backup/
+logs/
