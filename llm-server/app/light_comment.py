@@ -45,7 +45,7 @@ from app.light6 import (
 from app.prompt import COMPARE_PHRASES, HEAVY_RANGES
 from app.validation import _BASIS, _INTENSIFIERS
 
-LIGHT_COMMENT_VERSION = "light-v5.2-guide31"
+LIGHT_COMMENT_VERSION = "light-v5.4-guide31"
 
 # temperature·top_p: v1.2 7.2절. max_tokens: 개별 119(헤비 1문장 예산과 같음), 기본 160 (light6 와 같음)
 LIGHT_COMMENT_DECODING = {
@@ -105,59 +105,77 @@ def resolve_zone(k: str, v: float, zone: str | None) -> str:
     return judge_one(float(v), q1, q3)[0]
 
 
+SOFT_STATES = ("weak+", "weak-", "mid+", "mid-", "zero")
+
+
 def state(k: str, v: float, zone: str) -> str:
-    """문장 상태: 'high'·'low' (차이 두드러짐), 'mid+'·'mid-' (차이 크지 않음), 'zero',
-    strength_split 만 'hold' (영역은 높음인데 값은 음수 — 31번 2.5절 미결, 떨어지지만 폭이 작다로 씀)."""
+    """문장 상태 — 31번 2.2절 A안(10/26 확정): 방향은 값의 부호, 강도는 영역.
+      'high'·'low'   같은 쪽 (양수·높음 / 음수·낮음) → 뚜렷하게
+      'weak+'·'weak-' 반대쪽 (양수·낮음 / 음수·높음) → 방향은 부호대로, 폭이 작다·잘 버틴다
+                      (calc 티어 묶음 범위(G2)에서 생김 — 예: 상위 티어 session_vs_slope +0.6 '낮음')
+      'mid+'·'mid-'  보통 → '~하는 편'
+      'zero'         값이 0 → '같은 수준'"""
     r = round_value(k, v)
     if r == 0:
         return "zero"
-    if k == "strength_split" and zone == "높음" and r < 0:
-        return "hold"
+    sign = "+" if r > 0 else "-"
     if zone == "보통":
-        return "mid+" if r > 0 else "mid-"
-    return "high" if r > 0 else "low"
+        return "mid" + sign
+    if (zone == "높음" and r > 0) or (zone == "낮음" and r < 0):
+        return "high" if r > 0 else "low"
+    return "weak" + sign
 
 
 # =====================================================================================
 # 방향 문장 (서술형 — 헤비 v4.3 교훈: 명사형 꼬리표는 모델이 그대로 옮김)
 # =====================================================================================
 def direction(k: str, st: str) -> str:
-    """상대를 넣지 않은 서술형 방향. 프롬프트 '방향' 줄과 예시·대체 문장이 같이 쓴다."""
+    """상대를 넣지 않은 서술형 방향. 프롬프트 '방향' 줄과 예시·대체 문장이 같이 쓴다 (31번 2.2절 표·예시)."""
     name = NAMES[k]
     t, s = _topic(name), _subject(name)
     if k in RANK_KEYS:
-        return {"high": f"{name}에서 앞섭니다", "low": f"{name}에서 밀립니다",
-                "mid+": f"{name}에서 조금 앞서지만 차이는 크지 않습니다",
-                "mid-": f"{name}에서 조금 밀리지만 차이는 크지 않습니다",
-                "zero": f"{name}{t} 비슷한 수준입니다"}[st]
+        return {"high": f"{name}에서 뚜렷하게 앞섭니다", "low": f"{name}에서 뚜렷하게 밀립니다",
+                "weak+": f"{name}에서 조금 앞서지만 그 폭은 작은 편입니다",
+                "weak-": f"{name}에서 조금 밀리지만 그 폭은 작은 편입니다",
+                "mid+": f"{name}에서 앞서는 편입니다", "mid-": f"{name}에서 밀리는 편입니다",
+                "zero": f"{name}{t} 같은 수준입니다"}[st]
     if k == "delta_vs_apm":
-        return {"high": f"{name}{s} 큰 편입니다", "low": f"{name}{s} 작은 편입니다",
-                "mid+": f"{name}{s} 약간 큰 편이지만 차이는 크지 않습니다",
-                "mid-": f"{name}{s} 약간 작은 편이지만 차이는 크지 않습니다",
-                "zero": f"{name}{t} 비슷한 수준입니다"}[st]
+        return {"high": f"{name}{s} 뚜렷하게 큰 편입니다", "low": f"{name}{s} 뚜렷하게 작은 편입니다",
+                "weak+": f"{name}{s} 조금 큰 편이지만 그 폭은 크지 않습니다",
+                "weak-": f"{name}{s} 조금 작은 편이지만 그 폭은 크지 않습니다",
+                "mid+": f"{name}{s} 큰 편입니다", "mid-": f"{name}{s} 작은 편입니다",
+                "zero": f"{name}{t} 같은 수준입니다"}[st]
     if k in TENDENCY_KEYS:
-        return {"high": f"{name}{s} 짙게 나타납니다", "low": f"{name}{s} 옅게 나타납니다",
-                "mid+": f"{name}{s} 약간 짙지만 차이는 크지 않습니다",
-                "mid-": f"{name}{s} 약간 옅지만 차이는 크지 않습니다",
-                "zero": f"{name}{t} 비슷한 수준입니다"}[st]
-    if k == "strength_split":
-        return {"high": "강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 오히려 높습니다",
-                "hold": "강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 조금 낮지만 크게 떨어지지 않습니다",
-                "mid-": "강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 낮은 편입니다",
-                "low": "강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 크게 낮습니다",
-                "zero": "강한 상대와 약한 상대를 만났을 때의 승률이 비슷합니다"}[st]
+        return {"high": f"{name}{s} 뚜렷하게 짙습니다", "low": f"{name}{s} 뚜렷하게 옅습니다",
+                "weak+": f"{name}{s} 조금 짙지만 그 폭은 작은 편입니다",
+                "weak-": f"{name}{s} 조금 옅지만 그 폭은 작은 편입니다",
+                "mid+": f"{name}{s} 짙은 편입니다", "mid-": f"{name}{s} 옅은 편입니다",
+                "zero": f"{name}{t} 같은 수준입니다"}[st]
+    if k == "strength_split":   # 31번 2.2절 strength_split 작성표 (10/26)
+        return {"low": "강한 상대 구간에서는 약한 상대 구간보다 승률이 크게 떨어집니다",
+                "mid-": "강한 상대 구간에서는 약한 상대 구간보다 승률이 떨어지는 편입니다",
+                "weak-": "강한 상대를 만나도 약한 상대 때와 비교해 승률이 크게 흔들리지 않습니다",
+                "high": "강한 상대 구간에서 오히려 약한 상대 구간보다 승률이 높습니다",
+                "mid+": "강한 상대 구간에서 약한 상대 구간보다 승률이 높은 편입니다",
+                "weak+": "강한 상대 구간에서 약한 상대 구간보다 승률이 조금 높지만 그 폭은 작은 편입니다",
+                "zero": "강한 상대 구간과 약한 상대 구간의 승률이 같은 수준입니다"}[st]
     if k == "delta_comeback":
-        return {"high": "불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 강합니다",
-                "low": "유리하다가 뒤집히는 경향이 불리할 때 뒤집는 경향보다 강합니다",
-                "mid+": "불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 조금 강하지만 차이는 크지 않습니다",
-                "mid-": "유리하다가 뒤집히는 경향이 불리할 때 뒤집는 경향보다 조금 강하지만 차이는 크지 않습니다",
-                "zero": "불리할 때 뒤집는 경향과 유리하다가 뒤집히는 경향이 비슷합니다"}[st]
+        a, b = "불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다", "유리하다가 뒤집히는 경향이 불리할 때 뒤집는 경향보다"
+        return {"high": f"{a} 뚜렷하게 강합니다", "low": f"{b} 뚜렷하게 강합니다",
+                "weak+": f"{a} 조금 강하지만 그 폭은 작은 편입니다", "weak-": f"{b} 조금 강하지만 그 폭은 작은 편입니다",
+                "mid+": f"{a} 강한 편입니다", "mid-": f"{b} 강한 편입니다",
+                "zero": "불리할 때 뒤집는 경향과 유리하다가 뒤집히는 경향이 같은 수준입니다"}[st]
     # session_vs_slope
-    return {"high": "라운드가 진행될수록 공방 능력(VS)이 뚜렷하게 강해집니다",
-            "low": "라운드가 진행될수록 공방 능력(VS)이 처집니다",
-            "mid+": "라운드가 진행될수록 공방 능력(VS)이 조금 강해지지만 변화는 크지 않습니다",
-            "mid-": "라운드가 진행될수록 공방 능력(VS)이 조금 처지지만 변화는 크지 않습니다",
+    head = "라운드가 진행될수록 공방 능력(VS)이"
+    return {"high": f"{head} 뚜렷하게 강해집니다", "low": f"{head} 뚜렷하게 처집니다",
+            "weak+": f"{head} 오르기는 하지만 그 폭은 크지 않은 편입니다",
+            "weak-": f"{head} 처지기는 하지만 그 폭은 크지 않은 편입니다",
+            "mid+": f"{head} 강해지는 편입니다", "mid-": f"{head} 처지는 편입니다",
             "zero": "라운드가 진행되어도 공방 능력(VS)에 뚜렷한 추세가 없습니다"}[st]
+
+
+def _degree(st: str) -> str:
+    return "strong" if st in ("high", "low") else "weak" if st.startswith("weak") else st.rstrip("+-")
 
 
 def pick_phrase(st: str, rng: random.Random | None = None) -> str:
@@ -207,10 +225,13 @@ def _predicate_rule(k: str) -> str:
 def build_sentence(k: str, v: float, zone: str, rng: random.Random | None = None) -> list[dict[str, str]]:
     st = state(k, v, zone)
     phrase = pick_phrase(st, rng)
-    soft = st in ("mid+", "mid-", "zero", "hold")
-    degree = ("- 방향 문장이 '차이는 크지 않습니다'처럼 약하면 '크게', '뚜렷하게', '두드러지게' 같은 말을 쓰지 말고 "
-              "차이가 크지 않다고 씁니다." if soft else
-              "- 방향 문장대로 차이가 분명하다고 씁니다. '비슷합니다', '크지 않습니다'로 흐리지 마세요.")
+    degree = {
+        "strong": "- 방향 문장대로 차이가 분명하다고 씁니다('뚜렷하게'). '비슷합니다', '크지 않습니다'로 흐리지 마세요.",
+        "weak": "- 방향은 지키되 그 폭이 작다고 씁니다. '뚜렷하게', '크게' 같은 말로 부풀리지 마세요.",
+        "mid": ("- '~하는 편입니다'처럼 방향만 담담하게 씁니다. '뚜렷하게', '크게'는 쓰지 말고, "
+                "값이 0이 아니므로 '같은 수준', '비슷합니다'도 쓰지 마세요."),
+        "zero": "- 값이 0이므로 '같은 수준입니다'로 씁니다.",
+    }[_degree(st)]
     system = (f"TETR.IO 전적 분석 페이지 첫 화면의 하이라이트 문장 하나를 한국어로 씁니다.\n"
               f"아래 지표 값이 이 플레이어에 대해 무엇을 뜻하는지 한 문장(40~60자)으로 쓰세요.\n\n"
               f"규칙\n- {_compare_rule(k, phrase)}\n- {_predicate_rule(k)}\n"
@@ -228,11 +249,11 @@ SUMMARY_SYSTEM = f"""TETR.IO 전적 분석 페이지 첫 화면의 요약 코멘
 - 세 지표를 모두 다룹니다. 지표마다 입력의 '방향'을 그대로 따르세요.
 - 상대와 비교하는 지표는 '상대 대비', '맞붙은 상대들에 비해', '최근 대전 상대들보다', '대전 상대 평균 대비', '매 경기 상대와 견줘 보면' 중 하나를 붙입니다. 절이 둘 이상이면 절마다 붙이세요.
 - 상대 강도별 승률 차, 역전 경향, 라운드별 변화에는 '상대보다'를 붙이지 않습니다.
-- 방향 문장이 '차이는 크지 않습니다'인 지표는 '크게', '뚜렷하게' 같은 말로 부풀리지 마세요.
+- 방향 문장이 '~하는 편입니다'나 '그 폭은 작은 편'인 지표는 '크게', '뚜렷하게' 같은 말로 부풀리지 마세요. 값이 0이 아닌 지표를 '같은 수준', '비슷하다'로 쓰지 마세요.
 - 성향 지표(Opener·Plonk·Stride·Inf DS 성향, 수비 비중, 가비지 처리 성향)는 잘하고 못함으로 쓰지 않습니다.
 - 승률, TR, 티어는 입력에 없으므로 쓰지 않습니다.
 - 지표 이름 뒤에 쌍점(:)을 붙여 나열하지 말고, '이 플레이어는'으로 시작하지 마세요.
-- 상대 강도별 승률 차는 '강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 …' 순서를 바꾸지 말고 방향 문장 그대로 씁니다.
+- 상대 강도별 승률 차는 강한 상대 구간을 앞에 두는 순서를 바꾸지 말고 방향 문장 그대로 씁니다.
 {COMMON_RULES}
 - 요약 문장만 쓰세요. 제목, 목록, 따옴표는 쓰지 마세요."""
 
@@ -260,6 +281,8 @@ _PLAYER_HEAD = re.compile(r"(^|(?<=[.!?]\s))이 (?:플)?레이어(?:는|가|의 
 # v5.2: 소수점(+0.08)에서 문장이 잘리지 않게 — 숫자 사이의 점은 문장 끝이 아니다
 _SENT2 = re.compile(r"(?:[^.!?]|(?<=\d)\.(?=\d))+[.!?]")
 _HEAD2 = re.compile(r"^\s*(?:하이라이트 문장|문장|요약 코멘트|요약|코멘트|총평|답|출력)\s*[:：|]\s*")
+_PYEON_TYPO = re.compile(r"(?<=편)합니다")
+_SLOPE_HEAD = re.compile(r"^라운드별 공방 능력\(VS\) 변화(?:는|가|은|이)\s+(?=라운드)")
 _LIST2 = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)](?!\d)|\[\d{1,2}\])\s*")
 
 
@@ -314,6 +337,19 @@ def tidy(text: str, items: list[tuple[str, float, str]], rng: random.Random | No
     t = _PLAYER_HEAD.sub(r"\1", text)
     if t != text:
         done.append("플레이어 주어 뗌")
+    t2 = t.replace("블ock", "블록")             # v5.3 실측: 토큰이 깨져 '블ock당 공격량'
+    if t2 != t:
+        done.append("'블ock' 고침")
+        t = t2
+    t2 = re.sub(r"대비에서\s+", "대비 ", t)          # v5.4 실측: '대전 상대 평균 대비에서 …(APP)을 앞서는'
+    t2 = re.sub(r"\)을 (앞서|밀리)", r")에서 \1", t2)
+    if t2 != t:
+        done.append("조사 고침")
+        t = t2
+    t2 = _PYEON_TYPO.sub("입니다", t)        # v5.3 실측: '앞서는 편합니다' (어미 오타)
+    if t2 != t:
+        done.append("'편합니다' 고침")
+        t = t2
     out = []
     for sent in _split(t) or [t]:
         lab = _drop_label(sent, items)
@@ -327,6 +363,10 @@ def tidy(text: str, items: list[tuple[str, float, str]], rng: random.Random | No
             if m and name in sent[m.end():]:
                 sent = sent[m.end():]
                 done.append("주어 반복 뗌")
+        m = _SLOPE_HEAD.match(sent)   # v5.3 실측: '라운드별 공방 능력(VS) 변화는 라운드가 진행될수록 …'
+        if m:
+            sent = sent[m.end():]
+            done.append("주어 반복 뗌")
         if not _BASIS.search(sent):
             for k, v, z in items:
                 if k in COMPARE_KEYS and _starts_with_name(sent, k):
@@ -334,7 +374,39 @@ def tidy(text: str, items: list[tuple[str, float, str]], rng: random.Random | No
                     done.append(f"비교 기준 붙임({k})")
                     break
         out.append(sent)
-    return " ".join(out), done
+    t = " ".join(out)
+    if len(items) == 1:
+        t2 = _fix_ending(t, state(*items[0]))
+        if t2 != t:
+            done.append("끝말 고침")
+            t = t2
+    return t, done
+
+
+# v5.3 실측: 보통인데 '밀립니다', 반대쪽인데 '조금 밀립니다'로 끝나는 문장 — 방향은 맞으니 끝말만 규칙대로 바꾼다
+_END_MID = {"앞섭니다": "앞서는 편입니다", "밀립니다": "밀리는 편입니다", "짙습니다": "짙은 편입니다",
+            "옅습니다": "옅은 편입니다", "큽니다": "큰 편입니다", "작습니다": "작은 편입니다",
+            "강합니다": "강한 편입니다", "강해집니다": "강해지는 편입니다", "처집니다": "처지는 편입니다"}
+_END_WEAK = {"앞섭니다": "앞서지만 그 폭은 작은 편입니다", "밀립니다": "밀리지만 그 폭은 작은 편입니다",
+             "짙습니다": "짙지만 그 폭은 작은 편입니다", "옅습니다": "옅지만 그 폭은 작은 편입니다",
+             "큽니다": "큰 편이지만 그 폭은 크지 않습니다", "작습니다": "작은 편이지만 그 폭은 크지 않습니다",
+             "강합니다": "강하지만 그 폭은 작은 편입니다"}
+
+
+def _fix_ending(sent: str, st: str) -> str:
+    """마지막 낱말만 본다. 강조어('뚜렷하게','크게')가 있으면 고치지 않는다(검사에서 거부)."""
+    if st.startswith("mid"):
+        table = _END_MID
+    elif st.startswith("weak") and not _SMALL_GAP.search(sent):
+        table = _END_WEAK
+    else:
+        return sent
+    if "편" in sent and st.startswith("mid") or any(w in sent for w in _INTENSIFIERS):
+        return sent
+    m = re.search(r"([가-힣]+)\.$", sent)
+    if not m or m.group(1) not in table:
+        return sent
+    return sent[:m.start(1)] + table[m.group(1)] + "."
 
 
 # =====================================================================================
@@ -368,6 +440,8 @@ def _common_issue(text: str, items: list[tuple[str, float, str]]) -> str | None:
         return "비교 기준 흐림(상대적)"
     if "플레이어" in text or "레이어" in text:
         return "플레이어 주어"
+    if re.search(r"[+\-−]?\d+(?:\.\d+)?\s*(?:는|은|이므로|이라|으로|로|이며|이고)(?=[\s,])", text):   # v5.4 실측: '역전 경향의 +0.12는 …', '-0.10이므로'
+        return "값 풀이"
     if re.search(r"(?:의|인)\s*값|값은|값이", text):      # '역전 경향의 값 -0.10은 …' — 값을 풀어 쓰지 않는다
         return "값 풀이"
     if re.search(r"수비적|공격적", text):                # '수비 비중이 작고, 수비적인 편' — 유형 규정·반대 해석
@@ -376,7 +450,7 @@ def _common_issue(text: str, items: list[tuple[str, float, str]]) -> str | None:
         return "비교 표현 오타"
     if re.search(r"[+-]\s?\d+(?:\.\d+)?\s*(?:로|만큼)?\s*(?:더\s*)?(?:높|낮|증가|감소|많|적)", text):
         return "부호 숫자로 비교"                         # '+0.08 높습니다' — 헤비 v4.3 과 같은 규칙
-    if re.search(r"약한 상대[^.]*?승률이[^.]*?강한 상대[^.]*?보다", text):
+    if _weak_first(text):
         return "방향 반대(강한·약한 상대 순서)"
     if re.search(r"뺀 값|0과 1 사이|정규화", text):
         return "정의 풀이"
@@ -397,8 +471,36 @@ def _common_issue(text: str, items: list[tuple[str, float, str]]) -> str | None:
     return None
 
 
+def _weak_first(text: str) -> bool:
+    """문장마다 '약한 상대'가 '강한 상대'보다 먼저 나오면 기준이 뒤바뀐 것 (문장 틀은 늘 강한 상대가 먼저).
+    v5.3 실측: '약한 상대 구간에서 오히려 강한 상대 구간보다 승률이 높습니다' 가 기본 코멘트에서 통과했음."""
+    for sent in _split(text) or [text]:
+        i, j = sent.find("약한 상대"), sent.find("강한 상대")
+        if 0 <= i and 0 <= j and i < j:
+            return True
+    return False
+
+
+_THICK = re.compile(r"진하|진한|진합")          # '짙다'와 같은 뜻 (light6 방향 낱말에 없음)
+_SPEED = re.compile(r"빠르|빠른|빠르게|느리|느린|느슨")  # v5.3 실측: 'Opener 성향이 빠르게 변합니다', '작고 느린 편'
+_SMALL_GAP = re.compile(r"폭|크지\s*(?:는\s*)?않|작은 편")
+
+
 def check_sentence(text: str, k: str, v: float, zone: str) -> str | None:
     """개별 코멘트 검사. 문제가 있으면 이유, 없으면 None."""
+    why = _check_sentence_core(text, k, v, zone)
+    if why:
+        return why
+    # v5.3 규칙 (31번 2.2절 A안): 보통 → '~하는 편', 반대쪽 → '폭이 작다/잘 버틴다' — 방향 검사를 통과한 뒤에 본다
+    st = state(k, v, zone)
+    if st.startswith("mid") and "편" not in text:
+        return "보통인데 '~하는 편' 없음"
+    if st.startswith("weak") and not (k == "strength_split" and st == "weak-") and not _SMALL_GAP.search(text):
+        return "반대쪽인데 '폭이 작다' 없음"
+    return None
+
+
+def _check_sentence_core(text: str, k: str, v: float, zone: str) -> str | None:
     why = _common_issue(text, [(k, v, zone)])
     if why:
         return why
@@ -413,15 +515,21 @@ def check_sentence(text: str, k: str, v: float, zone: str) -> str | None:
         return "비교 기준 잘못(상대)"
     if k in TENDENCY_KEYS and (any(w in text for w in _RANK_WORDS) or re.search(r"잘하|못하|잘한|못한", text)):
         return "성향에 우열 서술어"
-    soft = st in ("mid+", "mid-", "zero", "hold")
+    if k in TENDENCY_KEYS and _SPEED.search(text):
+        return "성향을 속도로 풀이"
+    if k in TENDENCY_KEYS and re.search(r"작고|약한|약하게|약합", text):   # v5.4 실측: 'Opener 성향이 작고 약한 편' — 성향은 짙다/옅다로
+        return "성향을 크기·세기로 풀이"
+    soft = st in SOFT_STATES
     if soft:
         hit = [w for w in _INTENSIFIERS if w in text]
-        if k == "strength_split" and st == "hold":          # "크게 떨어지지 않습니다" 는 허용
-            hit = [w for w in hit if not re.search(w + r"\s*떨어지지\s*않", text)]
-        if k == "session_vs_slope" and st == "zero":        # "뚜렷한 추세가 없습니다" 는 허용
+        # 허용: "크게 흔들리지/떨어지지 않습니다"(잘 버팀), "뚜렷한 추세가 없습니다"(0)
+        hit = [w for w in hit if not re.search(w + r"\S*\s*(흔들리지|떨어지지)\s*않", text)]
+        if k == "session_vs_slope" and st == "zero":
             hit = [w for w in hit if not re.search(w + r"\S*\s*(추세|변화)\S*\s*없", text)]
         if hit:
             return f"차이가 크지 않은데 강조: {hit}"
+        if st.startswith("mid") and re.search(r"같은 수준|비슷|차이가 없|차이는 없", text):
+            return "값이 0이 아닌데 같다고 씀"
     elif any(w in text for w in _VAGUE):
         return "차이가 큰데 흐림"
     if st == "zero":
@@ -429,19 +537,22 @@ def check_sentence(text: str, k: str, v: float, zone: str) -> str | None:
             return "추세 없음을 쓰지 않음"
         return None
     if k == "strength_split":
-        if st == "high":
+        hold_words = r"흔들리지\s*않|떨어지지\s*않|버티|버팁|크지\s*않|조금\s*낮|약간\s*낮|폭은?\s*작"
+        if st in ("high", "weak+", "mid+"):                # 양수 — 강한 상대 구간이 오히려 높음
             return None if "높" in text else "방향 없음"
         if "오히려 높" in text:
             return "방향 반대"
-        if st == "hold":
-            return None if re.search(r"떨어지지\s*않|버티|버팁|크지\s*않|조금\s*낮|약간\s*낮", text) else "방향 없음"
-        if st == "low" and re.search(r"떨어지지\s*않|버티|버팁", text):
+        if st == "weak-":
+            return None if re.search(hold_words, text) else "방향 없음"
+        if re.search(r"흔들리지\s*않|떨어지지\s*않|버티|버팁", text):
             return "방향 반대"
         return None if re.search(r"낮|떨어", text) else "방향 없음"
-    want = 1 if st in ("high", "mid+") else -1
+    want = 1 if st.endswith("+") or st == "high" else -1
     d = _comeback_direction(text) if k == "delta_comeback" else _first_direction(text)
+    if d == 0 and k in TENDENCY_KEYS and _THICK.search(text):
+        d = 1
     if d == 0:
-        return None if soft else "방향 없음"
+        return "방향 없음"           # v5.3: 보통·반대쪽도 방향은 부호대로 써야 한다 ('역전 경향은 +0.02입니다' 통과했음)
     if d != want:
         return f"방향 반대 ({fmt_value(k, v)})"
     return None
@@ -461,9 +572,9 @@ def check_summary(text: str, items: list[tuple[str, float, str]]) -> str | None:
             return f"비교 기준 누락(문장: {NAMES[named[0]]})"
     if "session_vs_slope" in keys and len(keys) == 1 and "상대" in text:
         return "비교 기준 잘못(상대)"
-    if all(state(k, v, z) in ("mid+", "mid-", "zero", "hold") for k, v, z in items):
+    if all(state(k, v, z) in SOFT_STATES for k, v, z in items):
         hit = [w for w in _INTENSIFIERS if w in text]
-        hit = [w for w in hit if not re.search(w + r"\S*\s*(떨어지지\s*않|추세가?\s*없)", text)]
+        hit = [w for w in hit if not re.search(w + r"\S*\s*((흔들리지|떨어지지)\s*않|추세가?\s*없)", text)]
         if hit:
             return f"차이가 크지 않은데 강조: {hit}"
     only_tendency = all(k in TENDENCY_KEYS for k in keys)

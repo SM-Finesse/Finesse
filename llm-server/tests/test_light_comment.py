@@ -48,10 +48,20 @@ def test_값_자리수():
     assert lc.state("delta_app", 0.001, "보통") == "zero"
 
 
-def test_strength_영역과_부호가_반대면_hold():
-    assert lc.state("strength_split", -0.10, "높음") == "hold"
+def test_strength_영역과_부호가_반대면_weak():
+    assert lc.state("strength_split", -0.10, "높음") == "weak-"
     assert lc.state("strength_split", 0.12, "높음") == "high"
     assert lc.state("strength_split", -0.25, "보통") == "mid-"
+
+
+@pytest.mark.parametrize("k,v,z,st", [
+    ("session_vs_slope", 0.6, "낮음", "weak+"), ("delta_app", -0.03, "높음", "weak-"),
+    ("delta_inf_ds", 0.31, "높음", "high"), ("delta_comeback", -0.03, "낮음", "low"),
+    ("session_vs_slope", 1.01, "보통", "mid+"), ("delta_weighted_app", -0.02, "보통", "mid-"),
+    ("delta_app", 0.0, "높음", "zero"),
+])
+def test_v53_방향은_부호_강도는_영역(k, v, z, st):
+    assert lc.state(k, v, z) == st
 
 
 @pytest.mark.parametrize("k,v,z", CASES)
@@ -119,8 +129,8 @@ def test_개별_검사_거부(text, k, v, z, why):
 
 
 @pytest.mark.parametrize("text,k,v,z", [
-    ("상대 대비 블록당 공격량(APP)은 비슷한 수준입니다(+0.01).", "delta_app", 0.01, "보통"),   # 31번 2.2절 예시
-    ("맞붙은 상대들에 비해 블록당 공격량(APP)이 조금 앞서지만 차이는 크지 않습니다.", "delta_app", 0.01, "보통"),
+    ("상대 대비 블록당 공격량(APP)에서 앞서는 편입니다(+0.01).", "delta_app", 0.01, "보통"),   # 31번 2.2절 A안
+    ("맞붙은 상대들에 비해 블록당 공격량(APP)에서 조금 앞서는 편입니다.", "delta_app", 0.01, "보통"),
     ("TETR.IO 대전에서 상대 대비 블록당 공격량(APP)에서 앞섭니다(+0.08).", "delta_app", 0.08, "높음"),
     ("강한 상대를 만나도 승률이 크게 떨어지지 않습니다.", "strength_split", -0.10, "높음"),
     ("라운드가 진행되어도 공방 능력(VS)에 뚜렷한 추세가 없습니다.", "session_vs_slope", 0.0, "보통"),
@@ -160,7 +170,7 @@ def test_엔드포인트_Mock(mock):
     r = client.post("/v1/light/sentence", json={"stat": "delta_app", "value": 0.08, "zone": "높음"})
     assert r.status_code == 200 and r.json()["fallback"] is False and "앞섭니다" in r.json()["sentence"]
     r = client.post("/v1/light/sentence", json={"stat": "strength_split", "value": -0.10})       # 영역 없음 → 직접 판정
-    assert r.status_code == 200 and "떨어지지 않" in r.json()["sentence"]
+    assert r.status_code == 200 and "흔들리지 않" in r.json()["sentence"]
     items = [{"stat": "delta_app", "value": 0.08, "zone": "높음"}, {"stat": "delta_opener", "value": 0.05, "zone": "보통"},
              {"stat": "session_vs_slope", "value": 0.6, "zone": "보통"}]
     r = client.post("/v1/light/summary", json={"items": items})
@@ -328,3 +338,115 @@ def test_서비스_라이트는_기본_v2(monkeypatch):
     from pathlib import Path
     body = json.loads((Path(__file__).parent / "samples" / "l6_typical.json").read_text(encoding="utf-8"))
     assert client.post("/v1/comment/light", json=body).status_code == 418
+
+
+# ---------------- v5.3 (10/26 31번 2.2절 A안 확정) ----------------
+@pytest.mark.parametrize("text,k,v,z,why", [
+    ("라운드가 진행될수록 공방 능력(VS)이 뚜렷하게 강해집니다(+0.60).", "session_vs_slope", 0.6, "낮음", "강조"),
+    ("상대 대비 블록당 공격량(APP)에서 뚜렷하게 밀립니다(-0.03).", "delta_app", -0.03, "높음", "강조"),
+    ("상대 대비 보정 공격 효율(Weighted APP)은 비슷한 수준입니다(-0.02).", "delta_weighted_app", -0.02, "보통", "같다고"),
+    ("강한 상대 구간에서는 약한 상대 구간보다 승률이 크게 떨어집니다(-0.10).", "strength_split", -0.10, "높음", "강조"),
+    ("강한 상대를 만나도 승률이 크게 흔들리지 않습니다(-0.55).", "strength_split", -0.55, "낮음", "방향 반대"),
+])
+def test_v53_검사_거부(text, k, v, z, why):
+    got = lc.check_sentence(text, k, v, z)
+    assert got is not None and why in got, got
+
+
+@pytest.mark.parametrize("text,k,v,z", [
+    ("라운드가 진행될수록 공방 능력(VS)이 오르기는 하지만 그 폭은 크지 않은 편입니다(+0.29).", "session_vs_slope", 0.29, "낮음"),
+    ("상대 대비 블록당 공격량(APP)에서 조금 밀리지만 그 폭은 작은 편입니다(-0.01).", "delta_app", -0.01, "높음"),
+    ("라운드가 진행될수록 공방 능력(VS)이 강해지는 편입니다(+1.01).", "session_vs_slope", 1.01, "보통"),
+    ("강한 상대를 만나도 약한 상대 때와 비교해 승률이 크게 흔들리지 않습니다(-0.10).", "strength_split", -0.10, "높음"),
+    ("맞붙은 상대들에 비해 Inf DS 성향이 뚜렷하게 짙습니다(+0.31).", "delta_inf_ds", 0.31, "높음"),
+])
+def test_v53_검사_허용(text, k, v, z):
+    assert lc.check_sentence(text, k, v, z) is None
+
+# ---- v5.3 실측(10/26 25번) 에서 통과했던 문장 -------------------------------------------------
+@pytest.mark.parametrize("text,k,v,z,why", [
+    ("대전 상대 평균 대비 Opener 성향이 빠르게 변합니다.", "delta_opener", -0.05, "보통", "속도"),
+    ("맞붙은 상대들에 비해 Plonk 성향이 작고 느린 편입니다.", "delta_plonk", -0.05, "보통", "속도"),
+    ("최근 대전 상대들보다 Opener 성향이 미세하게 밝은 편입니다.", "delta_opener", -0.05, "보통", "방향 없음"),
+    ("역전 경향은 +0.02입니다.", "delta_comeback", 0.02, "보통", "방향 없음"),
+])
+def test_v53_measured_bad_sentences(text, k, v, z, why):
+    s, w = lc.parse_sentence(text, k, v, z, random.Random(0))
+    assert s is None and why in w
+
+
+def test_v53_pyeon_typo_fixed():
+    s, w = lc.parse_sentence("상대 대비 블록당 공격량(APP)에서 앞서는 편합니다.", "delta_app", 0.01, "보통")
+    assert w is None and s.endswith("앞서는 편입니다.")
+
+
+def test_v53_slope_subject_repeat_dropped():
+    s, w = lc.parse_sentence("라운드별 공방 능력(VS) 변화는 라운드가 진행될수록 공방 능력(VS)이 오르기는 하지만 그 폭은 크지 않은 편입니다.",
+                             "session_vs_slope", 0.6, "낮음")
+    assert w is None and s.startswith("라운드가 진행될수록")
+
+
+def test_v53_summary_strength_inversion():
+    items = [("strength_split", 0.12, "높음"), ("delta_comeback", 0.12, "높음"), ("delta_opener", -0.05, "보통")]
+    s, w = lc.parse_summary("약한 상대 구간에서 오히려 강한 상대 구간보다 승률이 높습니다. 불리할 때 뒤집는 경향이 유리하다가 "
+                            "뒤집히는 경향보다 뚜렷하게 강합니다. 맞붙은 상대들에 비해 Opener 성향이 옅은 편입니다.", items)
+    assert s is None and "방향 반대" in w
+
+
+def test_v53_templates_still_pass():
+    """대체 문장 틀(부록 A)은 새 검사도 모두 통과해야 한다."""
+    for k in NAMES:
+        for v, z in ((0.5, "높음"), (-0.5, "낮음"), (0.5, "낮음"), (-0.5, "높음"), (0.01, "보통"), (-0.01, "보통"), (0.0, "보통")):
+
+            t = lc.build_sentence_text(k, v, z, lc.pick_phrase(lc.state(k, v, z), random.Random(1)), show=False)
+            assert lc.check_sentence(t, k, v, z) is None, (k, v, z, t, lc.check_sentence(t, k, v, z))
+
+
+# ---- v5.4: v5.3 실측에서 통과했던 문장들 ----
+@pytest.mark.parametrize("text,k,v,z,want", [
+    ("맞붙은 상대들에 비해 블록당 공격량(APP)에서 조금 밀립니다.", "delta_app", -0.03, "높음", "밀리지만 그 폭은 작은 편입니다."),
+    ("대전 상대 평균 대비 블록당 공격량(APP)에서 밀립니다.", "delta_app", -0.02, "보통", "밀리는 편입니다."),
+    ("상대 대비 Opener 성향이 짙습니다.", "delta_opener", 0.08, "낮음", "짙지만 그 폭은 작은 편입니다."),
+    ("라운드가 진행될수록 공방 능력(VS)이 강해집니다.", "session_vs_slope", 1.0, "보통", "강해지는 편입니다."),
+    ("최근 대전 상대들보다 블록당 공격량(APP)에서 앞서는 편합니다.", "delta_app", 0.01, "보통", "앞서는 편입니다."),
+])
+def test_v54_ending_fixed(text, k, v, z, want):
+    s, why = lc.parse_sentence(text, k, v, z)
+    assert why is None and s.endswith(want)
+
+
+@pytest.mark.parametrize("text,k,v,z", [
+    ("역전 경향은 +0.02입니다.", "delta_comeback", 0.02, "보통"),
+    ("대전 상대 평균 대비 Opener 성향이 빠르게 변합니다.", "delta_opener", -0.05, "보통"),
+    ("맞붙은 상대들에 비해 Plonk 성향이 작고 느린 편입니다.", "delta_plonk", -0.05, "보통"),
+    ("상대 대비 블록당 공격량(APP)에서 뚜렷하게 밀립니다.", "delta_app", -0.03, "높음"),
+])
+def test_v54_rejected(text, k, v, z):
+    assert lc.parse_sentence(text, k, v, z)[1] is not None
+
+
+def test_v54_summary_weak_first_rejected():
+    items = [("strength_split", 0.12, "높음"), ("delta_comeback", 0.12, "높음"), ("delta_opener", -0.05, "보통")]
+    t = ("상대 강도별 승률 차: 약한 상대 구간에서 오히려 강한 상대 구간보다 승률이 높습니다. "
+         "불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 뚜렷하게 강합니다. Opener 성향: 맞붙은 상대들에 비해 옅은 편입니다.")
+    assert lc.parse_summary(t, items)[1] is not None
+
+
+def test_v54_broken_token_fixed():
+    s, why = lc.parse_sentence("대전 상대 평균 대비 블ock당 공격량(APP)에서 조금 밀리지만 그 폭은 작은 편입니다.", "delta_app", -0.03, "높음")
+    assert why is None and "블록당" in s
+
+
+@pytest.mark.parametrize("text,k,v,z", [
+    ("역전 경향의 +0.12는 불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 뚜렷하게 강한 흐름을 보여줍니다.", "delta_comeback", 0.12, "높음"),
+    ("상대 강도별 승률 차는 -0.10이므로, 강한 상대를 만나도 약한 상대 때와 비교해 승률이 크게 흔들리지 않습니다.", "strength_split", -0.10, "높음"),
+    ("맞붙은 상대들에 비해 Opener 성향이 작고 약한 편입니다.", "delta_opener", -0.05, "보통"),
+    ("Opener 성향이 작고, 상대 대비 옅은 편입니다.", "delta_opener", -0.05, "보통"),
+])
+def test_v54_measured_rejected(text, k, v, z):
+    assert lc.parse_sentence(text, k, v, z)[1] is not None
+
+
+def test_v54_particle_fixed():
+    s, why = lc.parse_sentence("블록당 공격량(APP)이 대전 상대 평균 대비에서 블록당 공격량(APP)을 앞서는 편입니다.", "delta_app", 0.01, "보통")
+    assert why is None and s == "대전 상대 평균 대비 블록당 공격량(APP)에서 앞서는 편입니다."
