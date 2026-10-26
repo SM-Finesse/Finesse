@@ -72,7 +72,7 @@ def test_8챕터_모두_프롬프트가_있음():
 
 def test_시스템_프롬프트는_그_챕터_내용만():
     attack = build_heavy_messages(HeavyRequest.model_validate(body("attack")))[0]["content"]
-    assert "공격 효율" in attack and "APP" in attack
+    assert "공격 효율" in attack and "블록당 공격력" in attack and "APP" not in attack
     assert "Cheese Index 차이" not in attack and "역전" not in attack and "Opener" not in attack
 
 
@@ -87,8 +87,8 @@ def test_user_메시지에_영문_키가_없음():
 
 def test_user_메시지에_값이_그대로():
     user = build_heavy_messages(HeavyRequest.model_validate(body("defense")))[1]["content"]
-    assert "- 수비 비중(VS/APM) 차이: -0.07" in user
-    assert "- 가비지 처리 성향(Cheese Index) 차이: -2.56" in user
+    assert "- 수비 비중 차이: -0.07" in user
+    assert "- 가비지 처리 성향 차이: -2.56" in user
 
 
 def test_라이벌은_배지를_서버가_계산하고_승률은_보이지_않음():
@@ -105,19 +105,19 @@ def _user(ch, data=None):
 
 def test_v31_부호_방향을_서버가_붙임():
     # v4.3: 괄호는 그대로 쓸 수 있는 서술형 문장
-    assert "- 블록당 공격량(APP) 차이: -0.05 (상대보다 밀립니다)" in _user("attack")  # Q1 -0.043 아래
+    assert "- 블록당 공격력 차이: -0.05 (상대보다 밀립니다)" in _user("attack")  # Q1 -0.043 아래
     assert "-2.56 (상대보다 가비지 처리 성향이 약간 옅지만 차이는 크지 않습니다)" in _user("defense")  # 범위 안
-    assert "+0.55 (라운드가 진행될수록 VS가 조금 오르지만 변화는 크지 않습니다)" in _user("session_vs_slope")
-    assert "-0.21 (강한 상대 구간 승률이 더 낮습니다)" in _user("strength_split")
+    assert "+0.55 (라운드가 진행될수록 공방 능력이 조금 오르지만 변화는 크지 않습니다)" in _user("session_vs_slope")
+    assert "-0.21 (강한 상대 구간에서는 약한 상대 구간보다 승률이 낮습니다)" in _user("strength_split")
     assert "+0.3 (상대보다 앞섭니다)" in _user("attack", {"delta_app": 0.3})
-    assert "+2 (라운드가 진행될수록 VS가 크게 오릅니다)" in _user("session_vs_slope", {"session_vs_slope": 2})
+    assert "+2 (라운드가 진행될수록 공방 능력이 크게 오릅니다)" in _user("session_vs_slope", {"session_vs_slope": 2})
     assert "0 (상대와 같습니다)" in _user("attack", {"delta_app": 0})
 
 
 def test_v31_플레이스타일은_강한_약한_성향으로_묶음():
     user = _user("playstyle")
     # v4.2: 목록 대신 한 줄에 한 문장, 강도는 묶음으로 (Opener +0.1·Stride -0.08 은 보통 범위 안)
-    assert "- Plonk(-0.22), Inf DS(-0.17) 성향은 상대보다 옅게 나타납니다." in user
+    assert "- Plonk(-0.22), Infinite Downstacking(-0.17) 성향은 상대보다 옅게 나타납니다." in user
     assert "- Opener(+0.1), Stride(-0.08) 성향은 상대와 차이가 크지 않습니다." in user
     assert ":" not in user.split("\n", 1)[1]
     assert "성향 차이" not in user
@@ -172,7 +172,7 @@ ATTACK = CHAPTERS["attack"]
 
 def test_문장만_오면_서버가_조립():
     resp = process_heavy_output("블록당 공격량이 상대보다 적습니다.", "attack", ATTACK)
-    assert resp.chapter_id == "attack" and resp.footnote == "블록당 공격량이 상대보다 적습니다."
+    assert resp.chapter_id == "attack" and resp.footnote == "블록당 공격력이 상대보다 적습니다."
 
 
 def test_예전_JSON_형식도_받음():
@@ -187,9 +187,9 @@ def test_예전_JSON_형식도_받음():
     ("첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다.", "첫 문장입니다. 둘째 문장입니다."),  # 2문장까지
     ("완성된 문장입니다. 잘린 문장", "완성된 문장입니다."),                        # 출력 한도에서 잘림
     ("첫 문단입니다.\n\n두 번째 문단입니다.", "첫 문단입니다."),                  # 첫 문단만
-    ("APP가 상대보다 0.05 낮습니다. TETR.IO 기준입니다.", "APP가 상대보다 0.05 낮습니다. TETR.IO 기준입니다."),  # 소수점·약어
+    ("APP가 상대보다 0.05 낮습니다. TETR.IO 기준입니다.", "블록당 공격력이 상대보다 0.05 낮습니다. TETR.IO 기준입니다."),  # 소수점·약어 (v4.4 이름 바꿈)
     ("- 상대보다 공격 효율이 낮습니다.\n* 수비도 상대보다 낮습니다.", "상대보다 공격 효율이 낮습니다. 수비도 상대보다 낮습니다."),  # 목록 기호 (v3.1)
-    ("상대보다 -0.05 만큼 낮습니다.", "상대보다 -0.05 만큼 낮습니다."),                            # 음수 부호는 유지
+    ("상대보다 -0.05 만큼 차이가 납니다.", "상대보다 -0.05 만큼 차이가 납니다."),                            # 음수 부호는 유지
 ])
 def test_문장_다듬기(text, expected):
     assert process_heavy_output(text, "attack", ATTACK).footnote == expected
@@ -291,7 +291,7 @@ def test_v34_모두_실패하면_대체_문장으로_200(monkeypatch):
     monkeypatch.delenv("LLM_HEAVY_ATTEMPTS", raising=False)
     r = client.post("/v1/comment/heavy-chapter", json=body("attack"))
     assert r.status_code == 200 and bad.calls == 2  # 기본 2번 시도 후 대체
-    assert r.json()["chapter_id"] == "attack" and "APP" in r.json()["footnote"]
+    assert r.json()["chapter_id"] == "attack" and "블록당 공격력" in r.json()["footnote"]
 
 
 def test_v34_시도_횟수_설정(monkeypatch):
@@ -392,15 +392,15 @@ POS = {k: v for k, v in _json.loads((_Path(__file__).parent / "samples" / "heavy
 
 
 @pytest.mark.parametrize("ch, data, must", [
-    ("attack", {"delta_app": -0.05, "delta_weighted_app": -1.34}, "Weighted APP 모두에서 밀립니다"),
-    ("attack", {"delta_app": 0.06, "delta_weighted_app": -0.8}, "하지만 Weighted APP에서는 상대보다 밀립니다"),
-    ("attack", {"delta_app": 0.06, "delta_weighted_app": 0.8}, "Weighted APP 모두에서 앞섭니다"),
+    ("attack", {"delta_app": -0.05, "delta_weighted_app": -1.34}, "보정 공격 효율 모두에서 밀립니다"),
+    ("attack", {"delta_app": 0.06, "delta_weighted_app": -0.8}, "하지만 보정 공격 효율에서는 상대보다 밀립니다"),
+    ("attack", {"delta_app": 0.06, "delta_weighted_app": 0.8}, "보정 공격 효율 모두에서 앞섭니다"),
     ("defense", {"delta_vs_apm": 0.2, "delta_cheese_index": 20}, "모두 큰 편입니다"),
     ("defense", {"delta_vs_apm": 0.11, "delta_cheese_index": 1.9}, "모두 차이가 크지 않습니다"),  # 둘 다 범위 안
     ("defense", {"delta_vs_apm": 0.2, "delta_cheese_index": -10}, "상대보다 옅게 나타납니다"),
     ("tr_trend", {"tr_trend_delta": 85.3}, "오르는 흐름"),
     ("tr_trend", {"tr_trend_delta": -62.87}, "내려가는 흐름"),
-    ("strength_split", {"strength_split": 0.08}, "오히려 높습니다"),
+    ("strength_split", {"strength_split": 0.08}, "오히려 약한 상대 구간보다 승률이 높습니다"),
     ("strength_split", {"strength_split": -0.5}, "크게 낮습니다"),
     ("strength_split", {"strength_split": -0.21}, "떨어"),
     ("strength_split", {"strength_split": -0.05}, "잘 버티는"),
@@ -467,7 +467,7 @@ def test_v34_대체_문장_내용():
     assert "ab***_12에게는 15경기 5승 10패로 내가 자주 져서 천적입니다." in build_fallback("rivals", CHAPTERS["rivals"])
     assert "te**er와는 7경기 4승 3패입니다." in build_fallback("rivals", CHAPTERS["rivals"])
     text = build_fallback("attack", POS["attack"], rng)
-    assert "앞섭니다(+0.06)" in text and "Weighted APP에서는 상대보다 밀립니다(-0.80)" in text
+    assert "앞섭니다(+0.06)" in text and "보정 공격 효율에서는 상대보다 밀립니다(-0.80)" in text
 
 
 # ---------------- 10/20 백엔드 회신 반영: 숫자 반올림·0승 문장·fallback 표시·시간 예산 ----------------
@@ -635,11 +635,12 @@ def test_v34_예시에는_숫자가_없음():
 
 
 # ---------- v4 「코멘트 작성 가이드라인」(31번) ----------
+from app.names import normalize_names
 from app.prompt import COMPARE_PHRASES, HEAVY_PROMPT_VERSION
 
 
 def test_v4_버전():
-    assert HEAVY_PROMPT_VERSION == "heavy-v4.3-guide31r"
+    assert HEAVY_PROMPT_VERSION == "heavy-v4.4-names31"
 
 
 def test_v4_비교_표현은_5개_중에서_고름():
@@ -674,7 +675,7 @@ def test_v4_상대_비교가_아닌_챕터에는_비교_표현_줄이_없음(ch)
 ])
 def test_v4_가이드라인에_맞는_문장은_통과(ch, sample, text):
     data = {"zero": {"session_vs_slope": 0.0}}.get(sample) or (POS if sample == "pos" else CHAPTERS)[ch]
-    assert process_heavy_output(text, ch, data).footnote == text
+    assert process_heavy_output(text, ch, data).footnote == normalize_names(text)   # v4.4: 예전 이름은 서버가 바꿈
 
 
 @pytest.mark.parametrize("ch, sample, text", [
@@ -728,3 +729,24 @@ def test_v4_모든_예시와_대체_문장에_퍼센트가_없음():
                 assert "%" not in pick_heavy_example(ch, d, b)
             for seed in range(8):
                 assert "%" not in build_fallback(ch, d, _random.Random(seed))
+
+
+
+# ---- v4.4 실측(10/26)에서 통과했던 문장 ----
+@pytest.mark.parametrize("ch, text", [
+    ("tr_trend", "최근 구간의 평균 TR이 전체 기간 평균 TR보다 -62.87 점수 낮습니다, 이는 내려가는 흐름을 나타냅니다."),
+    ("tr_trend", "최근 구간의 TR이 전체 기간 평균보다 낮습니다. 이는 최근 구간 TR이 전체 평균에 비해 -62.87 점수 차이를 나타냅니다."),
+    ("attack", "블록당 공격력 차이는 상대보다 -0.05로 밀립니다. 보정 공격 효율 차이는 상대보다 -1.34로 밀립니다."),
+    ("defense", "수비 비중 차이: 최근 대전 상대들보다 수비 비중이 약간 작은 편이지만, 차이는 크지 않습니다."),
+    ("defense", "수비 비중 차이: -0.07 (상대보다 수비 비중이 약간 작은 편이지만 차이는 크지 않습니다)"),
+])
+def test_v44_실측_거부(ch, text):
+    with pytest.raises(OutputFormatError):
+        process_heavy_output(text, ch, CHAPTERS[ch])
+
+
+def test_v44_역전_둘째_문장이_엉뚱하면_첫_문장만():
+    t = "역전승률이 역전 허용률보다 낮습니다. 따라서 역전 승리의 성공률이 떨어지는 경기에서 역전 팽행이 더 자주 발생합니다."
+    assert process_heavy_output(t, "comeback_rate", CHAPTERS["comeback_rate"]).footnote == "역전승률이 역전 허용률보다 낮습니다."
+    t2 = "역전승률이 역전 허용률보다 낮습니다. 역전승 경향이 역전패 경향보다 약합니다."
+    assert process_heavy_output(t2, "comeback_rate", CHAPTERS["comeback_rate"]).footnote == t2

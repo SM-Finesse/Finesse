@@ -15,6 +15,7 @@
 """
 import random
 
+from app.names import COMEBACK_LOSE, COMEBACK_WIN, COMMENT_NAMES
 from app.prompt import (
     COMPARE_PHRASES,
     PLAYSTYLE_NAMES,
@@ -185,9 +186,10 @@ def _pair(d, chapter, rng, base, show):
 
 
 _PAIRS = {
-    "attack": (("delta_app", "블록당 공격량(APP)", _ATTACK_VERB), ("delta_weighted_app", "Weighted APP", _ATTACK_VERB)),
-    "defense": (("delta_vs_apm", "수비 비중(VS/APM)", _VS_VERB),
-                ("delta_cheese_index", "가비지 처리 성향(Cheese Index)", _CHEESE_VERB)),
+    "attack": (("delta_app", COMMENT_NAMES["delta_app"], _ATTACK_VERB),
+               ("delta_weighted_app", COMMENT_NAMES["delta_weighted_app"], _ATTACK_VERB)),
+    "defense": (("delta_vs_apm", COMMENT_NAMES["delta_vs_apm"], _VS_VERB),
+                ("delta_cheese_index", COMMENT_NAMES["delta_cheese_index"], _CHEESE_VERB)),
 }
 
 
@@ -204,14 +206,14 @@ def _strength_split(d, rng, base, show):
     if not _num(v):
         return None
     p = f"({_s(v)})" if show else ""
-    head = "강한 상대 구간의 승률이 약한 상대 구간보다"
+    head = "강한 상대 구간에서는 약한 상대 구간보다 승률이"   # 31번 1.8절 (10/26)
     # 2.3절: −0.395(Q1)보다 낮을 때만 "크게 떨어진다". 범위 안(−0.2 등)은 평범한 값이라 강조하지 않는다.
     return {
-        "pos": f"{head} 오히려 높습니다{p}. 강한 상대를 만나도 잘 이기는 편입니다.",
+        "pos": f"강한 상대 구간에서 오히려 약한 상대 구간보다 승률이 높습니다{p}. 강한 상대를 만나도 잘 이기는 편입니다.",
         "zero": "강한 상대 구간과 약한 상대 구간의 승률 차이가 없어, 상대 강도와 상관없이 고르게 이기는 편입니다.",
         "low": f"{head} 크게 낮습니다{p}. 강한 상대를 만나면 승률이 크게 떨어지는 편입니다.",
         "mid": _pick([f"{head} 낮습니다{p}. 강한 상대를 만나면 승률이 떨어지는 편입니다.",
-                      f"강한 상대를 만나면 약한 상대를 만날 때보다 승률이 떨어집니다{p}."], rng),
+                      f"{head} 떨어지는 편입니다{p}."], rng),
         "high": f"{head} 조금 낮습니다{p}. 차이가 크지 않아 강한 상대를 만나도 잘 버티는 편입니다.",
     }[strength_level(v)]
 
@@ -228,14 +230,14 @@ def _comeback(d, rng, base, show):
     pb = f"({_rate(b)})" if show and b else ""
     if a > b:
         lead = f"역전승률{pa}이 역전 허용률{pb}보다 높습니다."
-        tail = "불리한 경기를 뒤집는 힘이 유리한 경기를 내주는 경향보다 강합니다."
+        tail = f"{COMEBACK_WIN}이 {COMEBACK_LOSE}보다 강합니다."   # 31번 1.8절 (10/26)
     elif a < b:
         lead = f"역전승률{pa}이 역전 허용률{pb}보다 낮습니다."
-        tail = "불리한 경기를 뒤집는 힘이 유리한 경기를 내주는 경향보다 약합니다."
+        tail = f"{COMEBACK_WIN}이 {COMEBACK_LOSE}보다 약합니다."
     else:
         lead = (f"역전승률과 역전 허용률이 {_rate(a)}로 같습니다." if show and a
                 else "역전승률과 역전 허용률이 같습니다.")
-        tail = "뒤진 경기를 뒤집는 힘과 앞선 경기를 내주는 경향이 비슷합니다."
+        tail = f"{COMEBACK_WIN}과 {COMEBACK_LOSE}이 비슷합니다."
     if show and _num(opp) and _num(won) and opp:  # 표본 수 인용 가능 (3.1절)
         count = (f"점수가 뒤졌던 {opp:g}경기를 한 번도 뒤집지 못했습니다." if not won
                  else f"점수가 뒤졌던 {opp:g}경기 중 {won:g}경기를 뒤집었습니다.")
@@ -251,16 +253,16 @@ def _session(d, rng, base, show):
     z = heavy_zone("session_vs_slope", v)
     # 2.3절: 보통 범위가 거의 양수(중앙값 +0.557) — +0.5 정도는 평범한 값이라 강조하지 않는다
     if v == 0:
-        return "라운드가 진행되어도 VS에 뚜렷한 추세가 없습니다."
-    if z == "high":
-        return f"라운드가 진행될수록 VS가{per} 크게 오릅니다. 경기가 길어질수록 강해지는 흐름입니다."
+        return "라운드가 진행되어도 공방 능력에 뚜렷한 추세가 없습니다."
+    if z == "high":   # 31번 1.8절: "라운드가 진행될수록 공방 능력이 …" (10/26)
+        return f"라운드가 진행될수록 공방 능력이{per} 크게 오릅니다. 경기가 길어질수록 강해지는 흐름입니다."
     if z == "low":
-        return _pick([f"라운드가 진행될수록 VS가{per} 내립니다. 경기가 길어질수록 처지는 흐름입니다.",
-                      f"한 매치 안에서 VS가{per} 내려, 경기 후반으로 갈수록 처집니다."], rng)
+        return _pick([f"라운드가 진행될수록 공방 능력이{per} 내립니다. 경기가 길어질수록 처지는 흐름입니다.",
+                      f"라운드가 진행될수록 공방 능력이{per} 내려, 경기 후반으로 갈수록 처집니다."], rng)
     p = f"({_s(v)})" if show else ""
     if v > 0:
-        return f"라운드가 진행될수록 VS가 조금 오르지만{p}, 변화는 크지 않습니다."
-    return f"라운드가 진행될수록 VS가 조금 내리지만{p}, 변화는 크지 않습니다."
+        return f"라운드가 진행될수록 공방 능력이 조금 오르지만{p}, 변화는 크지 않습니다."
+    return f"라운드가 진행될수록 공방 능력이 조금 내리지만{p}, 변화는 크지 않습니다."
 
 
 def _rivals(d, rng, base, show):

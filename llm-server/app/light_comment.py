@@ -27,13 +27,11 @@ from app.light6 import (
     _ECHO,
     _FORBIDDEN,
     _LATIN,
-    _LATIN_OK,
     _NUM,
     _OTHER_USERS,
     _RANK_WORDS,
     _RECENT,
     _TYPECAST,
-    NAMES,
     RANK_KEYS,
     TENDENCY_KEYS,
     _comeback_direction,
@@ -42,10 +40,16 @@ from app.light6 import (
     judge_one,
     load_quartiles,
 )
+from app.light6 import (
+    _LATIN_OK as _LATIN_OK6,
+)
+from app.names import COMEBACK_LOSE, COMEBACK_WIN, LATIN_NAME_WORDS, normalize_names
+from app.names import COMMENT_NAMES as NAMES  # v5.5: 31번 1.8절 이름 (PM 확정 10/26)
 from app.prompt import COMPARE_PHRASES, HEAVY_RANGES
 from app.validation import _BASIS, _INTENSIFIERS
 
-LIGHT_COMMENT_VERSION = "light-v5.4-guide31"
+LIGHT_COMMENT_VERSION = "light-v5.5-guide31"
+_LATIN_OK = set(_LATIN_OK6) | LATIN_NAME_WORDS
 
 # temperature·top_p: v1.2 7.2절. max_tokens: 개별 119(헤비 1문장 예산과 같음), 기본 160 (light6 와 같음)
 LIGHT_COMMENT_DECODING = {
@@ -66,8 +70,8 @@ STAT_WORDS: dict[str, tuple[str, ...]] = {
     "delta_opener": ("opener",),
     "delta_plonk": ("plonk",),
     "delta_stride": ("stride",),
-    "delta_inf_ds": ("inf ds", "inf_ds", "다운스택"),
-    "delta_app": ("공격량", "app"),
+    "delta_inf_ds": ("infinite downstacking", "inf ds", "inf_ds", "다운스택"),
+    "delta_app": ("공격력", "공격량", "app"),
     "delta_weighted_app": ("weighted", "보정 공격"),
     "delta_vs_apm": ("수비",),
     "delta_cheese_index": ("가비지", "cheese"),
@@ -160,18 +164,18 @@ def direction(k: str, st: str) -> str:
                 "weak+": "강한 상대 구간에서 약한 상대 구간보다 승률이 조금 높지만 그 폭은 작은 편입니다",
                 "zero": "강한 상대 구간과 약한 상대 구간의 승률이 같은 수준입니다"}[st]
     if k == "delta_comeback":
-        a, b = "불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다", "유리하다가 뒤집히는 경향이 불리할 때 뒤집는 경향보다"
+        a, b = f"{COMEBACK_WIN}이 {COMEBACK_LOSE}보다", f"{COMEBACK_LOSE}이 {COMEBACK_WIN}보다"   # 31번 1.8절
         return {"high": f"{a} 뚜렷하게 강합니다", "low": f"{b} 뚜렷하게 강합니다",
                 "weak+": f"{a} 조금 강하지만 그 폭은 작은 편입니다", "weak-": f"{b} 조금 강하지만 그 폭은 작은 편입니다",
                 "mid+": f"{a} 강한 편입니다", "mid-": f"{b} 강한 편입니다",
-                "zero": "불리할 때 뒤집는 경향과 유리하다가 뒤집히는 경향이 같은 수준입니다"}[st]
+                "zero": f"{COMEBACK_WIN}과 {COMEBACK_LOSE}이 같은 수준입니다"}[st]
     # session_vs_slope
-    head = "라운드가 진행될수록 공방 능력(VS)이"
+    head = "라운드가 진행될수록 공방 능력이"   # 31번 1.8절
     return {"high": f"{head} 뚜렷하게 강해집니다", "low": f"{head} 뚜렷하게 처집니다",
             "weak+": f"{head} 오르기는 하지만 그 폭은 크지 않은 편입니다",
             "weak-": f"{head} 처지기는 하지만 그 폭은 크지 않은 편입니다",
             "mid+": f"{head} 강해지는 편입니다", "mid-": f"{head} 처지는 편입니다",
-            "zero": "라운드가 진행되어도 공방 능력(VS)에 뚜렷한 추세가 없습니다"}[st]
+            "zero": "라운드가 진행되어도 공방 능력에 뚜렷한 추세가 없습니다"}[st]
 
 
 def _degree(st: str) -> str:
@@ -206,7 +210,8 @@ def _compare_rule(k: str, phrase: str) -> str:
     if k == "session_vs_slope":
         return "비교 기준은 한 매치 안의 라운드 진행입니다. '상대'라는 말은 쓰지 않습니다."
     if k == "delta_comeback":
-        return "비교 기준은 불리할 때 뒤집는 경향과 유리하다가 뒤집히는 경향입니다. 경향으로만 쓰고 몇 판 차이인지는 단정하지 않습니다."
+        return (f"비교 기준은 {COMEBACK_WIN}(불리할 때 뒤집는 경향)과 {COMEBACK_LOSE}(유리하다가 뒤집히는 경향)입니다. "
+                f"'{COMEBACK_WIN}', '{COMEBACK_LOSE}'이라는 말로 쓰고, 몇 판 차이인지는 단정하지 않습니다.")
     return f"비교 기준으로 '{phrase}'를 문장 앞에 그대로 씁니다."
 
 
@@ -248,12 +253,13 @@ SUMMARY_SYSTEM = f"""TETR.IO 전적 분석 페이지 첫 화면의 요약 코멘
 규칙
 - 세 지표를 모두 다룹니다. 지표마다 입력의 '방향'을 그대로 따르세요.
 - 상대와 비교하는 지표는 '상대 대비', '맞붙은 상대들에 비해', '최근 대전 상대들보다', '대전 상대 평균 대비', '매 경기 상대와 견줘 보면' 중 하나를 붙입니다. 절이 둘 이상이면 절마다 붙이세요.
-- 상대 강도별 승률 차, 역전 경향, 라운드별 변화에는 '상대보다'를 붙이지 않습니다.
+- 상대 강도별 승률, 역전승·역전패 경향, 라운드별 공방 능력 변화에는 '상대보다'를 붙이지 않습니다.
+- 지표 이름은 입력의 이름 그대로 쓰고 영어 약어(APP, VS/APM, Cheese Index, VS)는 쓰지 마세요.
 - 방향 문장이 '~하는 편입니다'나 '그 폭은 작은 편'인 지표는 '크게', '뚜렷하게' 같은 말로 부풀리지 마세요. 값이 0이 아닌 지표를 '같은 수준', '비슷하다'로 쓰지 마세요.
-- 성향 지표(Opener·Plonk·Stride·Inf DS 성향, 수비 비중, 가비지 처리 성향)는 잘하고 못함으로 쓰지 않습니다.
+- 성향 지표(Opener·Plonk·Stride·Infinite Downstacking 성향, 수비 비중, 가비지 처리 성향)는 잘하고 못함으로 쓰지 않습니다.
 - 승률, TR, 티어는 입력에 없으므로 쓰지 않습니다.
 - 지표 이름 뒤에 쌍점(:)을 붙여 나열하지 말고, '이 플레이어는'으로 시작하지 마세요.
-- 상대 강도별 승률 차는 강한 상대 구간을 앞에 두는 순서를 바꾸지 말고 방향 문장 그대로 씁니다.
+- 상대 강도별 승률은 '강한 상대 구간에서는 약한 상대 구간보다 승률이 …'처럼 강한 상대 구간을 앞에 두는 순서를 바꾸지 말고 방향 문장 그대로 씁니다.
 {COMMON_RULES}
 - 요약 문장만 쓰세요. 제목, 목록, 따옴표는 쓰지 마세요."""
 
@@ -282,7 +288,7 @@ _PLAYER_HEAD = re.compile(r"(^|(?<=[.!?]\s))이 (?:플)?레이어(?:는|가|의 
 _SENT2 = re.compile(r"(?:[^.!?]|(?<=\d)\.(?=\d))+[.!?]")
 _HEAD2 = re.compile(r"^\s*(?:하이라이트 문장|문장|요약 코멘트|요약|코멘트|총평|답|출력)\s*[:：|]\s*")
 _PYEON_TYPO = re.compile(r"(?<=편)합니다")
-_SLOPE_HEAD = re.compile(r"^라운드별 공방 능력\(VS\) 변화(?:는|가|은|이)\s+(?=라운드)")
+_SLOPE_HEAD = re.compile(r"^라운드별 공방 능력(?:\(VS\))? 변화(?:는|가|은|이)\s+(?=라운드)")
 _LIST2 = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)](?!\d)|\[\d{1,2}\])\s*")
 
 
@@ -300,9 +306,19 @@ def clean_text(text: str, k_max: int) -> str | None:
     return " ".join(sents[:k_max]) if sents else None
 
 
+# v5.5: 1.8절 이전 이름도 꼬리표로 떼어 낸다 (모델이 예전 이름을 쓸 때)
+_OLD_LABELS = {"strength_split": ("상대 강도별 승률 차",), "delta_comeback": ("역전 경향", "역전승 경향", "역전패 경향"),
+               "session_vs_slope": ("라운드별 공방 능력",)}
+
+
+def _label_name(k: str) -> str:
+    return NAMES[k].split("(")[0].strip()
+
+
 def _label_re(keys) -> re.Pattern:
     """문장 앞의 '지표 이름:' 꼬리표. 예: '상대 강도별 승률 차: …', 'Opener 성향: …'"""
-    names = sorted({NAMES[k].split("(")[0].strip() for k in keys}, key=len, reverse=True)
+    names = sorted({_label_name(k) for k in keys} | {a for k in keys for a in _OLD_LABELS.get(k, ())},
+                   key=len, reverse=True)
     alt = "|".join(re.escape(n) for n in names)
     return re.compile(rf"^({alt})(?:\s*\([^()]*\))?(?:\s*변화)?\s*:\s*")
 
@@ -313,7 +329,7 @@ def _drop_label(sent: str, items) -> str:
     if not m:
         return sent
     rest = sent[m.end():]
-    k = next(k for k, _, _ in items if NAMES[k].split("(")[0].strip() == m.group(1))
+    k = next(k for k, _, _ in items if m.group(1) in (_label_name(k), *_OLD_LABELS.get(k, ())))
     if any(w in rest.lower() for w in STAT_WORDS[k]):
         return rest
     name = NAMES[k]
@@ -328,21 +344,41 @@ def _starts_with_name(sent: str, k: str) -> bool:
     return sent.startswith(NAMES[k].split("(")[0].strip())   # 괄호 앞 이름이 전체 이름의 앞부분
 
 
+_COMEBACK_HEAD = re.compile(r"^역전\s*경향(?:은|이|:)\s*(?=역전[승패])")
+_COMEBACK_FRAME = re.compile(r"역전([승패]) 경향(?:이|은)\s*(?:[^.]*?\s)?역전(?!\1)[승패] 경향보다")
+_OLD_WIN = re.compile(r"불리할 때 뒤집는 경향|불리한 경기를 뒤집는 (?:힘|경향)")
+_OLD_LOSE = re.compile(r"유리하다가 뒤집히는 경향|유리한 경기를 내주는 경향")
+
+
+def _old_comeback(t: str) -> str:
+    """v5.5: 예전 역전 표현 → '역전승 경향' / '역전패 경향' (31번 1.8절)."""
+    return _OLD_LOSE.sub(COMEBACK_LOSE, _OLD_WIN.sub(COMEBACK_WIN, t))
+
+
+def _comeback_dir(text: str) -> int:
+    """'역전승 경향이 역전패 경향보다 강합니다'의 방향. 예전 판별기(뒤집는/뒤집히는)에 맞춰 바꿔서 본다."""
+    t = text.replace(COMEBACK_WIN, "뒤집는 경향").replace(COMEBACK_LOSE, "뒤집히는 경향")
+    return _comeback_direction(t)
+
+
 def tidy(text: str, items: list[tuple[str, float, str]], rng: random.Random | None = None) -> tuple[str, list[str]]:
     """(정리한 글, 한 일). 1) '이 플레이어는' 떼기 2) '지표 이름:' 꼬리표 떼기
     3) 상대와 비교하는 지표인데 비교 기준 없이 지표 이름으로 시작하는 문장 → 앞에 비교 표현을 붙인다(31번 1.3절).
     방향·숫자는 건드리지 않는다. 검사는 정리한 글로 한다."""
     rng = rng or random
     done = []
-    t = _PLAYER_HEAD.sub(r"\1", text)
-    if t != text:
+    t0 = _old_comeback(normalize_names(text))     # v5.5: 예전·영어 이름 → 31번 1.8절 이름
+    if t0 != text:
+        done.append("지표 이름 바꿈")
+    t = _PLAYER_HEAD.sub(r"\1", t0)
+    if t != t0:
         done.append("플레이어 주어 뗌")
     t2 = t.replace("블ock", "블록")             # v5.3 실측: 토큰이 깨져 '블ock당 공격량'
     if t2 != t:
         done.append("'블ock' 고침")
         t = t2
     t2 = re.sub(r"대비에서\s+", "대비 ", t)          # v5.4 실측: '대전 상대 평균 대비에서 …(APP)을 앞서는'
-    t2 = re.sub(r"\)을 (앞서|밀리)", r")에서 \1", t2)
+    t2 = re.sub(r"(블록당 공격력|보정 공격 효율)을 (앞서|밀리)", r"\1에서 \2", t2)
     if t2 != t:
         done.append("조사 고침")
         t = t2
@@ -363,6 +399,10 @@ def tidy(text: str, items: list[tuple[str, float, str]], rng: random.Random | No
             if m and name in sent[m.end():]:
                 sent = sent[m.end():]
                 done.append("주어 반복 뗌")
+        m = _COMEBACK_HEAD.match(sent)   # v5.5: '역전 경향은 역전승 경향이 …' → 앞 주어 떼기
+        if m:
+            sent = sent[m.end():]
+            done.append("주어 반복 뗌")
         m = _SLOPE_HEAD.match(sent)   # v5.3 실측: '라운드별 공방 능력(VS) 변화는 라운드가 진행될수록 …'
         if m:
             sent = sent[m.end():]
@@ -493,6 +533,8 @@ def check_sentence(text: str, k: str, v: float, zone: str) -> str | None:
         return why
     # v5.3 규칙 (31번 2.2절 A안): 보통 → '~하는 편', 반대쪽 → '폭이 작다/잘 버틴다' — 방향 검사를 통과한 뒤에 본다
     st = state(k, v, zone)
+    if k == "delta_comeback" and st != "zero" and not _COMEBACK_FRAME.search(_old_comeback(text)):
+        return "역전 문장 틀 아님"   # v5.4 실측: '역전 경향이 불리할 때 뒤집는 경향과 유리하다가 뒤집히는 경향보다 강한 편' 통과했음
     if st.startswith("mid") and "편" not in text:
         return "보통인데 '~하는 편' 없음"
     if st.startswith("weak") and not (k == "strength_split" and st == "weak-") and not _SMALL_GAP.search(text):
@@ -548,7 +590,7 @@ def _check_sentence_core(text: str, k: str, v: float, zone: str) -> str | None:
             return "방향 반대"
         return None if re.search(r"낮|떨어", text) else "방향 없음"
     want = 1 if st.endswith("+") or st == "high" else -1
-    d = _comeback_direction(text) if k == "delta_comeback" else _first_direction(text)
+    d = _comeback_dir(text) if k == "delta_comeback" else _first_direction(text)
     if d == 0 and k in TENDENCY_KEYS and _THICK.search(text):
         d = 1
     if d == 0:

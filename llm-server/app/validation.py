@@ -15,6 +15,7 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.names import normalize_names
 from app.schemas import CANDIDATE_KEYS
 
 
@@ -202,10 +203,11 @@ _NEG = ("낮", "적습", "적어", "적은", "약해", "약한", "약합", "약�
         "밀립", "밀려", "밀리", "뒤처", "열세", "옅", "작은 편", "작습", "작고")
 # 방향 검사 대상: 문장 속 용어 → data 키 (긴 이름부터 찾는다: "Weighted APP" 안에 "APP" 가 있음)
 _DIRECTION_TERMS = {
-    "attack": [("Weighted APP", "delta_weighted_app"), ("블록당 공격량", "delta_app"), ("APP", "delta_app")],
-    "defense": [("Cheese Index", "delta_cheese_index"), ("가비지 처리", "delta_cheese_index"),
-                ("VS/APM", "delta_vs_apm"), ("수비 비중", "delta_vs_apm")],
-    "playstyle": [("Opener", "delta_opener"), ("Plonk", "delta_plonk"), ("Stride", "delta_stride"), ("Inf DS", "delta_inf_ds")],
+    # v4.4: 31번 1.8절 이름 (예전 이름은 normalize_names 가 먼저 바꾼다)
+    "attack": [("보정 공격 효율", "delta_weighted_app"), ("블록당 공격력", "delta_app")],
+    "defense": [("가비지 처리", "delta_cheese_index"), ("수비 비중", "delta_vs_apm")],
+    "playstyle": [("Opener", "delta_opener"), ("Plonk", "delta_plonk"), ("Stride", "delta_stride"),
+                  ("Infinite Downstacking", "delta_inf_ds")],
 }
 _BADGES = ("천적", "우세", "접전")
 _MASKED = re.compile(r"[A-Za-z0-9_]*\*+[A-Za-z0-9_*]*[A-Za-z0-9_]|[A-Za-z0-9_]+\*+")  # 글자가 붙은 마스킹 닉네임
@@ -220,7 +222,10 @@ _LABEL_LEAK = ("차이 작음", "변화 작음", "앞섬", "밀림", "옅음", "
 # 정의 되풀이 ("…에서 …을 뺀 값입니다") — 규칙 "용어의 정의를 다시 설명하지 말 것"
 _DEFINITION = ("뺀 값", "빼면", "빼는 값", "0과 1 사이")
 # "-62.87 낮습니다"처럼 부호 붙은 숫자 + 높다/낮다 (이중 표현)
-_SIGNED_COMPARE = re.compile(r"[-+−]\d[\d.]*\s*(점\s*)?(더\s*)?(낮|높)")
+_SIGNED_COMPARE = re.compile(r"[-+−]\d[\d.]*\s*(점\s*수?\s*(가|로)?\s*|로\s*|만큼\s*)?(더\s*)?"
+                             r"(낮|높|밀리|밀립|앞서|앞섭|내리|내립|오르|오릅)")   # v4.4: '-62.87 점수 낮습니다', '-0.05로 밀립니다'
+_LABEL_COLON = re.compile(r"(차이|성향|비중|효율|공격력|승률|변화)\s*:")      # v4.4 실측: '수비 비중 차이: …' (입력 줄 베낌)
+_COMEBACK_TAIL_OK = re.compile(r"역전승 경향|역전패 경향|뒤졌던|뒤집|앞섰던|내준|내줬")
 _INTENSIFIERS = ("크게", "뚜렷", "두드러", "매우", "훨씬", "압도", "확연", "현저")
 _RECENT_FORM = re.compile(r"연승|연패|최근\s*\d+\s*(경기|판|게임)")
 _EST_TR = ("Est", "추정 TR", "statrank")
@@ -384,7 +389,7 @@ def _check_compare_basis(footnote: str, chapter_id: str) -> None:
 
 def _check_playstyle_compare(footnote: str) -> None:
     """C2: 플레이스타일 4개끼리 비교·순위 금지."""
-    names = ("Opener", "Plonk", "Stride", "Inf DS")
+    names = ("Opener", "Plonk", "Stride", "Infinite Downstacking")
     for sentence in _sentences(footnote):
         if "가장" in sentence:
             raise OutputFormatError("플레이스타일 순위를 매김 (C2)")
@@ -489,6 +494,15 @@ def _check_heavy_content(footnote: str, chapter_id: str, data: dict) -> None:
         raise OutputFormatError(f"지표 정의를 되풀이함: {defined}")
     if _SIGNED_COMPARE.search(footnote):
         raise OutputFormatError("부호 붙은 숫자에 높다/낮다를 붙임 (예: -62.87 낮습니다)")
+    if chapter_id != "rivals" and _LABEL_COLON.search(footnote):
+        raise OutputFormatError("입력 줄을 '이름: 값' 꼴로 옮김")
+    if "(상대보다" in footnote or "(상대와" in footnote:
+        raise OutputFormatError("입력 괄호를 그대로 옮김")
+    if chapter_id == "tr_trend":
+        if re.search(r"[-+−]\d", footnote):
+            raise OutputFormatError("TR 추이에 부호 붙은 숫자를 씀 (v4.4 실측: '-62.87 점수 차이')")
+        if _sign(data.get("tr_trend_delta")) is not None and "TR" not in footnote and "대전 점수" not in footnote:
+            raise OutputFormatError("TR 추이인데 TR을 말하지 않음 (v4.4 실측: '최근 구간의 공격력을 …')")
     restate = [w for w in _RULE_RESTATE if w in footnote]
     if restate:
         raise OutputFormatError(f"[해석] 규칙을 되풀이함: {restate}")
@@ -544,8 +558,13 @@ def process_heavy_output(text: str, chapter_id: str, data: dict) -> HeavyRespons
     if not sentences:
         raise OutputFormatError("완성된 문장이 없음")
     footnote = " ".join(sentences[:2]).strip("\"'`“”‘’ ")
+    if chapter_id != "rivals":   # v4.4: 예전·영어 지표 이름 → 31번 1.8절 이름 (닉네임은 건드리지 않음)
+        footnote = normalize_names(footnote)
     if chapter_id == "strength_split":
         footnote = _strip_strength_percent(footnote, data)
+    if chapter_id == "comeback_rate" and len(sentences) > 1 and not _COMEBACK_TAIL_OK.search(sentences[1]):
+        # v4.4 실측: 둘째 문장이 '역전 팽행', '역전 패스 기회'처럼 뜻이 없는 말 → 첫 문장(비교)만 남긴다
+        footnote = normalize_names(sentences[0].strip("\"'`“”‘’ "))
 
     echo = [m for m in HEAVY_ECHO_MARKERS if m in footnote]
     if echo:

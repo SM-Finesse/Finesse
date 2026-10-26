@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app import light_comment as lc
 from app.generator import GenerationResult, MockGenerator
-from app.light6 import NAMES
 from app.main import app
+from app.names import COMMENT_NAMES as NAMES
 
 client = TestClient(app)
 KEYS = list(NAMES)
@@ -181,7 +181,7 @@ def test_엔드포인트_재시도_후_대체(monkeypatch):
     gen = Scripted("상대 대비 블록당 공격량(APP)이 크지 않습니다.", "상대 대비 블록당 공격량(APP)에서 앞섭니다.")
     monkeypatch.setattr(main_module, "generator", gen)
     r = client.post("/v1/light/sentence", json={"stat": "delta_app", "value": 0.08, "zone": "높음"})
-    assert r.json() == {"stat": "delta_app", "sentence": "상대 대비 블록당 공격량(APP)에서 앞섭니다.", "fallback": False,
+    assert r.json() == {"stat": "delta_app", "sentence": "상대 대비 블록당 공격력에서 앞섭니다.", "fallback": False,
                         "version": lc.LIGHT_COMMENT_VERSION}
     assert gen.labels == ["light5:sentence", "light5:sentence"]
     monkeypatch.setattr(main_module, "generator", Scripted("Bad.", "Bad."))
@@ -239,7 +239,7 @@ def test_v51_꼬리표와_플레이어_주어_정리():
          "Plonk 성향: 맞붙은 상대들에 비해 약간 옅지만 차이는 크지 않습니다.\n"
          "수비 비중(VS/APM): 매 경기 상대와 견줘 보면 약간 큰 편이지만 차이는 크지 않습니다.")
     s, why = lc.parse_summary(t, items, random.Random(0))
-    assert why is None and s.startswith("블록당 공격량(APP)은 최근") and ":" not in s
+    assert why is None and s.startswith("블록당 공격력은 최근") and ":" not in s
     items = [("strength_split", -0.25, "보통"), ("session_vs_slope", -0.3, "낮음"), ("delta_cheese_index", 3.4, "보통")]
     t = ("이 플레이어는 강한 상대를 만났을 때의 승률이 약한 상대를 만났을 때보다 낮은 편입니다. "
          "라운드별 공방 능력(VS) 변화: 라운드가 진행될수록 공방 능력(VS)이 처집니다. "
@@ -275,7 +275,7 @@ def test_v51_요약_문장마다_비교_기준():
 
 
 def test_v51_지표_이름_반복():
-    why = lc.check_sentence("블록당 공격량(APP)이 대전 상대 평균 대비 블록당 공격량(APP)에서 앞섭니다.", "delta_app", 0.08, "높음")
+    why = lc.check_sentence("블록당 공격력이 대전 상대 평균 대비 블록당 공격력에서 앞섭니다.", "delta_app", 0.08, "높음")
     assert why == "지표 이름 반복"
 
 
@@ -293,7 +293,7 @@ def test_v52_소수점에서_문장을_자르지_않음():
 
 def test_v52_주어_반복_정리():
     s, why = lc.parse_sentence("블록당 공격량(APP)이 상대 대비 블록당 공격량(APP)에서 앞섭니다.", "delta_app", 0.08, "높음")
-    assert why is None and s == "상대 대비 블록당 공격량(APP)에서 앞섭니다."
+    assert why is None and s == "상대 대비 블록당 공격력에서 앞섭니다."
 
 
 def test_v52_꼬리표_뒤_플레이어_주어():
@@ -449,4 +449,57 @@ def test_v54_measured_rejected(text, k, v, z):
 
 def test_v54_particle_fixed():
     s, why = lc.parse_sentence("블록당 공격량(APP)이 대전 상대 평균 대비에서 블록당 공격량(APP)을 앞서는 편입니다.", "delta_app", 0.01, "보통")
-    assert why is None and s == "대전 상대 평균 대비 블록당 공격량(APP)에서 앞서는 편입니다."
+    assert why is None and s == "대전 상대 평균 대비 블록당 공격력에서 앞서는 편입니다."
+
+
+# ---- v5.5 / heavy-v4.4: 31번 1.8절 지표 이름 (10/26 PM 확정) ----
+from app.fallback import build_fallback as _hfb
+from app.names import COMMENT_NAMES, normalize_names
+
+_OLD = ("공격량", "APP", "Weighted", "VS/APM", "Cheese Index", "Inf DS", "(VS)", "뒤집는 경향", "뒤집히는 경향")
+
+
+@pytest.mark.parametrize("k", list(COMMENT_NAMES))
+@pytest.mark.parametrize("st_zone_v", [("높음", 0.5), ("낮음", -0.5), ("낮음", 0.5), ("높음", -0.5),
+                                       ("보통", 0.5), ("보통", -0.5), ("보통", 0.0)])
+def test_v55_대체_문장에_예전_이름_없음(k, st_zone_v):
+    z, v = st_zone_v
+    t = lc.build_sentence_text(k, v, z, "상대 대비")
+    assert not any(w in t for w in _OLD), t
+
+
+def test_v55_헤비_대체_문장에_예전_이름_없음():
+    import json as _j
+    from pathlib import Path as _P
+    pos = _j.loads((_P(__file__).parent / "samples" / "heavy_chapters_pos.json").read_text(encoding="utf-8"))
+    for ch, d in pos.items():
+        if ch.startswith("_") or ch == "rivals":
+            continue
+        t = _hfb(ch, d, random.Random(0))
+        assert not any(w in t for w in _OLD) and "VS" not in t, (ch, t)
+
+
+@pytest.mark.parametrize("old,new", [
+    ("상대 대비 블록당 공격량(APP)에서 앞섭니다.", "상대 대비 블록당 공격력에서 앞섭니다."),
+    ("Weighted APP는 상대보다 밀립니다.", "보정 공격 효율은 상대보다 밀립니다."),
+    ("수비 비중(VS/APM)이 큰 편입니다.", "수비 비중이 큰 편입니다."),
+    ("가비지 처리 성향(Cheese Index)이 짙게 나타납니다.", "가비지 처리 성향이 짙게 나타납니다."),
+    ("Inf DS 성향이 옅습니다.", "Infinite Downstacking 성향이 옅습니다."),
+    ("라운드가 진행될수록 VS가 오릅니다.", "라운드가 진행될수록 공방 능력이 오릅니다."),
+    ("라운드가 진행될수록 공방 능력(VS)이 처집니다.", "라운드가 진행될수록 공방 능력이 처집니다."),
+])
+def test_v55_이름_바꾸기(old, new):
+    assert normalize_names(old) == new
+
+
+def test_v55_역전_예전_표현도_방향_검사():
+    s, why = lc.parse_sentence("불리할 때 뒤집는 경향이 유리하다가 뒤집히는 경향보다 뚜렷하게 강합니다.", "delta_comeback", 0.12, "높음")
+    assert why is None and s == "역전승 경향이 역전패 경향보다 뚜렷하게 강합니다."
+    assert lc.parse_sentence("역전패 경향이 역전승 경향보다 뚜렷하게 강합니다.", "delta_comeback", 0.12, "높음")[1]
+
+
+def test_v55_역전_틀이_아니면_거부():
+    assert lc.parse_sentence("역전 경향이 불리할 때 뒤집는 경향과 유리하다가 뒤집히는 경향보다 강한 편입니다.",
+                             "delta_comeback", 0.02, "보통")[1]
+    s, why = lc.parse_sentence("역전 경향은 역전승 경향이 역전패 경향보다 강한 편입니다.", "delta_comeback", 0.02, "보통")
+    assert why is None and s.startswith("역전승 경향이")
