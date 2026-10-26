@@ -16,7 +16,7 @@ function Stat({ k, v }: { k: string; v: string }) {
   )
 }
 
-/** TR 추이 — fixed_metrics.tr_trend(과거→현재, 경기 단위)를 그대로 그린다 */
+/** TR 추이 — fixed_metrics.tr_trend(과거→현재, 경기 단위)를 경기 후 TR로 그린다(useStats의 withAfterTr — 마지막 점 = 지금 TR) */
 export function TrTrendCard({ data }: { data: StatsResponse }) {
   const { t, lang } = useI18n()
   const tr = t.report.tr

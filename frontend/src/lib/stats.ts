@@ -35,6 +35,37 @@ export function winRateDeltaPp(winRate: number, matches: number, recent: number,
   return ((winRate * matches) / denom) * r * 100
 }
 
+/**
+ * TR 추이를 '그 경기 후 TR'로 — 백엔드 tr_trend는 매치 전 TR(extras.league[유저][0])이라 마지막 경기 결과가 빠진다.
+ * 경기 i 후 TR = 경기 i+1 전 TR, 마지막 경기 후 TR = 지금 프로필 TR. 지금 TR을 모르면(언랭크 -1 등) 받은 그대로.
+ */
+export function trAfterSeries(series: number[], current: number): number[] {
+  if (!series.length || !(current >= 0)) return series
+  return [...series.slice(1), current]
+}
+
+const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+
+/**
+ * 그래프·프로필 TR 배지를 '경기 후 TR' 기준으로 — 백엔드는 매치 전 TR로 계산한다.
+ * tr_trend를 trAfterSeries로 당기고, window_delta.tr_delta_pct(최근 n판 평균 vs 나머지 평균 변화율 %)를 그 시계열로 다시 계산한다.
+ * tr_trend_delta · tr_trend_basis는 손대지 않는다 — AI 코멘트가 그 백엔드(매치 전) 값을 근거로 쓰므로, 바꾸면 알약·근거 칩과 문장 속 숫자가 어긋난다.
+ */
+export function withAfterTr(data: StatsResponse): StatsResponse {
+  const series = trAfterSeries(data.fixed_metrics.tr_trend, data.profile.tr)
+  if (series === data.fixed_metrics.tr_trend) return data
+
+  let profile = data.profile
+  const wd = profile.window_delta
+  if (wd?.tr_delta_pct !== undefined && wd.recent_matches > 0 && wd.recent_matches < series.length) {
+    const rest = mean(series.slice(0, -wd.recent_matches))
+    const recent = mean(series.slice(-wd.recent_matches))
+    profile = { ...profile, window_delta: { ...wd, tr_delta_pct: rest === 0 ? 0 : ((recent - rest) / rest) * 100 } }
+  }
+
+  return { ...data, profile, fixed_metrics: { ...data.fixed_metrics, tr_trend: series } }
+}
+
 export const num = (v: number, decimals = 0) =>
   v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
 

@@ -163,6 +163,7 @@ export interface ReportStrings {
       /** 머리 ΔTR 알약을 눌렀을 때 — 백엔드가 준 최근·전체 판수가 있으면 그 숫자로 */
       deltaInfo: (recent?: number, total?: number) => StatInfo
       avgOf: (n: number) => string
+      recentAvgOf: (n: number) => string
       missing: string
       game: string
       tableNote: (n: number) => string
@@ -457,6 +458,7 @@ const ko: Strings = {
           ],
         }),
         avgOf: (n) => `전체 ${n}판 평균`,
+        recentAvgOf: (n) => `최근 ${n}판 평균`,
         missing: 'TR 추이 데이터를 받지 못해 ΔTR만 보여줍니다.',
         game: '경기',
         tableNote: (n) => `${n}경기 전부 · 표 안에서 스크롤`,
@@ -471,9 +473,9 @@ const ko: Strings = {
         info: {
           lead: '경기마다 나 − 상대 성향 점수를 평균낸 값 · +면 그 성향이 상대보다 강함',
           rows: [
-            ['Opener', '높은 APM으로 몰아치는 공격형'],
+            ['Opener', 'Opening Build를 활용하는 강력한 초반 화력'],
             ['Plonk', '느려도 효율 높은 공격·가비지 처리'],
-            ['Stride', '블록당 공격보다 속도(PPS)로 승부'],
+            ['Stride', '많은 블록을 빠른 속도로 두며 강한 압박'],
             ['Inf DS', '가비지를 지우며 버티는 방어형'],
           ],
           foot: '최근 1년 · 최대 300판 중 나와 상대 모두 계산되는 경기 (절반 미만이면 숨김) · APM·PPS·VS로 구하는 TetraStats 공개 식, TETR.IO 공식 지표 아님',
@@ -874,6 +876,7 @@ const en: Strings = {
           ],
         }),
         avgOf: (n) => `${n}-game avg`,
+        recentAvgOf: (n) => `Last ${n}-game avg`,
         missing: 'No TR series was received, so only ΔTR is shown.',
         game: 'Game',
         tableNote: (n) => `All ${n} games · scroll inside the table`,
@@ -887,9 +890,9 @@ const en: Strings = {
         info: {
           lead: 'Your playstyle score minus the opponent’s, averaged per match · + means that tendency is stronger than theirs',
           rows: [
-            ['Opener', 'Attack-first, high-APM pressure'],
+            ['Opener', 'Strong early firepower from opening builds'],
             ['Plonk', 'Slower but efficient attack and cleaning'],
-            ['Stride', 'Wins on speed (PPS) over attack per piece'],
+            ['Stride', 'Heavy pressure from placing many pieces fast'],
             ['Inf DS', 'Defensive, survives by clearing garbage'],
           ],
           foot: 'Past year · up to 300 matches where both sides can be scored (hidden if under half) · TetraStats formulas from APM, PPS and VS, not official TETR.IO stats',

@@ -208,7 +208,7 @@ describe('ReportPage — 라이트 뷰', () => {
   })
 
   it("랭크 'z'(언랭크)는 '?'로 쓰고, 표본 부족으로 보지 않아 TR·분석을 그대로 보여준다 (수집 명세 6.1)", async () => {
-    /* 실측 사례 sung1ow — 28판, rd 115.2, tr 19702.18 */
+    /* 실측 사례 — 28판, rd 115.2, tr 19702.18 */
     const profile = { ...STATS.profile, rank: 'z', tr: 19702.18, rd: 115.2 }
     const { urls } = routeFetch({ stats: [() => json({ ...STATS, match_count: 28, profile })], comment: [pending] })
     setup()
@@ -243,11 +243,23 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.getByText('구간 최고')).toBeInTheDocument()
   })
 
+  it('TR 추이는 경기 후 TR — 마지막 점이 지금 TR이고, 언랭크(-1)면 받은 그대로', async () => {
+    /* 매치 전 TR [24000, 24100, 24050, 24321.6] + 지금 TR 24400 → 경기 후 TR [24100, 24050, 24321.6, 24400] */
+    routeFetch({ stats: [() => json({ ...STATS, profile: { ...STATS.profile, tr: 24400 } })], comment: [pending] })
+    setup()
+    const card = await screen.findByRole('region', { name: 'TR 추이' })
+    const stat = (k: string) => within(card).getByText(k).parentElement!
+    expect(stat('구간 최고')).toHaveTextContent('24,400.0')
+    expect(stat('구간 최저')).toHaveTextContent('24,050.0')
+    expect(stat('전체 변동')).toHaveTextContent('+300.0')
+  })
+
   it('TR 추이의 ΔTR 알약을 누르면 헤비 01장과 같은 설명이 펼쳐지고, Esc로 카드만 닫힌다', async () => {
     routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     const { user, onBack } = setup()
     const card = await screen.findByRole('region', { name: 'TR 추이' })
 
+    /* AI 코멘트와 같은 백엔드 ΔTR (헤비 01장과 같은 값) */
     await user.click(within(card).getByRole('button', { name: 'ΔTR +12.4 TR 설명' }))
     const note = within(card).getByRole('note')
     expect(note).toHaveTextContent('ΔTR · TR 흐름+12.4 TR ▲')
