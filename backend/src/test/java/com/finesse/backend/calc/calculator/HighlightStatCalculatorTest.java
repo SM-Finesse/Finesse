@@ -301,10 +301,10 @@ class HighlightStatCalculatorTest {
     }
 
     @Test
-    void 서로_다른_라운드_인덱스가_1개뿐이면_기울기는_0이다() {
+    void 서로_다른_라운드_인덱스가_1개뿐이면_기울기는_null이다() {
         HighlightStats s = calc(List.of(vsRounds(10), vsRounds(50)));
 
-        assertThat(s.sessionVsSlope()).isEqualTo(0.0);
+        assertThat(s.sessionVsSlope()).isNull();
     }
 
     @Test
@@ -326,7 +326,7 @@ class HighlightStatCalculatorTest {
         assertThat(s.comebackRate()).isNull();
         assertThat(s.comebackRateAgainst()).isNull();
         assertThat(s.deltaComeback()).isNull();
-        assertThat(s.sessionVsSlope()).isEqualTo(0.0);
+        assertThat(s.sessionVsSlope()).isNull();
         assertThat(s.eligible()).isFalse();
     }
 
