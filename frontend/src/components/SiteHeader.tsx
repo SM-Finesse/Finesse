@@ -3,8 +3,8 @@ import { useI18n } from '../i18n/context'
 import { LogoMark } from './LogoMark'
 import { LANG_SWITCH_ENABLED, LangSwitch } from './Switches'
 
-/** actions가 있으면(결과 화면) OFFICIAL API 표시 대신 뷰 스위치·전적 갱신 같은 조작을 둔다 */
-export function SiteHeader({ onHome, actions }: { onHome?: () => void; actions?: ReactNode }) {
+/** actions가 있으면(결과 화면) OFFICIAL API 표시 대신 뷰 스위치·전적 갱신 같은 조작을 둔다. search는 로고 옆 검색창 */
+export function SiteHeader({ onHome, actions, search }: { onHome?: () => void; actions?: ReactNode; search?: ReactNode }) {
   const { t } = useI18n()
   const logo = (
     <>
@@ -12,7 +12,7 @@ export function SiteHeader({ onHome, actions }: { onHome?: () => void; actions?:
       FINESSE
     </>
   )
-  const logoCls = 'flex items-center gap-2.5 font-display text-[19px] font-extrabold tracking-[.055em] text-head'
+  const logoCls = 'flex flex-none items-center gap-2.5 font-display text-[19px] font-extrabold tracking-[.055em] text-head'
   return (
     <header className="sticky top-0 z-40 border-b-3 border-frame bg-deep">
       <div className="mx-auto flex h-[68px] w-[min(1200px,calc(100%-32px))] items-center gap-5 sm:w-[min(1200px,calc(100%-80px))]">
@@ -21,7 +21,8 @@ export function SiteHeader({ onHome, actions }: { onHome?: () => void; actions?:
         ) : (
           <div className={logoCls}>{logo}</div>
         )}
-        <div className="ml-auto flex items-center gap-3.5">
+        {search}
+        <div className="ml-auto flex flex-none items-center gap-3.5">
           {LANG_SWITCH_ENABLED && <LangSwitch />}
           <span className={actions ? 'hidden text-[13px] text-[#7A8A99] xl:inline' : 'hidden text-[13px] text-[#7A8A99] lg:inline'}>{t.disclaimer}</span>
           {actions ?? (

@@ -36,10 +36,13 @@ function App() {
       {request ? (
         <Suspense fallback={<div className="min-h-screen" />}>
           <ReportPage
+            /* 헤더 검색으로 유저가 바뀌면 코멘트 상태까지 새로 시작한다 */
+            key={request.username}
             username={request.username}
             view={view}
             onViewChange={changeView}
             onBack={() => setRequest(null)}
+            onSearch={(username) => analyze({ username, view })}
             onFound={(name) => setRecent((list) => addRecent(list, name))}
           />
         </Suspense>
