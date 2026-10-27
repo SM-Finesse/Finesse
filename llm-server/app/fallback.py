@@ -15,10 +15,12 @@
 """
 import random
 
+from app.names import COMEBACK_LOSE, COMEBACK_WIN, COMMENT_NAMES
 from app.prompt import (
     COMPARE_PHRASES,
     PLAYSTYLE_NAMES,
     _rival_badge,
+    fmt_num,
     heavy_zone,
     strength_level,
 )
@@ -35,13 +37,9 @@ def _g(v: float) -> str:
 
 
 def _s(v: float, nd: int = 2) -> str:
-    """부호 있는 숫자. 10/20 백엔드 요청: 원값(-10.128) 대신 소수 둘째 자리(Cheese Index 는 첫째, 31번 2.1절).
-    반올림하면 0 이 되는 작은 값(-0.004)은 0 으로 보이지 않게 한 자리 더 쓴다."""
-    r = round(v, nd)
-    while r == 0 and v != 0 and nd < 4:
-        nd += 1
-        r = round(v, nd)
-    return f"{r:+.{nd}f}" if v != 0 else "0"
+    """부호 있는 숫자 — 입력에 보여 준 값과 같은 글자 (prompt.fmt_num, P1 규칙 1절 '다시 반올림 ✗').
+    소수 둘째 자리(가비지 처리 성향은 첫째). 반올림하면 0 이 되는 작은 값은 한 자리 더 쓴다."""
+    return fmt_num("delta_cheese_index" if nd == 1 else None, v)
 
 
 def _nd(key: str | None) -> int:
@@ -97,15 +95,15 @@ def _tr_trend(d, rng, base, show):
     v = d.get("tr_trend_delta")
     if not _num(v):
         return None
-    r = round(abs(v))                                   # TR 은 정수 점수 (10/20 백엔드 요청)
-    pts = (f" {r}점" if r else f" {abs(v):.1f}점") if show else ""
+    # P1 규칙: "최근 구간 TR이 전체 평균 TR보다 …", 값은 입력 그대로 괄호에 (v4.4 까지의 "63점"은 다시 반올림이라 없앰)
+    p = f"({_s(v)})" if show else ""
     if v > 0:
-        return _pick([f"최근 구간 TR이 전체 평균보다{pts} 높습니다. 최근 들어 점수가 오르는 흐름입니다.",
-                      f"최근 구간 TR이 전체 평균보다{pts} 높아, 오르는 흐름을 보입니다."], rng)
+        return _pick([f"최근 구간 TR이 전체 평균 TR보다 높습니다{p}. 최근 들어 점수가 오르는 흐름입니다.",
+                      f"최근 구간 TR이 전체 평균 TR보다 높아{p}, 오르는 흐름을 보입니다."], rng)
     if v < 0:
-        return _pick([f"최근 구간 TR이 전체 평균보다{pts} 낮습니다. 최근 들어 점수가 내려가는 흐름입니다.",
-                      f"최근 구간 TR이 전체 평균보다{pts} 낮아, 내려가는 흐름을 보입니다."], rng)
-    return "최근 구간 TR이 전체 평균과 같아, 뚜렷한 오르내림이 없습니다."
+        return _pick([f"최근 구간 TR이 전체 평균 TR보다 낮습니다{p}. 최근 들어 점수가 내려가는 흐름입니다.",
+                      f"최근 구간 TR이 전체 평균 TR보다 낮아{p}, 내려가는 흐름을 보입니다."], rng)
+    return "최근 구간 TR이 전체 평균 TR과 같아, 뚜렷한 오르내림이 없습니다."
 
 
 def _playstyle(d, rng, base, show):
@@ -114,22 +112,28 @@ def _playstyle(d, rng, base, show):
         return None
     v_ = _V(show)
     fmt = (lambda items: ", ".join(f"{n}{v_(v, keys=(k,))}" for (k, n), v in items))
-    high = [(kn, v) for kn, v in vals.items() if heavy_zone(kn[0], v) == "high"]
-    low = [(kn, v) for kn, v in vals.items() if heavy_zone(kn[0], v) == "low"]
-    mid = [(kn, v) for kn, v in vals.items() if heavy_zone(kn[0], v) not in ("high", "low")]
-    if not show:  # 예시는 이름을 하나씩만 — 묶으면 모델이 둘째 이름을 반대쪽으로 옮겨 씀 (10/12)
-        high, low, mid = high[:1], low[:1], mid[:1]
+    zone = {kn: heavy_zone(kn[0], v) for kn, v in vals.items()}
+    # v4.5 (P1 규칙): 보통 범위 안 값도 방향은 부호대로, 4개끼리 대비하지 않음('반면' ✗), 서술어는 짙다·옅다만
+    groups = [
+        ([(kn, v) for kn, v in vals.items() if zone[kn] == "high"], "짙게 나타납니다"),
+        ([(kn, v) for kn, v in vals.items() if zone[kn] == "low"], "옅게 나타납니다"),
+        ([(kn, v) for kn, v in vals.items() if zone[kn] == "mid" and v > 0], "조금 짙지만 차이는 크지 않습니다"),
+        ([(kn, v) for kn, v in vals.items() if zone[kn] == "mid" and v < 0], "조금 옅지만 차이는 크지 않습니다"),
+        ([(kn, v) for kn, v in vals.items() if v == 0], None),
+    ]
     sentences = []
-    if high:
-        sentences.append(f"{base} {fmt(high)} 성향이 짙게 나타납니다.")
-    if low:
-        sentences.append(f"반면 {fmt(low)} 성향은 상대보다 옅게 나타납니다." if sentences
-                         else f"{base} {fmt(low)} 성향이 옅게 나타납니다.")
-    if mid and len(sentences) < 2:
-        if sentences:
-            sentences.append(f"{fmt(mid)} 성향은 상대와 차이가 크지 않습니다.")
+    for items, verb in groups:
+        if not items or len(sentences) >= 2:   # 각주는 1–2문장
+            continue
+        if not show:  # 예시는 이름을 하나씩만 — 묶으면 모델이 둘째 이름을 반대쪽으로 옮겨 씀 (10/12)
+            items = items[:1]
+        if verb is None:
+            sentences.append(f"{fmt(items)} 성향은 상대와 같습니다." if sentences
+                             else f"{base} {fmt(items)} 성향은 같은 수준입니다.")
+        elif sentences:
+            sentences.append(f"{fmt(items)} 성향은 상대보다 {verb}.")
         else:
-            sentences.append(f"{base} {fmt(mid)} 성향은 차이가 크지 않습니다.")
+            sentences.append(f"{base} {fmt(items)} 성향이 {verb}.")
     return " ".join(sentences)
 
 
@@ -154,15 +158,12 @@ def _pair(d, chapter, rng, base, show):
     v_ = _V(show)
     (k1, n1, verbs1), (k2, n2, verbs2) = _PAIRS[chapter]
     a, b = d.get(k1), d.get(k2)
-    if _num(a) and _num(b) and a and b:
+    if chapter == "attack" and _num(a) and _num(b) and a and b:
         za, zb = _zone_key(k1, a), _zone_key(k2, b)
-        if za.startswith("mid") and zb.startswith("mid"):  # 둘 다 보통 범위 안 → 묶어서 약하게 (2.2절)
-            return f"{base} {n1}{_and(n1)} {n2} 모두 차이가 크지 않습니다{v_(a, b, keys=(k1, k2))}."
+        # v4.5: 묶음은 방향·강도가 같은 attack 만 ("모두 차이가 크지 않습니다"처럼 방향 없는 묶음 ✗ — P1 규칙 4절).
+        # defense 는 서술어가 달라(수비 비중 크다·작다 / 가비지 처리 성향 짙다·옅다) 묶지 않는다.
         if za == zb and za in ("high", "low"):
-            if chapter == "attack":
-                return f"{base} {n1}{_and(n1)} {n2} 모두에서 {_ATTACK_VERB[za]}{v_(a, b, keys=(k1, k2))}."
-            size = "큰" if za == "high" else "작은"
-            return f"{base} {n1}{_and(n1)} {n2}{_subject(n2)} 모두 {size} 편입니다{v_(a, b, keys=(k1, k2))}."
+            return f"{base} {n1}{_and(n1)} {n2} 모두에서 {_ATTACK_VERB[za]}{v_(a, b, keys=(k1, k2))}."
     parts = []
     for k, n, verbs, v in ((k1, n1, verbs1, a), (k2, n2, verbs2, b)):
         if not _num(v):
@@ -185,9 +186,10 @@ def _pair(d, chapter, rng, base, show):
 
 
 _PAIRS = {
-    "attack": (("delta_app", "블록당 공격량(APP)", _ATTACK_VERB), ("delta_weighted_app", "Weighted APP", _ATTACK_VERB)),
-    "defense": (("delta_vs_apm", "수비 비중(VS/APM)", _VS_VERB),
-                ("delta_cheese_index", "가비지 처리 성향(Cheese Index)", _CHEESE_VERB)),
+    "attack": (("delta_app", COMMENT_NAMES["delta_app"], _ATTACK_VERB),
+               ("delta_weighted_app", COMMENT_NAMES["delta_weighted_app"], _ATTACK_VERB)),
+    "defense": (("delta_vs_apm", COMMENT_NAMES["delta_vs_apm"], _VS_VERB),
+                ("delta_cheese_index", COMMENT_NAMES["delta_cheese_index"], _CHEESE_VERB)),
 }
 
 
@@ -204,15 +206,14 @@ def _strength_split(d, rng, base, show):
     if not _num(v):
         return None
     p = f"({_s(v)})" if show else ""
-    head = "강한 상대 구간의 승률이 약한 상대 구간보다"
-    # 2.3절: −0.395(Q1)보다 낮을 때만 "크게 떨어진다". 범위 안(−0.2 등)은 평범한 값이라 강조하지 않는다.
+    head = "강한 상대 구간에서는 약한 상대 구간보다 승률이"   # P1 규칙 2절 틀 — 떨어진다·흔들리지 않는다·오히려 높다
+    # 8절: 기본 범위(−0.40~−0.14)보다 낮을 때만 "크게". 범위 안(−0.2 등)은 평범한 값이라 강조하지 않는다.
     return {
         "pos": f"{head} 오히려 높습니다{p}. 강한 상대를 만나도 잘 이기는 편입니다.",
-        "zero": "강한 상대 구간과 약한 상대 구간의 승률 차이가 없어, 상대 강도와 상관없이 고르게 이기는 편입니다.",
-        "low": f"{head} 크게 낮습니다{p}. 강한 상대를 만나면 승률이 크게 떨어지는 편입니다.",
-        "mid": _pick([f"{head} 낮습니다{p}. 강한 상대를 만나면 승률이 떨어지는 편입니다.",
-                      f"강한 상대를 만나면 약한 상대를 만날 때보다 승률이 떨어집니다{p}."], rng),
-        "high": f"{head} 조금 낮습니다{p}. 차이가 크지 않아 강한 상대를 만나도 잘 버티는 편입니다.",
+        "zero": "강한 상대 구간에서는 약한 상대 구간과 승률 차이가 없어, 상대 강도와 상관없이 고르게 이기는 편입니다.",
+        "low": f"{head} 크게 떨어집니다{p}.",
+        "mid": _pick([f"{head} 떨어집니다{p}.", f"{head} 떨어지는 편입니다{p}."], rng),
+        "high": f"{head} 조금 떨어지지만 그 폭은 작습니다{p}. 강한 상대를 만나도 크게 흔들리지 않는 편입니다.",
     }[strength_level(v)]
 
 
@@ -228,18 +229,28 @@ def _comeback(d, rng, base, show):
     pb = f"({_rate(b)})" if show and b else ""
     if a > b:
         lead = f"역전승률{pa}이 역전 허용률{pb}보다 높습니다."
-        tail = "불리한 경기를 뒤집는 힘이 유리한 경기를 내주는 경향보다 강합니다."
+        tail = f"{COMEBACK_WIN}이 {COMEBACK_LOSE}보다 강합니다."   # 31번 1.8절 (10/26)
     elif a < b:
         lead = f"역전승률{pa}이 역전 허용률{pb}보다 낮습니다."
-        tail = "불리한 경기를 뒤집는 힘이 유리한 경기를 내주는 경향보다 약합니다."
+        tail = f"{COMEBACK_WIN}이 {COMEBACK_LOSE}보다 약합니다."
     else:
         lead = (f"역전승률과 역전 허용률이 {_rate(a)}로 같습니다." if show and a
                 else "역전승률과 역전 허용률이 같습니다.")
-        tail = "뒤진 경기를 뒤집는 힘과 앞선 경기를 내주는 경향이 비슷합니다."
-    if show and _num(opp) and _num(won) and opp:  # 표본 수 인용 가능 (3.1절)
-        count = (f"점수가 뒤졌던 {opp:g}경기를 한 번도 뒤집지 못했습니다." if not won
-                 else f"점수가 뒤졌던 {opp:g}경기 중 {won:g}경기를 뒤집었습니다.")
-        tail = _pick([tail, count], rng)
+        tail = f"{COMEBACK_WIN}과 {COMEBACK_LOSE}이 같은 수준입니다."
+    aopp, allowed = d.get("comeback_against_opportunities"), d.get("comeback_against_allowed")
+    n = lambda key, x: fmt_num(key, x, signed=False)
+    if show and _num(opp) and _num(won) and opp:
+        # P1 규칙 2절 역전 챕터 틀 "역전 기회 n번 중 m번을 뒤집었고, 앞서던 경기 n번 중 m번을 내줬습니다"
+        # — 표본 수만 인용, 새 비율·차이 계산 ✗ (8절). 0번은 "한 번도 …"로 쓴다.
+        first = (f"역전 기회 {n('comeback_opportunities', opp)}번 중 한 번도 뒤집지 못했" if not won
+                 else f"역전 기회 {n('comeback_opportunities', opp)}번 중 {n('comeback_won', won)}번을 뒤집었")
+        if _num(aopp) and _num(allowed) and aopp:
+            second = (f"앞서던 경기 {n('comeback_against_opportunities', aopp)}번은 한 번도 내주지 않았습니다." if not allowed
+                      else f"앞서던 경기 {n('comeback_against_opportunities', aopp)}번 중 "
+                           f"{n('comeback_against_allowed', allowed)}번을 내줬습니다.")
+            lead = f"{first}고, {second}"
+        else:
+            tail = _pick([tail, f"{first}습니다."], rng)
     return f"{lead} {tail}"
 
 
@@ -247,20 +258,21 @@ def _session(d, rng, base, show):
     v = d.get("session_vs_slope")
     if not _num(v):
         return None
-    per = f" 라운드당 약 {_s(v, 1).lstrip('+-')}씩" if show else ""   # 약 6.55 → 약 6.6 (10/20)
     z = heavy_zone("session_vs_slope", v)
     # 2.3절: 보통 범위가 거의 양수(중앙값 +0.557) — +0.5 정도는 평범한 값이라 강조하지 않는다
-    if v == 0:
-        return "라운드가 진행되어도 VS에 뚜렷한 추세가 없습니다."
-    if z == "high":
-        return f"라운드가 진행될수록 VS가{per} 크게 오릅니다. 경기가 길어질수록 강해지는 흐름입니다."
-    if z == "low":
-        return _pick([f"라운드가 진행될수록 VS가{per} 내립니다. 경기가 길어질수록 처지는 흐름입니다.",
-                      f"한 매치 안에서 VS가{per} 내려, 경기 후반으로 갈수록 처집니다."], rng)
     p = f"({_s(v)})" if show else ""
+    if v == 0:
+        return "라운드가 진행되어도 공방 능력에 뚜렷한 추세가 없습니다."
+    # P1 규칙: 틀 "라운드가 진행될수록 공방 능력이 …", 서술어 오른다·처진다, 값은 입력 그대로 괄호에
+    # (v4.4 까지의 "라운드당 약 6.6씩"은 다시 반올림이라 없앰)
+    if z == "high":
+        return f"라운드가 진행될수록 공방 능력이 크게 오릅니다{p}. 경기가 길어질수록 강해지는 흐름입니다."
+    if z == "low":
+        return _pick([f"라운드가 진행될수록 공방 능력이 처집니다{p}. 경기가 길어질수록 처지는 흐름입니다.",
+                      f"라운드가 진행될수록 공방 능력이 처져{p}, 경기 후반으로 갈수록 힘이 빠집니다."], rng)
     if v > 0:
-        return f"라운드가 진행될수록 VS가 조금 오르지만{p}, 변화는 크지 않습니다."
-    return f"라운드가 진행될수록 VS가 조금 내리지만{p}, 변화는 크지 않습니다."
+        return f"라운드가 진행될수록 공방 능력이 조금 오르지만, 변화는 크지 않습니다{p}."
+    return f"라운드가 진행될수록 공방 능력이 조금 처지지만, 변화는 크지 않습니다{p}."
 
 
 def _rivals(d, rng, base, show):
