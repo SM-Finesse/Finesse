@@ -3,10 +3,12 @@ package com.finesse.backend.service;
 import com.finesse.backend.client.LlmClient;
 import com.finesse.backend.config.CacheConfig;
 import com.finesse.backend.config.EndpointProperties;
+import com.finesse.backend.config.LightCommentProperties;
 import com.finesse.backend.config.LlmProperties;
 import com.finesse.backend.dto.ApiErrorResponse;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
+import com.finesse.backend.dto.LlmLightComment;
 import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.dto.StatsResponse;
 import com.finesse.backend.exception.GlobalExceptionHandler;
@@ -14,6 +16,7 @@ import com.finesse.backend.exception.ServerBusyException;
 import com.finesse.backend.exception.UserNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
@@ -69,10 +72,20 @@ public class CommentService {
     private final ExecutorService llmExecutor;
     private final LlmProperties llmProperties;
     private final EndpointProperties endpointProperties;
+    private final LightCommentProperties lightCommentProperties;
 
     public CommentService(StatsService statsService, LlmClient llmClient, CacheManager cacheManager,
                            ExecutorService llmExecutor, LlmProperties llmProperties,
                            EndpointProperties endpointProperties) {
+        this(statsService, llmClient, cacheManager, llmExecutor, llmProperties, endpointProperties,
+                LightCommentProperties.defaults());
+    }
+
+    @Autowired
+    public CommentService(StatsService statsService, LlmClient llmClient, CacheManager cacheManager,
+                           ExecutorService llmExecutor, LlmProperties llmProperties,
+                           EndpointProperties endpointProperties, LightCommentProperties lightCommentProperties) {
+        this.lightCommentProperties = lightCommentProperties;
         this.statsService = statsService;
         this.llmClient = llmClient;
         this.cacheManager = cacheManager;
@@ -89,13 +102,14 @@ public class CommentService {
         StatsResponse stats = statsService.getStats(normalized, false);
         Cache cache = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
         if (cache == null) {
-            return computeLight(stats);
+            return computeLight(stats).response();
         }
         try {
-            LightCommentResponse result = cache.get(normalized, () -> computeLight(stats));
-            if (!stats.coldStart() && result.highlights().size() < 3) {
-                // 하이라이트가 모자란 응답은 보여주되 캐시하지 않는다 — 10분 동안 고정되지 않고 다음 요청 때 다시 시도
-                // (heavy의 "성공 챕터만 캐시"와 같은 원칙). 콜드스타트 안내는 LLM과 무관하니 그대로 둔다.
+            LightResult computed = cache.get(normalized, () -> computeLight(stats));
+            LightCommentResponse result = computed.response();
+            if (!stats.coldStart() && (result.highlights().size() < 3 || computed.fallback())) {
+                // 하이라이트가 모자라거나 대체 문장이 섞인 응답은 보여주되 캐시하지 않는다 — 10분 동안 고정되지 않고
+                // 다음 요청 때 다시 시도 (heavy의 "성공 챕터만 캐시"와 같은 원칙). 콜드스타트 안내는 LLM과 무관하니 그대로 둔다.
                 cache.evict(normalized);
             }
             return result;
@@ -241,15 +255,87 @@ public class CommentService {
         emitter.complete();
     }
 
-    private LightCommentResponse computeLight(StatsResponse stats) {
+    /**
+     * comment-light 캐시 값 — fallback은 응답에 넣지 않는 내부 표시: 대체 문장(LLM 서버 대체 문장·백엔드 문장 틀)이
+     * 하나라도 섞였으면 true라 캐시하지 않는다(heavy fallback 챕터와 같은 원칙).
+     */
+    record LightResult(LightCommentResponse response, boolean fallback) {
+    }
+
+    private LightResult computeLight(StatsResponse stats) {
         if (stats.coldStart()) {
             // FR-02/기능 명세서 3.3절 — 콜드스타트는 LLM 미호출, 즉시 안내 (재요청 대상 아님)
-            return new LightCommentResponse("최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.", List.of());
+            return new LightResult(new LightCommentResponse("최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.", List.of()), false);
         }
         // light 엔드포인트 상한 — 타임아웃 기준 문서(23번) 9절, stats 완료 이후부터 기산
         long deadline = System.nanoTime() + endpointProperties.lightSeconds() * 1_000_000_000L;
+        List<LlmLightComment.Item> items = lightCommentProperties.enabled() ? lightCommentItems(stats) : List.of();
+        if (!items.isEmpty()) {
+            return computeLightComments(items, deadline);
+        }
+        // 예전 흐름(LLM이 11개 중에서 직접 고름) — 설정으로 껐거나 calc가 고른 지표가 없을 때만. 한 요청 안에서 섞지 않는다
         LlmLightRequest request = LlmLightRequest.from(stats);
-        return llmClient.callLight(request, deadline);
+        return new LightResult(llmClient.callLight(request, deadline), false);
+    }
+
+    /** light-v5.2 — calc가 고른 지표마다 개별 코멘트, 묶어서 기본 코멘트 (LLM 연동 명세 light-v5.2, 10/21) */
+    private LightResult computeLightComments(List<LlmLightComment.Item> items, long deadline) {
+        long startedAt = System.currentTimeMillis();
+        LlmClient.LightCommentOutcome out = llmClient.callLightComments(items, deadline);
+        log.info("light 코멘트 처리 종료: {}ms (지표 {}개, 대체 문장 {}/{} — 그중 백엔드 문장 틀 {}, 재요청 {}, version {})",
+                System.currentTimeMillis() - startedAt, items.size(), out.fallbacks(), items.size() + 1,
+                out.templates(), out.attemptCount(), out.version());
+        return new LightResult(new LightCommentResponse(out.lightSummary(), out.highlights(), out.attemptCount()),
+                out.fallbacks() > 0);
+    }
+
+    /**
+     * calc 판정·선정 결과(highlight_judgement.picks, 0~3개)를 LLM 요청으로 바꾼다.
+     * 영역은 high·normal·low → "높음"·"보통"·"낮음", 값은 화면과 같은 원값(delta_metrics) — delta_comeback도 축소값이 아니라 원값.
+     * 영역이 none이거나 원값이 없는 지표는 뺀다(LLM 서버가 422로 거절하므로).
+     */
+    static List<LlmLightComment.Item> lightCommentItems(StatsResponse stats) {
+        StatsResponse.HighlightJudgement judgement = stats.highlightJudgement();
+        if (judgement == null || judgement.picks() == null) {
+            return List.of();
+        }
+        List<LlmLightComment.Item> items = new ArrayList<>();
+        for (StatsResponse.JudgedMetric pick : judgement.picks()) {
+            String zone = switch (pick.zone() == null ? "" : pick.zone()) {
+                case "high" -> "높음";
+                case "normal" -> "보통";
+                case "low" -> "낮음";
+                default -> null;
+            };
+            Double value = displayValue(stats.deltaMetrics(), pick.key());
+            if (zone != null && value != null && Double.isFinite(value)
+                    && items.stream().noneMatch(i -> i.stat().equals(pick.key()))) {
+                items.add(new LlmLightComment.Item(pick.key(), value, zone));
+            }
+        }
+        return items.size() > 3 ? List.copyOf(items.subList(0, 3)) : List.copyOf(items);
+    }
+
+    /** 화면(delta_metrics)에 보이는 원값 — 후보 11개 키 → stats 필드 */
+    static Double displayValue(StatsResponse.DeltaMetrics d, String key) {
+        if (d == null) {
+            return null;
+        }
+        StatsResponse.PlaystyleRelative p = d.playstyleRelative();
+        return switch (key) {
+            case "delta_opener" -> p == null ? null : p.deltaOpener();
+            case "delta_plonk" -> p == null ? null : p.deltaPlonk();
+            case "delta_stride" -> p == null ? null : p.deltaStride();
+            case "delta_inf_ds" -> p == null ? null : p.deltaInfDs();
+            case "delta_app" -> d.attack() == null ? null : d.attack().deltaApp();
+            case "delta_weighted_app" -> d.attack() == null ? null : d.attack().deltaWeightedApp();
+            case "delta_vs_apm" -> d.defense() == null ? null : d.defense().deltaVsApm();
+            case "delta_cheese_index" -> d.defense() == null ? null : d.defense().deltaCheeseIndex();
+            case "strength_split" -> d.strengthSplit();
+            case "delta_comeback" -> d.deltaComeback();
+            case "session_vs_slope" -> d.sessionVsSlope();
+            default -> null;
+        };
     }
 
     /**
@@ -346,8 +432,9 @@ public class CommentService {
                 .whenComplete((ignored, error) -> {
                     heartbeat.cancel(false);
                     long elapsedMs = System.currentTimeMillis() - startedAt;
-                    log.info("heavy 코멘트 처리 종료: {}ms (한도 {}s, 서버 {}대, 캐시 재사용 {}챕터) ({})",
-                            elapsedMs, heavyTimeoutSeconds, serverCount, cachedOk.size(), normalized);
+                    long fallbacks = collected.values().stream().filter(CommentService::isLlmFallback).count();
+                    log.info("heavy 코멘트 처리 종료: {}ms (한도 {}s, 서버 {}대, 캐시 재사용 {}챕터, 대체 문장 {}챕터) ({})",
+                            elapsedMs, heavyTimeoutSeconds, serverCount, cachedOk.size(), fallbacks, normalized);
                     finishHeavyStream(normalized, emitter, cache, collected, clientGone, streamLock, elapsedMs);
                 });
     }
@@ -375,7 +462,8 @@ public class CommentService {
 
         Map<String, HeavyCommentResponse.ChapterResult> ok = new LinkedHashMap<>();
         for (HeavyCommentResponse.ChapterResult r : finalResults) {
-            if (HeavyCommentResponse.STATUS_OK.equals(r.status())) {
+            // LLM 서버 대체 문장은 status=ok여도 저장하지 않는다 — 10분 동안 대체 문장이 고정되지 않도록 다음 요청 때 다시 시도
+            if (HeavyCommentResponse.STATUS_OK.equals(r.status()) && !isLlmFallback(r)) {
                 ok.put(r.chapterId(), r);
             }
         }
@@ -383,6 +471,14 @@ public class CommentService {
             cache.put(normalized, new HeavyChapterCache(Map.copyOf(ok)));
         }
         emitter.complete();
+    }
+
+    /**
+     * LLM 서버가 대체 문장을 보냈는지 (fallback=true). rivals는 처음부터 서버 문장을 쓰는 챕터라(LLM_HEAVY_TEMPLATE_CHAPTERS)
+     * 대체 문장으로 치지 않는다 — 다시 불러도 같은 문장이므로 캐시해도 된다.
+     */
+    static boolean isLlmFallback(HeavyCommentResponse.ChapterResult r) {
+        return r.fallback() && !"rivals".equals(r.chapterId());
     }
 
     /**

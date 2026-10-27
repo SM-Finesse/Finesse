@@ -11,7 +11,7 @@ class UsernamesTest {
 
     @Test
     void 공백을_자르고_소문자로_바꾼다() {
-        assertThat(Usernames.normalize("  SunG1ow ")).isEqualTo("sung1ow");
+        assertThat(Usernames.normalize("  TeSt_User1 ")).isEqualTo("test_user1");
         assertThat(Usernames.normalize("-error404-")).isEqualTo("-error404-");
         assertThat(Usernames.normalize("abc")).isEqualTo("abc");
         assertThat(Usernames.normalize("a234567890123456")).hasSize(16);
@@ -22,7 +22,7 @@ class UsernamesTest {
         Locale original = Locale.getDefault();
         try {
             Locale.setDefault(Locale.forLanguageTag("tr-TR"));
-            assertThat(Usernames.normalize("ICLY")).isEqualTo("icly"); // 기본 toLowerCase()면 "ıcly"
+            assertThat(Usernames.normalize("IVORY")).isEqualTo("ivory"); // 기본 toLowerCase()면 "ıvory"
         } finally {
             Locale.setDefault(original);
         }

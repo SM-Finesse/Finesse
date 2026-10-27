@@ -2,7 +2,10 @@ package com.finesse.backend.service;
 
 import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
+import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.HighlightStats;
+import com.finesse.backend.calc.domain.HighlightZone;
+import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
@@ -282,5 +285,28 @@ class StatsServiceMappingTest {
 
         assertThat(curves.pps()).isEmpty();
         assertThat(curves.vs()).containsExactly(2.1, 2.0);
+    }
+
+    @Test
+    void 하이라이트_판정과_선정을_영역_소문자로_그대로_옮긴다() {
+        JudgedMetric app = new JudgedMetric("delta_app", "attack", 0.093, -0.034, 0.042, HighlightZone.HIGH, 0.67, null);
+        JudgedMetric plonk = new JudgedMetric("delta_plonk", "playstyle", 0.01, -0.138, 0.114, HighlightZone.NORMAL, 0.0, 0.41);
+        JudgedMetric split = new JudgedMetric("strength_split", "strength_split", null, -0.308, -0.122, HighlightZone.NONE, null, null);
+        HighlightJudgement judgement = new HighlightJudgement("ref-2026-10-15-g2", "t3",
+                List.of(plonk, app, split), List.of(app, plonk));
+
+        StatsResponse.HighlightJudgement mapped = StatsService.highlightJudgement(judgement);
+
+        assertThat(mapped.rangesVersion()).isEqualTo("ref-2026-10-15-g2");
+        assertThat(mapped.rangeGroup()).isEqualTo("t3");
+        assertThat(mapped.metrics()).extracting(StatsResponse.JudgedMetric::zone).containsExactly("normal", "high", "none");
+        assertThat(mapped.picks()).extracting(StatsResponse.JudgedMetric::key).containsExactly("delta_app", "delta_plonk");
+        assertThat(mapped.picks().get(0)).isEqualTo(
+                new StatsResponse.JudgedMetric("delta_app", "attack", 0.093, -0.034, 0.042, "high", 0.67, null));
+    }
+
+    @Test
+    void calc가_판정하지_않았으면_highlight_judgement는_생략() {
+        assertThat(StatsService.highlightJudgement(null)).isNull();
     }
 }
