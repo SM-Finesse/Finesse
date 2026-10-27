@@ -87,8 +87,8 @@ def test_user_메시지에_영문_키가_없음():
 
 def test_user_메시지에_값이_그대로():
     user = build_heavy_messages(HeavyRequest.model_validate(body("defense")))[1]["content"]
-    assert "- 수비 비중 차이: -0.07" in user
-    assert "- 가비지 처리 성향 차이: -2.56" in user
+    assert "- 수비 비중: -0.07" in user
+    assert "- 가비지 처리 성향: -2.6" in user   # v4.5: 가비지 처리 성향은 소수 첫째 자리 (P1 규칙 1절)
 
 
 def test_라이벌은_배지를_서버가_계산하고_승률은_보이지_않음():
@@ -105,20 +105,22 @@ def _user(ch, data=None):
 
 def test_v31_부호_방향을_서버가_붙임():
     # v4.3: 괄호는 그대로 쓸 수 있는 서술형 문장
-    assert "- 블록당 공격력 차이: -0.05 (상대보다 밀립니다)" in _user("attack")  # Q1 -0.043 아래
-    assert "-2.56 (상대보다 가비지 처리 성향이 약간 옅지만 차이는 크지 않습니다)" in _user("defense")  # 범위 안
+    assert "- 블록당 공격력: -0.05 (블록당 공격력에서 상대보다 밀립니다)" in _user("attack")  # Q1 -0.043 아래
+    assert "-2.6 (상대보다 가비지 처리 성향이 약간 옅지만 차이는 크지 않습니다)" in _user("defense")  # 범위 안
     assert "+0.55 (라운드가 진행될수록 공방 능력이 조금 오르지만 변화는 크지 않습니다)" in _user("session_vs_slope")
-    assert "-0.21 (강한 상대 구간에서는 약한 상대 구간보다 승률이 낮습니다)" in _user("strength_split")
-    assert "+0.3 (상대보다 앞섭니다)" in _user("attack", {"delta_app": 0.3})
-    assert "+2 (라운드가 진행될수록 공방 능력이 크게 오릅니다)" in _user("session_vs_slope", {"session_vs_slope": 2})
-    assert "0 (상대와 같습니다)" in _user("attack", {"delta_app": 0})
+    assert "-0.21 (강한 상대 구간에서는 약한 상대 구간보다 승률이 떨어집니다)" in _user("strength_split")   # v4.5 서술어
+    assert "+0.30 (블록당 공격력에서 상대보다 앞섭니다)" in _user("attack", {"delta_app": 0.3})   # v4.5: 소수 둘째 자리
+    assert "+2.00 (라운드가 진행될수록 공방 능력이 크게 오릅니다)" in _user("session_vs_slope", {"session_vs_slope": 2})
+    assert "0 (블록당 공격력은 상대와 같습니다)" in _user("attack", {"delta_app": 0})
 
 
 def test_v31_플레이스타일은_강한_약한_성향으로_묶음():
     user = _user("playstyle")
     # v4.2: 목록 대신 한 줄에 한 문장, 강도는 묶음으로 (Opener +0.1·Stride -0.08 은 보통 범위 안)
-    assert "- Plonk(-0.22), Infinite Downstacking(-0.17) 성향은 상대보다 옅게 나타납니다." in user
-    assert "- Opener(+0.1), Stride(-0.08) 성향은 상대와 차이가 크지 않습니다." in user
+    assert "- Plonk(-0.22), Infinite Downstack(-0.17) 성향은 상대보다 옅게 나타납니다." in user
+    # v4.5 (P1 규칙 4절 A안): 보통 범위 안이어도 방향은 부호대로
+    assert "- Opener(+0.10) 성향은 상대보다 조금 짙지만 차이는 크지 않습니다." in user
+    assert "- Stride(-0.08) 성향은 상대보다 조금 옅지만 차이는 크지 않습니다." in user
     assert ":" not in user.split("\n", 1)[1]
     assert "성향 차이" not in user
 
@@ -176,20 +178,20 @@ def test_문장만_오면_서버가_조립():
 
 
 def test_예전_JSON_형식도_받음():
-    resp = process_heavy_output(out(footnote="상대보다 공격 효율이 낮습니다."), "attack", ATTACK)
-    assert resp.footnote == "상대보다 공격 효율이 낮습니다."
+    resp = process_heavy_output(out(footnote="상대보다 공격 효율에서 밀립니다."), "attack", ATTACK)
+    assert resp.footnote == "상대보다 공격 효율에서 밀립니다."
 
 
 @pytest.mark.parametrize("text, expected", [
-    ('"상대보다 공격 효율이 낮습니다."', "상대보다 공격 효율이 낮습니다."),                          # 따옴표
-    ("### 각주\n상대보다 공격 효율이 낮습니다.", "상대보다 공격 효율이 낮습니다."),                  # 머리말
-    ('"attack" 챕터의 각주: 상대보다 공격 효율이 낮습니다.', "상대보다 공격 효율이 낮습니다."),       # 머리말
+    ('"상대보다 공격 효율에서 밀립니다."', "상대보다 공격 효율에서 밀립니다."),                          # 따옴표
+    ("### 각주\n상대보다 공격 효율에서 밀립니다.", "상대보다 공격 효율에서 밀립니다."),                  # 머리말
+    ('"attack" 챕터의 각주: 상대보다 공격 효율에서 밀립니다.', "상대보다 공격 효율에서 밀립니다."),       # 머리말
     ("첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다.", "첫 문장입니다. 둘째 문장입니다."),  # 2문장까지
     ("완성된 문장입니다. 잘린 문장", "완성된 문장입니다."),                        # 출력 한도에서 잘림
     ("첫 문단입니다.\n\n두 번째 문단입니다.", "첫 문단입니다."),                  # 첫 문단만
-    ("APP가 상대보다 0.05 낮습니다. TETR.IO 기준입니다.", "블록당 공격력이 상대보다 0.05 낮습니다. TETR.IO 기준입니다."),  # 소수점·약어 (v4.4 이름 바꿈)
-    ("- 상대보다 공격 효율이 낮습니다.\n* 수비도 상대보다 낮습니다.", "상대보다 공격 효율이 낮습니다. 수비도 상대보다 낮습니다."),  # 목록 기호 (v3.1)
-    ("상대보다 -0.05 만큼 차이가 납니다.", "상대보다 -0.05 만큼 차이가 납니다."),                            # 음수 부호는 유지
+    ("APP가 상대보다 0.05 밀립니다. TETR.IO 기준입니다.", "블록당 공격력이 상대보다 밀립니다. TETR.IO 기준입니다."),  # v4.5b: 동사 앞 숫자는 뗌  # 소수점·약어 (v4.4 이름 바꿈)
+    ("- 상대보다 공격 효율에서 밀립니다.\n* 수비도 상대보다 밀립니다.", "상대보다 공격 효율에서 밀립니다. 수비도 상대보다 밀립니다."),  # 목록 기호 (v3.1)
+    ("블록당 공격력에서 상대보다 밀립니다(-0.05).", "블록당 공격력에서 상대보다 밀립니다(-0.05)."),                            # 음수 부호는 유지
 ])
 def test_문장_다듬기(text, expected):
     assert process_heavy_output(text, "attack", ATTACK).footnote == expected
@@ -370,9 +372,9 @@ def test_v32_내용_오류는_502(ch, text):
 
 
 @pytest.mark.parametrize("ch, text", [
-    ("tr_trend", "최근 TR이 전체 기간 평균보다 62.87점 낮습니다. 최근 TR이 전체 평균보다 약 63점 낮은 하락세입니다."),
-    ("attack", "블록당 공격량(APP)이 상대보다 낮습니다(-0.05). Weighted APP도 상대보다 낮아 공격 효율에서 밀립니다(-1.34)."),
-    ("defense", "VS/APM 차이(-0.07)는 상대보다 수비 비중이 작습니다. Cheese Index 차이(-2.56)는 상대보다 가비지 처리 성향이 약합니다."),
+    ("tr_trend", "최근 TR이 전체 기간 평균보다 62.87점 낮습니다. 최근 TR이 전체 평균보다 낮은 하락세입니다."),   # v4.5: "약 63점"(다시 반올림) ✗
+    ("attack", "블록당 공격량(APP)이 상대보다 밀립니다(-0.05). Weighted APP도 상대보다 밀려 공격 효율에서 밀립니다(-1.34)."),   # v4.5: 앞선다·밀린다만
+    ("defense", "VS/APM 차이(-0.07)는 상대보다 수비 비중이 작습니다. Cheese Index 차이(-2.6)는 상대보다 가비지 처리 성향이 약합니다."),
     ("strength_split", "강한 상대 구간 승률이 약한 상대 구간보다 낮습니다(-0.21)."),
     ("comeback_rate", "역전승률(0.25)이 역전 허용률(0.4)보다 낮습니다. 12번 중 3번 역전했습니다."),
     ("rivals", "ab***_12에게는 15경기 중 5승에 그쳐 천적입니다. 반면 te**er에게는 7경기에서 4승을 따냈습니다."),
@@ -395,20 +397,20 @@ POS = {k: v for k, v in _json.loads((_Path(__file__).parent / "samples" / "heavy
     ("attack", {"delta_app": -0.05, "delta_weighted_app": -1.34}, "보정 공격 효율 모두에서 밀립니다"),
     ("attack", {"delta_app": 0.06, "delta_weighted_app": -0.8}, "하지만 보정 공격 효율에서는 상대보다 밀립니다"),
     ("attack", {"delta_app": 0.06, "delta_weighted_app": 0.8}, "보정 공격 효율 모두에서 앞섭니다"),
-    ("defense", {"delta_vs_apm": 0.2, "delta_cheese_index": 20}, "모두 큰 편입니다"),
-    ("defense", {"delta_vs_apm": 0.11, "delta_cheese_index": 1.9}, "모두 차이가 크지 않습니다"),  # 둘 다 범위 안
+    ("defense", {"delta_vs_apm": 0.2, "delta_cheese_index": 20}, "수비 비중이 큰 편입니다. 또 가비지 처리 성향은 상대보다 짙게"),  # v4.5: 묶지 않음
+    ("defense", {"delta_vs_apm": 0.11, "delta_cheese_index": 1.9}, "수비 비중이 약간 큰 편이지만 차이는 크지 않습니다"),  # 둘 다 범위 안 — 방향은 지킴
     ("defense", {"delta_vs_apm": 0.2, "delta_cheese_index": -10}, "상대보다 옅게 나타납니다"),
     ("tr_trend", {"tr_trend_delta": 85.3}, "오르는 흐름"),
     ("tr_trend", {"tr_trend_delta": -62.87}, "내려가는 흐름"),
-    ("strength_split", {"strength_split": 0.08}, "오히려 약한 상대 구간보다 승률이 높습니다"),
-    ("strength_split", {"strength_split": -0.5}, "크게 낮습니다"),
+    ("strength_split", {"strength_split": 0.08}, "강한 상대 구간에서는 약한 상대 구간보다 승률이 오히려 높습니다"),
+    ("strength_split", {"strength_split": -0.5}, "승률이 크게 떨어집니다"),
     ("strength_split", {"strength_split": -0.21}, "떨어"),
-    ("strength_split", {"strength_split": -0.05}, "잘 버티는"),
+    ("strength_split", {"strength_split": -0.05}, "크게 흔들리지 않는"),
     ("session_vs_slope", {"session_vs_slope": -0.4}, "처"),
     ("session_vs_slope", {"session_vs_slope": 0.55}, "변화는 크지 않습니다"),
     ("comeback_rate", {"comeback_rate": 0.45, "comeback_rate_against": 0.2}, "보다 높습니다"),
     ("playstyle", {"delta_opener": 0.3, "delta_plonk": 0.2}, "Opener 성향이 짙게 나타납니다"),
-    ("playstyle", {"delta_opener": 0.1, "delta_plonk": 0.2}, "Opener 성향은 상대와 차이가 크지 않습니다"),
+    ("playstyle", {"delta_opener": 0.1, "delta_plonk": 0.2}, "Opener 성향은 상대보다 조금 짙지만 차이는 크지 않습니다"),
 ])
 def test_v33_입력_방향과_같은_예시를_고름(ch, data, must):
     assert must in pick_heavy_example(ch, data)
@@ -473,16 +475,16 @@ def test_v34_대체_문장_내용():
 # ---------------- 10/20 백엔드 회신 반영: 숫자 반올림·0승 문장·fallback 표시·시간 예산 ----------------
 def test_v44_대체_문장_숫자_반올림():
     rng = _random.Random(1)
-    assert "367점 높습니다" in build_fallback("tr_trend", {"tr_trend_delta": 366.954}, rng)
-    assert "0.4점" in build_fallback("tr_trend", {"tr_trend_delta": -0.4}, rng)
+    assert "높습니다(+366.95)" in build_fallback("tr_trend", {"tr_trend_delta": 366.954}, rng)   # v4.5: 입력 그대로 괄호 (다시 반올림 ✗)
+    assert "(-0.40)" in build_fallback("tr_trend", {"tr_trend_delta": -0.4}, rng)
     t = build_fallback("defense", {"delta_vs_apm": -0.102, "delta_cheese_index": -10.128}, rng)
-    assert "(-0.10, -10.1)" in t, t
+    assert "(-0.10)" in t and "(-10.1)" in t, t   # v4.5: defense 는 묶지 않음
     process_heavy_output(t, "defense", {"delta_vs_apm": -0.102, "delta_cheese_index": -10.128})
     t = build_fallback("attack", {"delta_app": 0.026, "delta_weighted_app": -0.004}, rng)
     assert "(+0.03)" in t and "(-0.004)" in t, t                       # 0 으로 보이지 않게 한 자리 더
     process_heavy_output(t, "attack", {"delta_app": 0.026, "delta_weighted_app": -0.004})
     t = build_fallback("session_vs_slope", {"session_vs_slope": 6.55}, rng)
-    assert "약 6.5씩" in t or "약 6.6씩" in t, t
+    assert "(+6.55)" in t and "약" not in t, t   # v4.5: 입력 그대로 괄호 (다시 반올림 ✗)
     process_heavy_output(t, "session_vs_slope", {"session_vs_slope": 6.55})
 
 
@@ -492,7 +494,7 @@ def test_v44_역전_0승_문장():
     for t in texts:
         assert "(0)" not in t and "0경기를 뒤집었" not in t, t
         process_heavy_output(t, "comeback_rate", d)
-    assert any("뒤졌던 10경기를 한 번도 뒤집지 못했습니다" in t for t in texts)
+    assert any("역전 기회 10번 중 한 번도 뒤집지 못했습니다" in t for t in texts)   # v4.5: P1 규칙 역전 틀
     assert all("(0.04)" in t for t in texts)
 
 
@@ -640,7 +642,7 @@ from app.prompt import COMPARE_PHRASES, HEAVY_PROMPT_VERSION
 
 
 def test_v4_버전():
-    assert HEAVY_PROMPT_VERSION == "heavy-v4.4-names31"
+    assert HEAVY_PROMPT_VERSION == "heavy-v4.5d-p1rules-20261027"
 
 
 def test_v4_비교_표현은_5개_중에서_고름():
@@ -662,16 +664,16 @@ def test_v4_상대_비교가_아닌_챕터에는_비교_표현_줄이_없음(ch)
     # 31번 1.3절 예시 문장 꼴
     ("attack", "pos", "상대 대비 블록당 공격량에서 앞섭니다(+0.06). 하지만 Weighted APP에서는 상대보다 밀립니다(-0.8)."),
     ("playstyle", "neg", "맞붙은 상대들에 비해 Opener 성향이 짙게 나타납니다(+0.1)."),
-    ("defense", "pos", "상대 대비 수비 비중과 가비지 처리 성향이 모두 큰 편입니다."),
+    ("defense", "pos", "상대 대비 수비 비중이 큰 편이고, 가비지 처리 성향도 상대보다 짙게 나타납니다."),   # v4.5: 묶지 않음
     ("defense", "neg", "수비 비중이 상대보다 작고, 가비지 처리 성향도 상대보다 옅습니다."),
-    ("playstyle", "pos", "매 경기 상대와 견줘 보면 Plonk 성향이 강한 편입니다. 반면 Opener 성향은 상대보다 옅게 나타납니다."),
+    ("playstyle", "pos", "매 경기 상대와 견줘 보면 Plonk 성향이 짙게 나타납니다. Opener 성향은 상대보다 옅게 나타납니다."),
     ("strength_split", "neg", "강한 상대 구간의 승률이 약한 상대 구간보다 낮습니다(-0.21)."),
     ("attack", "neg", "상대 대비 블록당 공격량에서 밀립니다(-0.05). Weighted APP에서도 상대보다 크게 밀립니다(-1.34)."),
     ("defense", "neg", "상대 대비 수비 비중이 약간 작은 편이지만 차이는 크지 않습니다(-0.07)."),  # 2.2절 '보통' 예시 꼴
     ("session_vs_slope", "neg", "라운드가 진행될수록 VS가 오릅니다(+0.55)."),
     ("session_vs_slope", "zero", "라운드가 진행되어도 VS에 뚜렷한 추세가 없습니다."),
     ("comeback_rate", "neg", "역전 허용률(0.4)이 역전승률(0.25)보다 높습니다. 점수가 뒤졌던 12번 중 3번을 뒤집었습니다."),
-    ("tr_trend", "pos", "최근 구간 TR이 전체 평균보다 85.3점 높습니다."),
+    ("tr_trend", "pos", "최근 구간 TR이 전체 평균 TR보다 높습니다(+85.30)."),
 ])
 def test_v4_가이드라인에_맞는_문장은_통과(ch, sample, text):
     data = {"zero": {"session_vs_slope": 0.0}}.get(sample) or (POS if sample == "pos" else CHAPTERS)[ch]
@@ -680,7 +682,6 @@ def test_v4_가이드라인에_맞는_문장은_통과(ch, sample, text):
 
 @pytest.mark.parametrize("ch, sample, text", [
     ("attack", "neg", "공격 효율에서 밀립니다."),                                     # 비교 기준 없음 (C1 i)
-    ("playstyle", "neg", "Opener 성향이 더 짙습니다."),                               # "더"의 대상 없음
     ("defense", "neg", "상대 대비 수비 비중에서 밀립니다."),                            # 성향 지표에 우열 서술어
     ("playstyle", "neg", "상대 대비 Opener 성향이 Plonk보다 짙습니다."),                # 성향끼리 비교 (C2)
     ("playstyle", "neg", "상대 대비 Opener 성향이 가장 짙게 나타납니다."),               # 순위 (C2)
@@ -706,7 +707,6 @@ def test_v4_가이드라인에_맞는_문장은_통과(ch, sample, text):
     ("defense", "neg", "수비 비중(VS/APM)은 상대보다 약간 작은 편이며, 가비지 처리 성향(Cheese Index)은 상대보다 옅음입니다."),
     ("defense", "neg", "상대보다 수비 비중이 약간 작은 편, 차이 작음."),
     ("strength_split", "neg", "상대 강도별 승률 차는 본인 기록 안에서 가장 강한 상대 구간의 승률에서 가장 약한 상대 구간의 승률을 뺀 값입니다. 이 값은 -0.21로, 강한 상대 구간의 승률이 약한 상대 구간보다 낮음을 나타냅니다."),
-    ("tr_trend", "neg", "최근 구간의 평균 TR이 전체 평균 TR보다 -62.87 낮습니다, 이는 내려가는 흐름을 나타냅니다."),
     ("tr_trend", "neg", "최근 구간의 평균 TR(Tetra Rating)에서 전체 평균 TR을 뺀 값이 -62.87입니다."),
     # v4.1 (10/16 개정판)
     ("strength_split", "neg", "강한 상대 구간의 승률이 약한 상대 구간보다 낮습니다. 그 차이는 보통 수준입니다."),  # 분포 표현
@@ -734,9 +734,7 @@ def test_v4_모든_예시와_대체_문장에_퍼센트가_없음():
 
 # ---- v4.4 실측(10/26)에서 통과했던 문장 ----
 @pytest.mark.parametrize("ch, text", [
-    ("tr_trend", "최근 구간의 평균 TR이 전체 기간 평균 TR보다 -62.87 점수 낮습니다, 이는 내려가는 흐름을 나타냅니다."),
     ("tr_trend", "최근 구간의 TR이 전체 기간 평균보다 낮습니다. 이는 최근 구간 TR이 전체 평균에 비해 -62.87 점수 차이를 나타냅니다."),
-    ("attack", "블록당 공격력 차이는 상대보다 -0.05로 밀립니다. 보정 공격 효율 차이는 상대보다 -1.34로 밀립니다."),
     ("defense", "수비 비중 차이: 최근 대전 상대들보다 수비 비중이 약간 작은 편이지만, 차이는 크지 않습니다."),
     ("defense", "수비 비중 차이: -0.07 (상대보다 수비 비중이 약간 작은 편이지만 차이는 크지 않습니다)"),
 ])
@@ -750,3 +748,33 @@ def test_v44_역전_둘째_문장이_엉뚱하면_첫_문장만():
     assert process_heavy_output(t, "comeback_rate", CHAPTERS["comeback_rate"]).footnote == "역전승률이 역전 허용률보다 낮습니다."
     t2 = "역전승률이 역전 허용률보다 낮습니다. 역전승 경향이 역전패 경향보다 약합니다."
     assert process_heavy_output(t2, "comeback_rate", CHAPTERS["comeback_rate"]).footnote == t2
+
+
+# v4.5b (10/27 실측): 동사 앞 숫자·'… 차이는'은 서버가 고치고, 방향은 그대로 검사한다
+@pytest.mark.parametrize("ch, text, fixed", [
+    ("tr_trend", "최근 구간의 평균 TR이 전체 평균 TR보다 -62.87 낮습니다, 이는 내려가는 흐름을 나타냅니다.",
+     "최근 구간의 평균 TR이 전체 평균 TR보다 낮습니다, 이는 내려가는 흐름을 나타냅니다."),
+    ("tr_trend", "최근 구간의 평균 TR이 전체 기간 평균 TR보다 -62.87 점수 낮습니다.", "최근 구간의 평균 TR이 전체 기간 평균 TR보다 낮습니다."),
+    ("attack", "블록당 공격력 차이는 상대보다 -0.05로 밀립니다. 보정 공격 효율 차이는 상대보다 -1.34로 밀립니다.",
+     "블록당 공격력에서는 상대보다 밀립니다. 보정 공격 효율에서는 상대보다 밀립니다."),
+    ("session_vs_slope", "라운드별 공방 능력이 조금 오르지만, 변화는 크지 않습니다.",
+     "라운드가 진행될수록 공방 능력이 조금 오르지만, 변화는 크지 않습니다."),
+])
+def test_v45b_숫자_떼기와_이름_고치기(ch, text, fixed):
+    assert process_heavy_output(text, ch, CHAPTERS[ch]).footnote == fixed
+
+
+@pytest.mark.parametrize("ch, text", [
+    ("tr_trend", "최근 구간의 평균 TR이 전체 기간 평균 TR보다 -62.87 높습니다, 내려가는 흐름을 보입니다."),   # 숫자를 떼도 '높' → 부호 반대
+    ("defense", "상대와 비교해볼 때 수비 비중은 약간 작고, 가비지 처리 성향은 약간 어두워졌지만 차이가 크지 않습니다."),  # 방향 말 없음
+    ("defense", "수비 비중 차이는 -0.07로, 상대보다 수비 비중이 약간 작은 편이지만 차이는 크지 않습니다."),            # 괄호 밖 숫자
+    ("playstyle", "Plonk 성향은 상대보다 옅게 나타납니다. 속도 성향은 상대보다 조금 옅지만 차이는 크지 않습니다."),       # 뜻풀이를 이름으로
+])
+def test_v45b_실측_거부(ch, text):
+    with pytest.raises(OutputFormatError):
+        process_heavy_output(text, ch, CHAPTERS[ch])
+
+
+def test_v45b_비교_기준_붙임():   # light 와 같은 정리 — 지표 이름으로 시작하고 '상대'가 없는 문장
+    assert process_heavy_output("Opener 성향이 더 짙습니다.", "playstyle", CHAPTERS["playstyle"]).footnote == \
+        "상대 대비 Opener 성향이 더 짙습니다."
