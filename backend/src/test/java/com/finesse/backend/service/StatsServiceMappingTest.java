@@ -8,6 +8,11 @@ import com.finesse.backend.calc.domain.HighlightZone;
 import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.MetricCaution;
+import com.finesse.backend.calc.domain.MetricReliability;
+import com.finesse.backend.calc.domain.ReliabilityReason;
+import com.finesse.backend.calc.domain.ReliabilityReport;
+import com.finesse.backend.calc.domain.SamplePart;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryStats;
@@ -25,7 +30,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -308,5 +316,34 @@ class StatsServiceMappingTest {
     @Test
     void calc가_판정하지_않았으면_highlight_judgement는_생략() {
         assertThat(StatsService.highlightJudgement(null)).isNull();
+    }
+
+    @Test
+    void 신뢰도를_소문자_이름으로_그대로_옮긴다() {
+        MetricReliability app = new MetricReliability(MetricCaution.INTERPRETATION_CAUTION, true, false,
+                Set.of(ReliabilityReason.RELIABILITY_BELOW_TARGET), Map.of(SamplePart.ALL, 120),
+                0.031, 0.062, 0.124, 0.025, 0.82, 1);
+        MetricReliability split = new MetricReliability(MetricCaution.NONE, false, true,
+                Set.of(ReliabilityReason.OPPONENT_CONCENTRATION), Map.of(SamplePart.Q1, 12, SamplePart.Q5, 9),
+                null, null, null, null, null, null);
+        Map<String, MetricReliability> metrics = new LinkedHashMap<>();
+        metrics.put("delta_app", app);
+        metrics.put("strength_split", split);
+
+        StatsResponse.Reliability mapped = StatsService.reliability(new ReliabilityReport("rel-test", metrics));
+
+        assertThat(mapped.version()).isEqualTo("rel-test");
+        assertThat(mapped.metrics().keySet()).containsExactly("delta_app", "strength_split");
+        assertThat(mapped.metrics().get("delta_app")).isEqualTo(new StatsResponse.MetricReliability(
+                "interpretation_caution", true, false, List.of("reliability_below_target"), Map.of("all", 120),
+                0.031, 0.062, 0.124, 0.025, 0.82, 1));
+        assertThat(mapped.metrics().get("strength_split").sampleSizes()).containsExactly(
+                Map.entry("q1", 12), Map.entry("q5", 9));
+        assertThat(mapped.metrics().get("strength_split").errorMargin()).isNull();
+    }
+
+    @Test
+    void calc가_신뢰도를_판정하지_않았으면_reliability는_생략() {
+        assertThat(StatsService.reliability(null)).isNull();
     }
 }
