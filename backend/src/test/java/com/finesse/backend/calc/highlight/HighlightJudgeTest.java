@@ -34,7 +34,7 @@ class HighlightJudgeTest {
 
     /** 하이라이트 지표 — 역전은 기회·성공·허용 기회·역전당함 수로 준다 */
     private static HighlightStats highlight(Double strength, int won, int opp, int allowed, int againstOpp,
-                                            double slope) {
+                                            Double slope) {
         Double rate = opp == 0 ? null : (double) won / opp;
         Double against = againstOpp == 0 ? null : (double) allowed / againstOpp;
         Double deltaComeback = rate == null || against == null ? null : rate - against;
@@ -165,12 +165,23 @@ class HighlightJudgeTest {
     // ── NONE ─────────────────────────────────────────────────────────
 
     @Test
-    void 기울기가_정확히_0이면_판정하지_않고_값은_남긴다() {
-        JudgedMetric slope = metric(judge.judge(null, highlight(null, 0, 0, 0, 0, 0.0), null), "session_vs_slope");
+    void 기울기가_정의_불가로_null이면_NONE이고_값은_null이다() {
+        // v4.4: 정의 불가는 null — 값 없음 규칙으로 NONE (30.3절)
+        JudgedMetric slope = metric(judge.judge(null, highlight(null, 0, 0, 0, 0, null), null), "session_vs_slope");
 
         assertThat(slope.zone()).isEqualTo(HighlightZone.NONE);
-        assertThat(slope.value()).isEqualTo(0.0);
+        assertThat(slope.value()).isNull();
         assertThat(slope.deviation()).isNull();
+    }
+
+    @Test
+    void 기울기가_실제로_0이면_보통_범위와_비교한다() {
+        // v4.4: "정확히 0.0이면 NONE" 예외를 없앴다. 기본 범위 −0.080 ~ 1.370 안이라 NORMAL
+        JudgedMetric slope = metric(judge.judge(null, highlight(null, 0, 0, 0, 0, 0.0), null), "session_vs_slope");
+
+        assertThat(slope.zone()).isEqualTo(HighlightZone.NORMAL);
+        assertThat(slope.value()).isEqualTo(0.0);
+        assertThat(slope.deviation()).isEqualTo(0.0);
     }
 
     @Test

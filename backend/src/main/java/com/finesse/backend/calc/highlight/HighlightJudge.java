@@ -49,7 +49,6 @@ public class HighlightJudge {
             Range range = ranges.get(key);
             out.add(switch (key) {
                 case "delta_comeback" -> judgeComeback(highlight, range);
-                case "session_vs_slope" -> judgeSlope(highlight, range);
                 default -> judgeValue(key, rawValue(key, delta, highlight), range);
             });
         }
@@ -69,22 +68,12 @@ public class HighlightJudge {
             case "delta_vs_apm" -> d == null ? null : d.deltaVsApm();
             case "delta_cheese_index" -> d == null ? null : d.deltaCheeseIndex();
             case "strength_split" -> h == null ? null : h.strengthSplit();
+            // v4.4: 정의 불가는 null이라 값 없음 규칙으로 NONE. 실제 0.0은 다른 지표처럼 범위와 비교한다
+            case "session_vs_slope" -> h == null ? null : h.sessionVsSlope();
             default -> throw new IllegalArgumentException("알 수 없는 지표: " + key);
         };
     }
 
-    /** session_vs_slope — 정확히 0.0은 계산 불가 표시라 NONE (value는 0.0 유지) */
-    private static JudgedMetric judgeSlope(HighlightStats h, Range range) {
-        String key = "session_vs_slope";
-        if (h == null) {
-            return none(key, null, range);
-        }
-        double v = h.sessionVsSlope();
-        if (v == 0.0) {
-            return none(key, v, range);
-        }
-        return judgeValue(key, v, range);
-    }
 
     /**
      * delta_comeback — 축소값으로 판정한다 (v4.3).
