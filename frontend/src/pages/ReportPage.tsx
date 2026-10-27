@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useState } from 'react'
 import type { ApiError } from '../api/client'
 import { FloorArt, SkyArt } from '../components/BackgroundArt'
+import { HeaderSearch } from '../components/HeaderSearch'
 import { Kbd, KeyHint } from '../components/Kbd'
 import { HeavyView } from '../components/report/HeavyView'
 import { LightView } from '../components/report/LightView'
@@ -39,12 +40,14 @@ interface Props {
   view: View
   onViewChange: (view: View) => void
   onBack: () => void
+  /** 헤더 검색창에서 다른 유저를 조회한다 */
+  onSearch?: (username: string) => void
   /** 조회에 성공한 유저명 — 최근 검색에 남긴다 */
   onFound?: (username: string) => void
 }
 
 /** 결과 화면 — GET /stats를 먼저 그리고, 라이트 코멘트·헤비 챕터 각주는 도착하는 대로 채운다 */
-export function ReportPage({ username, view, onViewChange, onBack, onFound }: Props) {
+export function ReportPage({ username, view, onViewChange, onBack, onSearch, onFound }: Props) {
   const { t } = useI18n()
   const r = t.report
   const stats = useStats(username)
@@ -173,7 +176,7 @@ export function ReportPage({ username, view, onViewChange, onBack, onFound }: Pr
   return (
     <div className="relative flex min-h-screen flex-col">
       <SkyArt />
-      <SiteHeader onHome={onBack} actions={actions} />
+      <SiteHeader onHome={onBack} actions={actions} search={onSearch && <HeaderSearch onSearch={onSearch} />} />
       <main className="relative flex-1 pb-[296px]">
         <div className={`${wrapCls} relative pt-8`} aria-busy={stats.refreshing || undefined}>
           {body}
