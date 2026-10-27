@@ -1,7 +1,8 @@
-"""light 요청 스키마 (백엔드 -> 추론 서버).
+"""요청 스키마 (백엔드 -> 추론 서버).
 
-근거: LLM/AI 파트 설계 v1.2 5.1절(후보 11개), 5.2절(요청 스키마)
+근거: LLM/AI 파트 설계 v1.2 5.1절(후보 11개), 5.2절(light 요청), 5.3절(heavy 요청)
 """
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,3 +84,81 @@ class LightRequest(_Strict):
             "session_vs_slope": d.session_vs_slope,
         }
         return {k: flat[k] for k in CANDIDATE_KEYS if flat[k] is not None}
+
+
+# heavy 챕터 8개 (v1.2 5.3절, 백엔드 CommentService.HEAVY_CHAPTER_IDS 와 같은 순서)
+HEAVY_CHAPTER_IDS = (
+    "tr_trend",
+    "playstyle",
+    "attack",
+    "defense",
+    "strength_split",
+    "comeback_rate",
+    "session_vs_slope",
+    "rivals",
+)
+
+ChapterId = Literal[
+    "tr_trend", "playstyle", "attack", "defense",
+    "strength_split", "comeback_rate", "session_vs_slope", "rivals",
+]
+
+
+class HeavyRequest(_Strict):
+    """heavy 챕터 1건 요청 {chapter_id, data} (v1.2 5.3절).
+
+    data 의 챕터별 구성은 v1.2 에서 일부 미확정(7.3절 표)이라 형태를 고정하지 않고
+    객체(dict)이기만 하면 받는다. 지금 백엔드가 보내는 구성은 backend 브랜치
+    CommentService.buildChapterData 참고 (값이 없는 필드는 키째 생략).
+    """
+
+    chapter_id: ChapterId
+    data: dict[str, Any]
+
+
+# ---------------- 라이트 6회 호출 (34번 문서, light-6call) ----------------
+# 백엔드는 SNAKE_CASE + null 생략으로 보낸다 → value 가 없으면 생략돼도 None 으로 받는다.
+StatKey = Literal[
+    "delta_opener", "delta_plonk", "delta_stride", "delta_inf_ds",
+    "delta_app", "delta_weighted_app", "delta_vs_apm", "delta_cheese_index",
+    "strength_split", "delta_comeback", "session_vs_slope",
+]
+Zone = Literal["높음", "보통", "낮음", "없음"]
+
+
+class JudgeCandidate(_Strict):
+    stat: StatKey
+    value: float | None = None
+    q1: float
+    q3: float
+
+
+class JudgeRequest(_Strict):
+    """1단계 판정 요청 — 후보 11개 × {지표, 값, Q1, Q3} (34번 3절). 순서는 아무래도 되고, 서버가 고정 순서로 맞춘다."""
+    candidates: list[JudgeCandidate] = Field(min_length=1, max_length=11)
+
+
+class Judgment(_Strict):
+    stat: StatKey
+    zone: Zone
+    deviation: float | None = None
+
+
+class SelectRequest(_Strict):
+    """2단계 선정 요청 — 1단계 응답의 judgments 를 그대로 넘긴다."""
+    judgments: list[Judgment] = Field(min_length=1, max_length=11)
+
+
+class CommentItem(_Strict):
+    stat: StatKey
+    value: float
+    zone: Zone | None = None     # 34번 입력에 있으나 문장 프롬프트에는 넣지 않는다(판정 정보 노출 방지, C v1 실측)
+
+
+class SentenceRequest(CommentItem):
+    """3단계 개별 코멘트 요청 — 지표 1개."""
+
+
+class SummaryRequest(_Strict):
+    """3단계 기본 코멘트 요청 — 선정된 지표(최대 3개). 개별 코멘트 결과는 받지 않는다(34번 3절, 동시 호출)."""
+    items: list[CommentItem] = Field(min_length=1, max_length=3)

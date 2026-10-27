@@ -1,6 +1,7 @@
 package com.finesse.backend.client;
 
 import tools.jackson.databind.JsonNode;
+import com.finesse.backend.calc.collector.RateLimiter;
 import com.finesse.backend.config.TetrioProperties;
 import com.finesse.backend.exception.TetrioApiException;
 import com.finesse.backend.exception.UserNotFoundException;
@@ -17,7 +18,8 @@ import java.util.UUID;
  *   GET /users/{username}  (프로필 사진·XP·국가·가입일·플레이 시간·친구 수)
  *
  * 리그 요약·매치 기록 수집·계산은 data-eng calc 모듈(StatCalculatorFacade)이 맡는다(라이트뷰 1차 병합, 2026-10-01).
- * TODO(data-eng 협의): 이 호출도 calc 모듈로 옮기면 레이트리미터를 하나로 합치고 이 클래스를 걷어낼 수 있다.
+ * 호출 간격은 calc 모듈의 RateLimiter를 함께 써서 지킨다(10/7) — 서버 전체의 TETR.IO 호출(calc 수집 + 이 호출)이
+ * 한 줄로 서서 초당 1회를 넘지 않는다(법적 검토 1절). 간격 값은 finesse.analytics.collector.min-request-interval.
  */
 @Component
 public class TetrioClient {
@@ -74,12 +76,13 @@ public class TetrioClient {
 
     /**
      * 최초 호출 포함 retry+1회 시도 (calc 모듈의 max-retry-attempts와 같은 "총 3회"로 맞춤).
+     * 시도마다 calc RateLimiter 차례를 기다린다 — 다른 유저의 calc 수집과 같은 순간에 나가지 않도록.
      * 404(유저 없음)는 재시도 대상이 아니라 즉시 던진다.
      */
     private JsonNode getJson(String path, String sessionId) {
         Exception last = null;
         for (int attempt = 0; attempt <= props.retry(); attempt++) {
-            rateLimiter.await(props.minRequestIntervalMs());
+            rateLimiter.acquire();
             try {
                 return webClient.get()
                         .uri(path)

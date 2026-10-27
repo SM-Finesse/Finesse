@@ -4,12 +4,10 @@ import java.util.List;
 
 /**
  * 매치 수집 결과 (설계서 3.4·3.7절).
- * matches = 현재 구간(1년 이내 최신 최대 300판), previousWindowMatches = 그 다음 구간(최대 300판, 11.11절).
- * 둘 다 최신순이다.
+ * matches = 1년 이내 최신 최대 300판, 최신순. 300판이 모이면 더 이상 페이지를 호출하지 않는다(3.4절, v3.10 — 이전 구간 수집 폐지).
  */
 public record CollectionResult(
         List<RawMatch> matches,
-        List<RawMatch> previousWindowMatches,
         CollectionStatus status,
         int requestedPages,
         int successfulPages,
@@ -19,7 +17,6 @@ public record CollectionResult(
 ) {
     public CollectionResult {
         matches = List.copyOf(matches);
-        previousWindowMatches = List.copyOf(previousWindowMatches);
     }
 
     public boolean partial() {

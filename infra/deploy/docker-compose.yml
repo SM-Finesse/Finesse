@@ -1,0 +1,67 @@
+# =====================================================================
+# Finesse 운영 배포용 compose (CI/CD 3단계 — 학교 PC)
+#
+# 이 파일은 직접 실행하지 않고 deploy.ps1 이 실행함 (TAG 를 넣어 줌).
+# PC마다 다른 값은 같은 폴더의 .env 에 둠 (.env.example 복사):
+#   - 백엔드 PC(301B-26):  COMPOSE_PROFILES=backend
+#   - 프론트 PC(301B-28):  COMPOSE_PROFILES=frontend, BACKEND_UPSTREAM=http://192.168.0.126:8081
+#   - 리허설(301B-24 한 대): COMPOSE_PROFILES=backend,frontend
+#
+# 이미지: DockerHub pdh20020317/finesse-* (Public → 로그인 불필요)
+# 태그:  deploy.ps1 이 deploy 브랜치 target.env 의 TAG(= main 커밋 7자리)를 넣어 줌.
+#        (TAG 없이 직접 ps·logs·down 할 때만 latest 로 해석됨 — up 은 deploy.ps1 로)
+# LLM 서버(301B-11·13)는 계획대로 여기서 관리하지 않음.
+# =====================================================================
+name: finesse
+
+services:
+  backend:
+    image: pdh20020317/finesse-backend:${TAG:-latest}
+    profiles: [backend]
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8081}:8081"
+    environment:
+      # application.yml 의 llm.servers 를 덮어씀 (쉼표로 구분)
+      LLM_SERVERS: ${LLM_SERVERS:-http://192.168.0.111:8081,http://192.168.0.113:8081}
+      TZ: Asia/Seoul
+    # 멈춤(응답 없음) 감지용. JRE 이미지에 curl/wget이 없어 bash /dev/tcp 로 HTTP 응답 첫 줄만 확인.
+    # 3번 연속 실패 → unhealthy → 24번 autoheal 컨테이너가 재시작 (모니터링 compose 쪽)
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET / HTTP/1.0\\r\\n\\r\\n' >&3 && timeout 5 head -c 12 <&3 | grep -q HTTP"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    labels:
+      autoheal: "true"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  frontend:
+    image: pdh20020317/finesse-frontend:${TAG:-latest}
+    profiles: [frontend]
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    environment:
+      # 같은 PC에 backend 도 띄우면 기본값(http://backend:8081) 그대로, 다른 PC면 그 PC 주소
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-http://backend:8081}
+      TZ: Asia/Seoul
+    # nginx:alpine 에 들어 있는 busybox wget 으로 첫 화면만 확인 (/api 는 안 건드림)
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      autoheal: "true"
+    depends_on:
+      backend:
+        condition: service_started
+        required: false          # 프론트 전용 PC(backend 프로필 없음)에서도 동작
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

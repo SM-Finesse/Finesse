@@ -67,8 +67,8 @@ class AnalyticsMetricsTest {
 
     @Test
     void 분석_결과는_종류와_사유를_태그로_센다() {
-        UserSummary summary = new UserSummary("user", "s", 15000, 2000, 60, null, 5);
-        metrics.recordOutcome(new AnalysisOutcome.ColdStartBypass(summary, 5, ColdStartReason.FEW_GAMES_TOTAL));
+        UserSummary summary = new UserSummary("user", "s", 15000, 2000, 60, null, 5, null, null, null);
+        metrics.recordOutcome(new AnalysisOutcome.ColdStartBypass(summary, 5, ColdStartReason.FEW_GAMES_TOTAL, null));
         metrics.recordOutcome(new AnalysisOutcome.UserNotFound("user"));
         metrics.recordOutcome(new AnalysisOutcome.CollectionFailed(CollectionStatus.FAILED));
 

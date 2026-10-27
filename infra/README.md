@@ -9,4 +9,6 @@ Docker, docker-compose, k8s 매니페스트. `.github/workflows`(CI)도 이 브�
 - [`mocks/`](./mocks/README.md) — LLM Mock 서버(`llm-mock-1/2`), TETR.IO API Mock(`tetrio-mock`),
   LLM Payload Mock(`llm-payload-mock`). 2026-10-02 `HJ2002-star/DevOps-prototype`에서 동기화.
   실행 방법·테스트 방법은 `mocks/README.md` 참고.
+- [`deploy/`](./deploy/README.md) — 학교 서버 PC 자동 배포(CI/CD 3단계, 2026-10-12).
+  main 병합 → 이미지 푸시 → `deploy` 브랜치 `target.env` 기록 → 서버 PC가 2분마다 읽어 교체·실패 시 롤백.
 - k8s 매니페스트(k3s/minikube), CI 파이프라인(`.github/workflows`)은 아직 범위 밖 — 다음 단계.

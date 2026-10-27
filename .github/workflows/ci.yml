@@ -7,6 +7,7 @@
 #   frontend   : npm ci → lint → build → test (React + Vite) + Docker 이미지 빌드·nginx -t
 #   llm-server : ruff lint + pytest (GPU 없이)
 #   infra      : docker compose 문법 검증 + Dockerfile lint + Mock 서버 기동 확인
+#   cd-deploy  : 학교 PC 배포 스크립트(infra/deploy) 시나리오 시험 + Windows PS 5.1 문법 검사
 #
 # 보안: GitHub 호스팅 러너(ubuntu-latest)만 사용. self-hosted runner 없음
 #       → Public 레포에서 fork PR이 와도 학교 PC에 영향 없음.
@@ -20,7 +21,8 @@ on:
     branches: [main]
   push:
     # 담당별 상시 브랜치 — 각자 브랜치에 push만 해도 자동 검사
-    branches: [main, frontend, backend, data-eng, llm, infra]
+    # collect: 데이터 수집 서버 전용 (정한비) — CI는 돌지만 main 병합은 아래 collect-guard가 차단
+    branches: [main, frontend, backend, data-eng, llm, infra, collect]
   workflow_dispatch: {}          # Actions 탭에서 수동 실행
 
 permissions:
@@ -42,6 +44,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       llm: ${{ steps.filter.outputs.llm }}
       infra: ${{ steps.filter.outputs.infra }}
+      deploy: ${{ steps.filter.outputs.deploy }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -58,6 +61,9 @@ jobs:
               - 'infra/**'
               - '**/Dockerfile'
               - '.github/workflows/**'
+            deploy:
+              - 'infra/deploy/**'
+              - '.github/workflows/ci.yml'
 
   # ------------------------------------------------------------------
   # 2) backend — Spring Boot (Gradle wrapper 기준)
@@ -246,11 +252,92 @@ jobs:
         run: docker compose -f "${{ steps.compose.outputs.file }}" down -v
 
   # ------------------------------------------------------------------
-  # 6) 최종 판정 — branch protection에는 이 job 하나만 "필수 체크"로 등록
+  # 5-1) cd-deploy — 3단계 CD 배포 스크립트(infra/deploy) 시험 (2026-10-12)
+  #      실제 DockerHub 이미지로 첫 배포·변경 없음·pull 실패·롤백·교체를 리눅스 pwsh 로 확인
+  #      + 학교 PC와 같은 Windows PowerShell 5.1 로 문법 검사
+  # ------------------------------------------------------------------
+  cd-deploy:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: compose 문법 (PC별 프로필)
+        working-directory: infra/deploy
+        run: |
+          for p in backend frontend backend,frontend; do
+            TAG=ci COMPOSE_PROFILES=$p docker compose config -q && echo "$p OK"
+          done
+
+      - name: deploy 브랜치 target.env 읽기 (서버 PC와 같은 주소)
+        shell: pwsh
+        run: |
+          $t = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/SM-Finesse/Finesse/deploy/target.env')
+          $t
+          if ($t -notmatch '(?m)^TAG=[A-Za-z0-9._-]+') { Write-Output '::error::target.env 에 TAG 없음'; exit 1 }
+
+      - name: 배포 시나리오 시험 (실제 이미지)
+        run: bash infra/deploy/tests/ci-deploy-test.sh
+
+  cd-deploy-windows:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell 5.1 문법 검사 (학교 PC 기본 PowerShell)
+        shell: powershell
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem infra/deploy -Filter *.ps1) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+            if ($errs) { foreach ($e in $errs) { Write-Output "::error file=infra/deploy/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)" }; $bad++ }
+            else { Write-Output "$($f.Name) OK ($($PSVersionTable.PSVersion))" }
+          }
+          if ($bad) { exit 1 }
+
+  # ------------------------------------------------------------------
+  # 6) collect-guard — collect 브랜치는 절대 main에 병합되면 안 됨 (2026-10-09)
+  #    ① PR 출발 브랜치가 collect 면 실패
+  #    ② 다른 브랜치가 collect 를 merge 해서 우회해도, PR에 collect 전용 커밋이
+  #       섞여 있으면 실패 (collect 에만 있는 커밋 ∩ 이 PR의 커밋)
+  #    → ci-ok 가 실패하므로 main Ruleset(ci-ok 필수)에 의해 병합 버튼이 막힘
+  #    한계: cherry-pick(커밋을 새로 복사)은 커밋 ID가 달라져 못 잡음 — 리뷰로 확인
+  # ------------------------------------------------------------------
+  collect-guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # 전체 이력 + 모든 브랜치 (collect/main 비교용)
+
+      - name: collect 브랜치 main 병합 차단
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" = "collect" ]; then
+            echo "::error::collect 브랜치는 main에 병합할 수 없습니다 (데이터 수집 서버 전용 브랜치)."; exit 1
+          fi
+          if ! git rev-parse -q --verify refs/remotes/origin/collect >/dev/null; then
+            echo "collect 브랜치 없음 — 검사 생략"; exit 0
+          fi
+          leaked=$(comm -12 <(git rev-list refs/remotes/origin/collect --not refs/remotes/origin/main | sort) \
+                            <(git rev-list HEAD --not refs/remotes/origin/main | sort))
+          if [ -n "$leaked" ]; then
+            echo "::error::이 PR에 collect 브랜치 전용 커밋이 섞여 있습니다 (다른 브랜치를 거쳐 우회 병합 시도)."
+            git log --oneline --no-walk $leaked | head -20; exit 1
+          fi
+          echo "collect 커밋 없음 — 통과"
+
+  # ------------------------------------------------------------------
+  # 7) 최종 판정 — branch protection에는 이 job 하나만 "필수 체크"로 등록
   #    (건너뛴 job은 통과, 실패/취소가 하나라도 있으면 실패)
   # ------------------------------------------------------------------
   ci-ok:
-    needs: [changes, backend, frontend, llm-server, infra]
+    needs: [changes, backend, frontend, llm-server, infra, cd-deploy, cd-deploy-windows, collect-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

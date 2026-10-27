@@ -42,7 +42,7 @@ public class CommentController {
                     - `event: done` / `data: {"completed": ok 챕터 수, "failed_chapters": [...], "meta": {"elapsed_ms": ...}}`
                       — 마지막 1건. 받으면 연결을 닫을 것 (닫지 않으면 브라우저가 자동 재연결함)
                     - `: ping` — 10초마다 보내는 주석 하트비트 (이벤트 아님)
-                    - `event: error` / `data: {"error_code": ..., "message": ...}` — 챕터 시작 전 stats 단계 실패
+                    - `event: error` / `data: {"error_code": ..., "message": ..., "retry_after_seconds": 5}` — 챕터 시작 전 stats 단계 실패 (retry_after_seconds는 SERVER_BUSY일 때만)
                       (USER_NOT_FOUND · SERVER_BUSY · TETRIO_API_UNAVAILABLE). 이 이벤트 뒤 스트림 종료
                     상한 60초(LLM 서버 1대면 120초) 안에 못 끝난 챕터는 status=timeout으로 채워서 보낸다.
                     성공(ok) 챕터만 챕터 단위로 10분 캐시 — 다시 요청하면 캐시된 챕터는 즉시, 나머지만 LLM 재호출.

@@ -8,7 +8,14 @@ from pathlib import Path
 import pytest
 
 from app.schemas import LightRequest
-from app.validation import OutputFormatError, check_light_output, parse_light_output
+from app.validation import (
+    OutputFormatError,
+    check_light_output,
+    find_prompt_echo,
+    normalize_stats,
+    parse_light_output,
+    process_light_output,
+)
 
 SAMPLE = Path(__file__).parent / "samples" / "light_testuser.json"
 
@@ -108,3 +115,64 @@ def test_null이던_지표를_고르면_문제(available):
 def test_같은_지표를_두_번_고르면_문제(available):
     resp = parse_light_output(make_output(["delta_plonk", "delta_plonk", "delta_app"]))
     assert "duplicate_stat:delta_plonk" in check_light_output(resp, available)
+
+
+# ---------- 10/8 추가: 앞 JSON 만 읽기 · 프롬프트 베낌 · 키 정리 ----------
+
+GOOD = ["delta_plonk", "delta_vs_apm", "session_vs_slope"]
+
+
+def test_JSON_뒤에_붙은_글은_무시():
+    # 10/7 11번 로그 "Extra data: line 2 column 1" 사례
+    text = make_output(GOOD) + "\n위 결과는 입력 데이터를 바탕으로 작성되었습니다."
+    assert len(parse_light_output(text).highlights) == 3
+
+
+def test_코드블록_안의_JSON도_읽음():
+    text = "```json\n" + make_output(GOOD) + "\n```"
+    assert len(parse_light_output(text).highlights) == 3
+
+
+def test_기존_기준은_뒤에_글이_있으면_오류():
+    with pytest.raises(OutputFormatError):
+        parse_light_output(make_output(GOOD) + "\n추가 설명", lenient=False)
+
+
+def test_잘린_JSON은_여전히_형식_오류():
+    # finish=length 로 중간에 끊긴 경우는 고칠 수 없다
+    with pytest.raises(OutputFormatError):
+        parse_light_output(make_output(GOOD)[:60])
+
+
+def test_프롬프트를_베낀_요약을_찾음():
+    resp = parse_light_output(make_output(GOOD, summary="당신은 테트리스 게임 TETR.IO의 전적 데이터를 분석해"))
+    assert find_prompt_echo(resp) == ["당신은 테트리스"]
+
+
+def test_정상_요약은_베낌_아님():
+    resp = parse_light_output(make_output(GOOD, summary="상대 대비 Plonk 성향이 약합니다."))
+    assert find_prompt_echo(resp) == []
+
+
+def test_점_경로_키를_평탄_키로_정리():
+    resp = parse_light_output(make_output(["playstyle_relative.delta_plonk", "defense.delta_vs_apm", "session_vs_slope"]))
+    changed = normalize_stats(resp)
+    assert [h.stat for h in resp.highlights] == GOOD
+    assert len(changed) == 2
+
+
+def test_후보가_아닌_키는_정리하지_않음():
+    resp = parse_light_output(make_output(["fixed_metrics.win_rate", "delta_plonk", "delta_app"]))
+    assert normalize_stats(resp) == []
+    assert resp.highlights[0].stat == "fixed_metrics.win_rate"
+
+
+def test_전체_처리_베낌이면_형식_오류(available):
+    with pytest.raises(OutputFormatError):
+        process_light_output(make_output(GOOD, summary="[해석 규칙] 1. delta 값이"), available)
+
+
+def test_전체_처리_점_경로도_통과(available):
+    text = make_output(["playstyle_relative.delta_plonk", "delta_vs_apm", "session_vs_slope"]) + "\n끝"
+    _resp, issues, changed = process_light_output(text, available)
+    assert issues == [] and changed == ["playstyle_relative.delta_plonk->delta_plonk"]

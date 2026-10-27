@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from app.prompt import LIGHT_DECODING, LIGHT_SYSTEM_PROMPT, build_light_messages
+from app.prompt import (
+    LIGHT_DECODING,
+    LIGHT_SYSTEM_PROMPT,
+    build_light_messages,
+    summarize_tr_trend,
+)
 from app.schemas import CANDIDATE_KEYS, LightRequest
 
 SAMPLE = Path(__file__).parent / "samples" / "light_testuser.json"
@@ -24,9 +29,29 @@ def test_메시지는_system_user_순서(base):
     assert [m["role"] for m in messages] == ["system", "user"]
 
 
-def test_user_메시지는_요청과_같은_JSON(base):
+def test_user_메시지는_tr_trend만_요약되고_나머지는_요청과_같음(base):
     messages = build_light_messages(LightRequest.model_validate(base))
-    assert json.loads(messages[1]["content"]) == base
+    sent = json.loads(messages[1]["content"])
+    assert sent["fixed_metrics"]["tr_trend"] == summarize_tr_trend(base["fixed_metrics"]["tr_trend"])
+    sent["fixed_metrics"]["tr_trend"] = base["fixed_metrics"]["tr_trend"]
+    assert sent == base
+
+
+def test_tr_trend_요약_값():
+    assert summarize_tr_trend([21323, 21417, 21386, 21412]) == {
+        "count": 4, "first": 21323, "last": 21412, "change": 89, "min": 21323, "max": 21417,
+    }
+
+
+def test_tr_trend_빈_목록():
+    assert summarize_tr_trend([]) == {"count": 0}
+
+
+def test_긴_tr_trend도_user_메시지_길이가_일정(base):
+    short = build_light_messages(LightRequest.model_validate(base))[1]["content"]
+    base["fixed_metrics"]["tr_trend"] = [20000 + i * 12.345 for i in range(500)]
+    long = build_light_messages(LightRequest.model_validate(base))[1]["content"]
+    assert len(long) < len(short) + 40  # 값 자릿수 차이 정도만 늘어난다
 
 
 def test_생략된_필드는_생략된_채로_전달(base):

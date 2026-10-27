@@ -26,7 +26,7 @@ class RivalryCalculatorTest {
     }
 
     private RivalryAggregate calc(List<MatchHistory> matches) {
-        return calculator.calculate(new AnalyticsContext(matches, null));
+        return calculator.calculate(new AnalyticsContext(matches));
     }
 
     private List<MatchHistory> sample() {
