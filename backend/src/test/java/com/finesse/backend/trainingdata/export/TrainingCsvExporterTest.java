@@ -53,7 +53,7 @@ class TrainingCsvExporterTest {
     }
 
     @Test
-    void light는_29열_heavy는_28열이고_1번_서버_요청과_같은_값만_담는다() throws IOException {
+    void light는_46열_heavy는_31열이고_1번_서버_요청과_같은_값만_담는다() throws IOException {
         collect();
         new TrainingCsvExporter().export(dir, dir.resolve("export"));
 
@@ -64,17 +64,22 @@ class TrainingCsvExporterTest {
                 + "tr_trend_json,delta_opener,delta_plonk,delta_stride,delta_inf_ds,delta_app,"
                 + "delta_weighted_app,delta_vs_apm,delta_cheese_index,strength_split,delta_comeback,session_vs_slope,"
                 + "pick1_stat,pick1_sentence,pick2_stat,pick2_sentence,pick3_stat,pick3_sentence,light_summary,"
-                + "author,reviewer,work_status,note\n");
+                + "author,reviewer,work_status,note,"
+                // 10/27: 하이라이트 선정 값·영역과 LLM 코멘트를 끝에 붙였다
+                + "ranges_version,range_group,pick1_value,pick1_zone,pick2_value,pick2_zone,pick3_value,pick3_zone,"
+                + "llm_pick1_sentence,llm_pick1_fallback,llm_pick2_sentence,llm_pick2_fallback,"
+                + "llm_pick3_sentence,llm_pick3_fallback,llm_light_summary,llm_summary_fallback,llm_version\n");
         // heavy: 지시서 24열에 역전 챕터 표본 수 4열을 더했다 — 1번 서버 역전 챕터 data에 있는 값
         assertThat(heavyText).startsWith(CsvFiles.BOM + "sample_id,user_key,chapter_id,collected_at,calc_commit,split,"
                 + "tr_trend_delta,delta_opener,delta_plonk,delta_stride,delta_inf_ds,delta_app,delta_weighted_app,"
                 + "delta_vs_apm,delta_cheese_index,strength_split,comeback_rate,comeback_rate_against,"
                 + "comeback_opportunities,comeback_won,comeback_against_opportunities,comeback_against_allowed,"
-                + "session_vs_slope,footnote,author,reviewer,work_status,note\n");
+                + "session_vs_slope,footnote,author,reviewer,work_status,note,"
+                + "llm_footnote,llm_footnote_fallback,llm_version\n");
         List<List<String>> light = CsvFiles.parse(lightText);
         List<List<String>> heavy = CsvFiles.parse(heavyText);
-        assertThat(light).hasSize(2).allSatisfy(r -> assertThat(r).hasSize(29));
-        assertThat(heavy).hasSize(8).allSatisfy(r -> assertThat(r).hasSize(28)); // not_found 유저는 행이 없다
+        assertThat(light).hasSize(2).allSatisfy(r -> assertThat(r).hasSize(46));
+        assertThat(heavy).hasSize(8).allSatisfy(r -> assertThat(r).hasSize(31)); // not_found 유저는 행이 없다
     }
 
     @Test

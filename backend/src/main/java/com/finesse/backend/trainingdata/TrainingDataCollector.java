@@ -2,12 +2,15 @@ package com.finesse.backend.trainingdata;
 
 import com.finesse.backend.calc.collector.CollectionStatus;
 import com.finesse.backend.calc.collector.UserSummary;
+import com.finesse.backend.calc.domain.HighlightJudgement;
+import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.service.AnalysisOutcome;
 import com.finesse.backend.dto.LlmHeavyChapterRequest;
 import com.finesse.backend.service.TrainingPayloadBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
@@ -31,7 +34,9 @@ import java.util.Set;
 /**
  * 학습 데이터 수집기 본체 (학습 데이터 수집 서버 작업지시서 3·4절).
  * targets.csv를 읽어 유저 1명씩: TETR.IO 수집 1회 → 계산 1회 → LLM 요청(light 1 + heavy 7)을 만들어 JSON 8개로 저장 →
- * users.csv에 결과 한 행 → 직전 수집이 끝난 뒤 1분 대기. LLM은 부르지 않는다.
+ * users.csv에 결과 한 행 → 직전 수집이 끝난 뒤 1분 대기.
+ * 10/27부터 LLM 서버가 설정돼 있으면 calc 하이라이트 선정 결과로 라이트 개별·기본 코멘트와 헤비 챕터 7개 코멘트를 받아
+ * 같은 JSON에 함께 저장한다(설정이 없으면 예전처럼 LLM을 부르지 않는다).
  * 로그에는 닉네임을 남기지 않고 user_key만 쓴다(4.5절).
  */
 public class TrainingDataCollector {
@@ -67,14 +72,24 @@ public class TrainingDataCollector {
     private final Sleeper sleeper;
     private final Path workDir;
     private final RankLookup rankLookup;
+    private final TrainingLlmClient llm;
+    /** 방금 유저의 LLM 코멘트 시간 — 느린 수집 경고에서 뺀다 */
+    private Duration lastLlmTook = Duration.ZERO;
 
     public TrainingDataCollector(TrainingPayloadBuilder builder, JsonMapper mapper, TrainingCollectorProperties props,
                                  Clock clock, Sleeper sleeper, Path workDir) {
-        this(builder, mapper, props, clock, sleeper, workDir, null);
+        this(builder, mapper, props, clock, sleeper, workDir, null, null);
     }
 
     public TrainingDataCollector(TrainingPayloadBuilder builder, JsonMapper mapper, TrainingCollectorProperties props,
                                  Clock clock, Sleeper sleeper, Path workDir, RankLookup rankLookup) {
+        this(builder, mapper, props, clock, sleeper, workDir, rankLookup, null);
+    }
+
+    /** @param llm LLM 코멘트 클라이언트 — null이면 코멘트를 받지 않는다 */
+    public TrainingDataCollector(TrainingPayloadBuilder builder, JsonMapper mapper, TrainingCollectorProperties props,
+                                 Clock clock, Sleeper sleeper, Path workDir, RankLookup rankLookup,
+                                 TrainingLlmClient llm) {
         this.builder = builder;
         this.mapper = mapper;
         this.props = props;
@@ -82,6 +97,7 @@ public class TrainingDataCollector {
         this.sleeper = sleeper;
         this.workDir = workDir;
         this.rankLookup = rankLookup;
+        this.llm = llm;
     }
 
     public int run() throws IOException {
@@ -231,13 +247,16 @@ public class TrainingDataCollector {
             return false;
         }
         Instant started = clock.instant();
+        lastLlmTook = Duration.ZERO;
         Result result = collectOne(key, normalized, collected, calcCommit);
         pace.lastEnd = clock.instant();
         Duration took = Duration.between(started, pace.lastEnd);
         record(users, counts, key, result, took);
-        if (took.toSeconds() >= props.slowUserWarnSeconds()) {
-            log.warn("{} 수집이 {}초 걸렸습니다(기준 {}초) — 바로 위 TETR.IO 경고 로그에서 원인을 확인하세요",
-                    key, took.toMillis() / 1000.0, props.slowUserWarnSeconds());
+        // 경고는 TETR.IO 수집·계산 시간만 본다 — LLM 코멘트 시간(유저당 약 20~40초)은 빼고 따로 로그에 남긴다
+        Duration collectTook = took.minus(lastLlmTook);
+        if (collectTook.toSeconds() >= props.slowUserWarnSeconds()) {
+            log.warn("{} 수집이 {}초 걸렸습니다(기준 {}초, LLM 코멘트 시간 제외) — 바로 위 TETR.IO 경고 로그에서 원인을 확인하세요",
+                    key, collectTook.toMillis() / 1000.0, props.slowUserWarnSeconds());
         }
 
         // 429면 대기를 늘린다(1분 → 5분, 4.6절). 성공하면 다시 1분
@@ -268,7 +287,7 @@ public class TrainingDataCollector {
             return switch (outcome) {
                 case AnalysisOutcome.Analyzed analyzed -> {
                     TrainingPayloadBuilder.Payloads payloads = builder.payloads(normalized, analyzed);
-                    writePayloads(key, collectedAt, calcCommit, payloads, collected);
+                    writePayloads(key, collectedAt, calcCommit, payloads, requestComments(key, payloads), collected);
                     yield new Result(CollectStatus.OK, null, payloads.matchCount(), collectedAt, rankRd(analyzed.summary()));
                 }
                 case AnalysisOutcome.ColdStartBypass cold ->
@@ -297,19 +316,126 @@ public class TrainingDataCollector {
         };
     }
 
+    /**
+     * LLM 코멘트 — 라이트 개별(선정 지표마다)·기본 1회, 헤비 챕터 7개. LLM 서버가 없으면 null.
+     * 받지 못한 코멘트가 있어도 수집 결과(ok)는 그대로 — 사유는 JSON에 남는다.
+     */
+    Comments requestComments(String key, TrainingPayloadBuilder.Payloads payloads) {
+        if (llm == null) {
+            return null;
+        }
+        Instant started = clock.instant();
+        List<TrainingLlmClient.Reply> sentences = new ArrayList<>();
+        for (TrainingPayloadBuilder.LightItem item : payloads.lightItems()) {
+            sentences.add(llm.sentence(item));
+        }
+        TrainingLlmClient.Reply summary = payloads.lightItems().isEmpty() ? null : llm.summary(payloads.lightItems());
+        Map<String, TrainingLlmClient.Reply> heavy = new java.util.LinkedHashMap<>();
+        payloads.heavy().forEach((chapter, request) -> heavy.put(chapter, llm.heavy(request)));
+
+        List<TrainingLlmClient.Reply> all = new ArrayList<>(sentences);
+        if (summary != null) {
+            all.add(summary);
+        }
+        all.addAll(heavy.values());
+        long missing = all.stream().filter(r -> !r.ok()).count();
+        long fallback = all.stream().filter(r -> r.ok() && Boolean.TRUE.equals(r.fallback())).count();
+        lastLlmTook = Duration.between(started, clock.instant());
+        if (missing > 0 || fallback > 0) {
+            log.warn("{} LLM 코멘트 {}건 중 못 받음 {} · 대체 문장 {} ({}초)", key, all.size(), missing, fallback,
+                    lastLlmTook.toMillis() / 1000.0);
+        } else {
+            log.info("{} LLM 코멘트 {}건 ({}초)", key, all.size(), lastLlmTook.toMillis() / 1000.0);
+        }
+        return new Comments(sentences, summary, heavy);
+    }
+
+    /** 유저 1명의 LLM 코멘트 — sentences는 lightItems와 같은 순서, summary는 선정 지표가 없으면 null */
+    record Comments(List<TrainingLlmClient.Reply> sentences, TrainingLlmClient.Reply summary,
+                    Map<String, TrainingLlmClient.Reply> heavy) {
+    }
+
     /** JSON 8개 — 쓰다 죽어도 반쯤 쓰인 파일이 남지 않게 임시 파일 → fsync → rename (3.4절) */
     private void writePayloads(String key, String collectedAt, String calcCommit,
-                               TrainingPayloadBuilder.Payloads payloads, Path collected) throws IOException {
+                               TrainingPayloadBuilder.Payloads payloads, Comments comments, Path collected)
+            throws IOException {
         ObjectNode light = meta(key, collectedAt, calcCommit, payloads.matchCount(), "light");
         light.set("payload", mapper.valueToTree(payloads.light()));
+        if (payloads.judgement() != null) {
+            light.set("highlight_judgement", judgementNode(payloads.judgement()));
+        }
+        light.set("light_comment", lightCommentNode(payloads.lightItems(), comments));
         write(collected.resolve(key + "_light.json"), light);
 
         for (Map.Entry<String, LlmHeavyChapterRequest> e : payloads.heavy().entrySet()) {
             ObjectNode heavy = meta(key, collectedAt, calcCommit, payloads.matchCount(), "heavy");
             heavy.put("chapter_id", e.getKey());
             heavy.set("payload", mapper.valueToTree(e.getValue()));
+            if (comments != null && comments.heavy().containsKey(e.getKey())) {
+                heavy.set("comment", replyNode(comments.heavy().get(e.getKey()), "footnote"));
+            }
             write(collected.resolve(key + "_heavy_" + e.getKey() + ".json"), heavy);
         }
+    }
+
+    /** calc 하이라이트 판정·선정 — 1번 서버 stats highlight_judgement와 같은 모양(zone 소문자) */
+    private ObjectNode judgementNode(HighlightJudgement j) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("ranges_version", j.rangesVersion());
+        node.put("range_group", j.rangeGroup());
+        ArrayNode metrics = node.putArray("metrics");
+        j.metrics().forEach(m -> metrics.add(metricNode(m)));
+        ArrayNode picks = node.putArray("picks");
+        j.picks().forEach(m -> picks.add(metricNode(m)));
+        return node;
+    }
+
+    private ObjectNode metricNode(JudgedMetric m) {
+        ObjectNode n = mapper.createObjectNode();
+        n.put("key", m.key());
+        n.put("group", m.group());
+        n.put("value", m.value());
+        n.put("q1", m.q1());
+        n.put("q3", m.q3());
+        n.put("zone", m.zone() == null ? null : m.zone().wireName());
+        n.put("deviation", m.deviation());
+        n.put("edge_gap", m.edgeGap());
+        return n;
+    }
+
+    /** 라이트 코멘트 요청(items)과 받은 결과 — LLM을 부르지 않았으면 requested false */
+    private ObjectNode lightCommentNode(List<TrainingPayloadBuilder.LightItem> items, Comments comments) {
+        ObjectNode node = mapper.createObjectNode();
+        node.put("requested", comments != null);
+        ArrayNode arr = node.putArray("items");
+        for (int i = 0; i < items.size(); i++) {
+            TrainingPayloadBuilder.LightItem item = items.get(i);
+            ObjectNode n = arr.addObject();
+            n.put("stat", item.stat());
+            n.put("value", item.value());
+            n.put("zone", item.zone());
+            if (comments != null) {
+                n.set("comment", replyNode(comments.sentences().get(i), "sentence"));
+            }
+        }
+        if (comments != null && comments.summary() != null) {
+            node.set("summary", replyNode(comments.summary(), "light_summary"));
+        }
+        return node;
+    }
+
+    private ObjectNode replyNode(TrainingLlmClient.Reply r, String textField) {
+        ObjectNode n = mapper.createObjectNode();
+        n.put(textField, r.text());
+        if (r.fallback() == null) {
+            n.putNull("fallback");
+        } else {
+            n.put("fallback", r.fallback());
+        }
+        n.put("version", r.version());
+        n.put("attempts", r.attempts());
+        n.put("error", r.error());
+        return n;
     }
 
     private ObjectNode meta(String key, String collectedAt, String calcCommit, int matchCount, String view) {

@@ -1,6 +1,7 @@
 # 학습 데이터 수집기 (collect 브랜치 전용)
 
-파인튜닝용 **LLM 입력(payload)** 을 실제 유저 데이터로 모은다. 정답 코멘트는 사람이 쓰고, **LLM은 부르지 않는다**.
+파인튜닝용 **LLM 입력(payload)** 을 실제 유저 데이터로 모은다. 정답 코멘트는 사람이 쓴다.
+10/27부터 **LLM 서버를 설정하면 그 유저의 실제 LLM 코멘트(라이트 개별·기본 + 헤비 7챕터)도 받아 함께 저장**한다(설정이 없으면 예전처럼 부르지 않음).
 기준 문서: 「학습 데이터 수집 서버 작업지시서」(20) · 「학습 데이터 CSV 구조 지시서」(19).
 
 > 🔴 이 브랜치는 **main에 PR을 올리지 않는다.** 서비스 서버(`backend`)와 독립된 수집 전용 서버라 `backend`·`data-eng`의 변경을 받지 않고,
@@ -11,6 +12,8 @@
 ```
 targets.csv → 유저 1명씩: TETR.IO 4회(요약 1 + 기록 3) → calc 계산 1회
             → 서비스가 LLM에 보내려던 요청을 그대로 저장: light 1 + heavy 7 (rivals 제외)
+              + calc 하이라이트 판정·선정 결과(highlight_judgement)와 라이트 코멘트 요청 {stat, value, zone}
+            → (LLM 서버 설정 시) 개별 코멘트 × 선정 지표 수 + 기본 1 + 헤비 7 → 같은 JSON에 저장
             → users.csv에 결과 1행 → 직전 수집이 끝난 뒤 1분 대기 → 반복
             → 명단 끝: error·rate_limited로 끝난 유저를 한 번 더 → 창을 연 채 새 명단 대기
 ```
@@ -43,6 +46,20 @@ powershell -ExecutionPolicy Bypass -File collector\run-collector.ps1 -DataDir D:
 
 설정(`application-collector.yml`, `--collector.*`로 덮어쓰기): `interval-seconds`(60) · `rate-limited-interval-seconds`(429 뒤 300) · `max-consecutive-failures`(3) · `failure-pause-seconds`(연속 실패 뒤 600, 0이면 중단) · `slow-user-warn-seconds`(30) · `calc-commit`(git이 없는 PC용) · `allow-dirty`.
 
+### LLM 코멘트 (10/27)
+
+- 켜는 법: `DataDir\collector-local.yml`에 서버 주소를 넣는다(실제 주소는 레포에 넣지 않는다). 파일이 없거나 비어 있으면 LLM을 부르지 않는다.
+  ```yaml
+  collector:
+    llm:
+      servers: [http://(LLM 서버 1):8081, http://(LLM 서버 2):8081]
+  ```
+- 1번 서버와 같은 엔드포인트: `/v1/light/sentence`(선정 지표마다) · `/v1/light/summary`(1회) · `/v1/comment/heavy-chapter`(7챕터). 요청 모양도 1번 서버와 같다(선정은 calc `highlight_judgement.picks`, 값은 화면 원값, 영역은 높음·보통·낮음).
+- 1번 서비스와 GPU를 나눠 쓰므로 **한 번에 하나씩, 서버를 번갈아** 보낸다. 유저당 약 20~40초 더 걸린다.
+- 호출 1회 10초. 연결 실패·시간 초과·5xx면 다른 서버로. **대체 문장(`fallback: true`)이면 같은 요청을 1회 더**(`fallback-retries`), 그래도 대체 문장이면 그대로 저장하고 `fallback: true`로 남긴다. 4xx는 다시 보내지 않는다.
+- 코멘트를 못 받아도 수집 결과는 `ok` — 사유는 JSON `error`에 남는다. 로그: `u0001 LLM 코멘트 11건 (25.3초)` · `… 중 못 받음 n · 대체 문장 n`.
+- 느린 수집 경고(`slow-user-warn-seconds`)는 LLM 코멘트 시간을 빼고 본다.
+
 ### 실패 처리 (작업지시서 4.6절에서 바꾼 부분 — PM 확인 10/13)
 
 - **연속 3회 실패하면 중단하지 않고 10분 쉰 뒤 이어서 수집한다.** 쉬고 나서 처음 유저가 또 실패하면 3번을 채우지 않고 바로 다시 10분 — TETR.IO 장애가 길어도 10분에 1명만 쓰고 기다린다. 한 명이라도 성공하면 다시 3번 기준. 쉴 때마다 경고 로그를 남긴다(지시서가 걱정한 "조용히 계속 도는" 상황은 아님).
@@ -64,7 +81,8 @@ powershell -ExecutionPolicy Bypass -File collector\run-collector.ps1 -DataDir D:
 | `targets.csv` | 수집 대상 (입력) | 🔴 밖 |
 | `user_map.csv` | `user_key` ↔ username | 🔴 밖 |
 | `users.csv` | 유저별 결과 = 진행 기록. 열: `user_key, collected_at, status, fail_reason, match_count, rank, rd, split`. `split`은 PM이 채운다 | `.gitignore` |
-| `collected/u0001_light.json`, `u0001_heavy_<chapter>.json` | 유저당 8개. 메타(`user_key`·`collected_at`·`calc_commit`·`match_count`) + `payload` | `.gitignore` |
+| `collected/u0001_light.json`, `u0001_heavy_<chapter>.json` | 유저당 8개. 메타(`user_key`·`collected_at`·`calc_commit`·`match_count`) + `payload`. light에는 `highlight_judgement`(calc 판정·선정)·`light_comment`(`items` = 코멘트 요청 {stat, value, zone}과 각 `comment`, `summary`, `requested`), heavy에는 `comment`(10/27). 코멘트는 `{문장, fallback, version, attempts, error}` | `.gitignore` |
+| `collector-local.yml` | LLM 서버 주소 등 로컬 설정(10/27) | 🔴 밖 |
 | `logs/collector.log` | 10MB·30개 롤링 | |
 | `collector.lock` | 단일 실행 잠금 | |
 
@@ -81,7 +99,11 @@ powershell -ExecutionPolicy Bypass -File collector\run-collector.ps1 -DataDir D:
 .\gradlew.bat exportTrainingCsv --args="--data-dir=D:\finesse-collector"
 ```
 
-`DataDir\export\light.csv`(29열) · `heavy.csv`(28열, 유저당 7행). UTF-8 BOM. 요청에 없는 필드는 빈 칸, `null` 값은 문자 `null`, 0은 값.
+`DataDir\export\light.csv`(46열) · `heavy.csv`(31열, 유저당 7행). UTF-8 BOM. 요청에 없는 필드는 빈 칸, `null` 값은 문자 `null`, 0은 값.
+
+10/27 추가 열 — 기존 열 뒤에 붙였다(앞 열 순서는 그대로). 10/27 전에 수집한 JSON은 빈 칸.
+- `light.csv`: `pick1~3_stat`을 calc 선정 지표로 채운다(사람이 쓰는 `pick*_sentence`·`light_summary`는 그대로 빈 칸). 끝에 `ranges_version`·`range_group`·`pick1~3_value`·`pick1~3_zone`·`llm_pick1~3_sentence`·`llm_pick1~3_fallback`·`llm_light_summary`·`llm_summary_fallback`·`llm_version` (17열).
+- `heavy.csv`: 끝에 `llm_footnote`·`llm_footnote_fallback`·`llm_version` (3열). 사람이 쓰는 `footnote`는 빈 칸.
 
 **학습 데이터는 1번 서버가 LLM에 실제로 보내는 값만 담는다** (PM 10/12: "현재 모듈 설계를 토대로, 충돌을 줄이게 1번 서버 형태를 활용").
 CSV 구조 지시서(19번)와 다른 점 — 학습 입력과 실제 서비스 입력이 같아야 해서다.
@@ -93,5 +115,6 @@ CSV 구조 지시서(19번)와 다른 점 — 학습 입력과 실제 서비스 
 
 - **이 브랜치에서 calc를 고친 곳 (429 구분)** — 원래 calc는 429·5xx·타임아웃을 모두 "수집 실패"로만 알려준다. 계산 공식은 건드리지 않고 429만 위로 전달하게 했다: `TetrIoRateLimitedException`(신규) · `TetrIoApiClient`(429 catch) · `CollectionStatus.RATE_LIMITED` · `TetrIoCollector`·`StatCalculatorFacade`(전달).
 - **이 브랜치에서 calc를 고친 곳 (로그)** — `TetrIoApiClient`(요청 실패·느린 요청), `TetrIoResilience`(재요청·CircuitBreaker 상태). 로그만 추가, 동작·계산은 그대로.
+- **calc를 data-eng `cfa2c0e`(10/27)까지 옮겨 왔다** — 하이라이트 판정·선정(v4.3, 티어 묶음 범위 G2·역전 축소 k=20), `session_vs_slope` 정의 불가 시 null(v4.4), 지표 신뢰도. data-eng를 merge하지 않고 바뀐 파일을 새 커밋으로 넣었다(merge하면 `collect-guard` 때문에 그쪽 main PR이 막힌다). 위 두 가지 collect 전용 변경은 그대로 남아 있다. 1번 서버(backend `658de2b`)와 같은 calc라 같은 입력이면 같은 값이 나온다.
 - 기록 수집이 429로 끊겨도 30판 이상 모였으면 calc가 기존처럼 일부만으로 분석한다(`ok`).
 - 캐시를 타지 않는다(서비스 엔드포인트·캐시 경로를 거치지 않음) — 3,800명을 돌려도 메모리가 쌓이지 않는다.

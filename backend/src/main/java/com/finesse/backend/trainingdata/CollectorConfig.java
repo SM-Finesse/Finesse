@@ -50,14 +50,19 @@ public class CollectorConfig {
 
     @Bean
     TrainingDataCollector trainingDataCollector(TrainingPayloadBuilder builder, JsonMapper jsonMapper,
-                                                TrainingCollectorProperties props, TetrIoApi tetrIoApi) {
+                                                TrainingCollectorProperties props, TetrIoApi tetrIoApi,
+                                                CollectorLlmProperties llmProps) {
         // rank·rd 열 이전에 수집한 유저 채우기 — 리그 요약 1회(calc RateLimiter·재시도 그대로)
         TrainingDataCollector.RankLookup lookup = name -> {
             UserSummary s = tetrIoApi.fetchLeagueSummary(name, "finesse-" + java.util.UUID.randomUUID()); // 요청마다 새 X-Session-ID
             return new UsersLog.RankRd(s.rank(), s.rd());
         };
+        // LLM 코멘트(10/27) — 서버 주소가 없으면 예전처럼 LLM을 부르지 않는다. 주소는 로그에 남기지 않고 대수만
+        TrainingLlmClient llm = llmProps.enabled() ? new TrainingLlmClient(llmProps, jsonMapper) : null;
+        log.info("LLM 코멘트 {}", llm == null ? "받지 않음(collector.llm.servers 없음)"
+                : "받음 — 서버 " + llmProps.servers().size() + "대, 대체 문장이면 " + llmProps.fallbackRetries() + "회 더 요청");
         return new TrainingDataCollector(builder, jsonMapper, props, Clock.systemDefaultZone(), d -> Thread.sleep(d),
-                Path.of("").toAbsolutePath(), lookup);
+                Path.of("").toAbsolutePath(), lookup, llm);
     }
 
     /** 명단을 끝까지 돌거나 중단되면 종료 코드를 남기고 프로세스를 끝낸다(0 완료 · 1 설정 오류 · 2 중단 · 3 이미 실행 중) */

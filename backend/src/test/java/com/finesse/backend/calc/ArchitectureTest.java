@@ -8,9 +8,17 @@ import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
 import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.FancyStats;
+import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.HighlightStats;
+import com.finesse.backend.calc.domain.HighlightZone;
+import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.MetricCaution;
+import com.finesse.backend.calc.domain.MetricReliability;
+import com.finesse.backend.calc.domain.ReliabilityReason;
+import com.finesse.backend.calc.domain.ReliabilityReport;
+import com.finesse.backend.calc.domain.SamplePart;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalBadge;
@@ -104,6 +112,9 @@ class ArchitectureTest {
                         RecentWinLossStats.class, ProfileWindowDeltaStats.class, MatchSeriesStats.class,
                         RivalryStats.class, RivalOpponentStats.class, RivalBadge.class, MatchResult.class,
                         UserSummary.class, CollectionStatus.class, RateLimiter.class,
+                        HighlightJudgement.class, JudgedMetric.class, HighlightZone.class,
+                        ReliabilityReport.class, MetricReliability.class, MetricCaution.class,
+                        ReliabilityReason.class, SamplePart.class,
                         // collect 브랜치: 수집기가 rank·rd를 채울 때 리그 요약만 따로 조회한다(10/13)
                         TetrIoApi.class, TetrIoUserNotFoundException.class))))
                 .allowEmptyShould(true)

@@ -23,6 +23,9 @@ import java.util.Map;
  * heavy는 역전 챕터 표본 수 4열을 더해 28열(1번 heavy 역전 챕터 data에 있음).
  * 칸 값 규칙(5.2절): 요청에 필드가 없으면 빈 칸, null 값이면 문자 null, 숫자는 그대로(0.0도 값).
  * 사람이 채울 열은 비워 두고 work_status만 todo. split은 users.csv에서 가져온다(PM이 채운 뒤 다시 돌리면 된다).
+ * 10/27: pick1~3_stat은 calc 하이라이트 선정 결과(picks)로 채우고, 끝에 선정 값·영역과 LLM 코멘트 열을 붙인다
+ * (light 29 → 46열, heavy 28 → 31열). 사람이 쓰는 pick*_sentence·light_summary·footnote 열은 그대로 비워 둔다.
+ * 예전 JSON(10/27 전 수집)에는 해당 값이 없어 새 열이 빈 칸이다.
  *
  * 실행: ./gradlew exportTrainingCsv --args="--data-dir=<수집 폴더> [--out-dir=<출력 폴더>]"
  */
@@ -35,7 +38,11 @@ public final class TrainingCsvExporter {
             "delta_app", "delta_weighted_app", "delta_vs_apm", "delta_cheese_index",
             "strength_split", "delta_comeback", "session_vs_slope",
             "pick1_stat", "pick1_sentence", "pick2_stat", "pick2_sentence", "pick3_stat", "pick3_sentence",
-            "light_summary", "author", "reviewer", "work_status", "note");
+            "light_summary", "author", "reviewer", "work_status", "note",
+            "ranges_version", "range_group",
+            "pick1_value", "pick1_zone", "pick2_value", "pick2_zone", "pick3_value", "pick3_zone",
+            "llm_pick1_sentence", "llm_pick1_fallback", "llm_pick2_sentence", "llm_pick2_fallback",
+            "llm_pick3_sentence", "llm_pick3_fallback", "llm_light_summary", "llm_summary_fallback", "llm_version");
 
     public static final List<String> HEAVY_COLUMNS = List.of(
             "sample_id", "user_key", "chapter_id", "collected_at", "calc_commit", "split",
@@ -44,7 +51,8 @@ public final class TrainingCsvExporter {
             "strength_split", "comeback_rate", "comeback_rate_against",
             "comeback_opportunities", "comeback_won", "comeback_against_opportunities", "comeback_against_allowed",
             "session_vs_slope",
-            "footnote", "author", "reviewer", "work_status", "note");
+            "footnote", "author", "reviewer", "work_status", "note",
+            "llm_footnote", "llm_footnote_fallback", "llm_version");
 
     /** heavy 지표 열 — 메타 6열 뒤부터 footnote 앞까지 */
     private static final List<String> HEAVY_METRIC_COLUMNS =
@@ -125,8 +133,31 @@ public final class TrainingCsvExporter {
                 cell(playstyle, "delta_stride"), cell(playstyle, "delta_inf_ds"),
                 cell(attack, "delta_app"), cell(attack, "delta_weighted_app"),
                 cell(defense, "delta_vs_apm"), cell(defense, "delta_cheese_index"),
-                cell(delta, "strength_split"), cell(delta, "delta_comeback"), cell(delta, "session_vs_slope"),
-                "", "", "", "", "", "", "", "", "", TODO, ""));
+                cell(delta, "strength_split"), cell(delta, "delta_comeback"), cell(delta, "session_vs_slope")));
+        JsonNode items = file.path("light_comment").path("items");
+        for (int i = 0; i < 3; i++) {
+            row.add(cell(items.path(i), "stat"));   // pick n 지표 — calc 선정(10/27), 사람이 쓰는 문장 칸은 비움
+            row.add("");
+        }
+        row.addAll(List.of("", "", "", TODO, ""));
+        JsonNode judgement = file.path("highlight_judgement");
+        row.add(cell(judgement, "ranges_version"));
+        row.add(cell(judgement, "range_group"));
+        for (int i = 0; i < 3; i++) {
+            row.add(cell(items.path(i), "value"));
+            row.add(cell(items.path(i), "zone"));
+        }
+        String version = "";
+        for (int i = 0; i < 3; i++) {
+            JsonNode comment = items.path(i).path("comment");
+            row.add(cell(comment, "sentence"));
+            row.add(cell(comment, "fallback"));
+            version = version.isEmpty() ? cell(comment, "version") : version;
+        }
+        JsonNode summary = file.path("light_comment").path("summary");
+        row.add(cell(summary, "light_summary"));
+        row.add(cell(summary, "fallback"));
+        row.add(version.isEmpty() ? cell(summary, "version") : version);
         check(row, LIGHT_COLUMNS);
         return row;
     }
@@ -140,6 +171,10 @@ public final class TrainingCsvExporter {
             row.add(metrics.contains(column) ? cell(data, column) : "");
         }
         row.addAll(List.of("", "", "", TODO, ""));
+        JsonNode comment = file.path("comment");
+        row.add(cell(comment, "footnote"));
+        row.add(cell(comment, "fallback"));
+        row.add(cell(comment, "version"));
         check(row, HEAVY_COLUMNS);
         return row;
     }

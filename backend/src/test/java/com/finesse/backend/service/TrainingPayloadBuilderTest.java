@@ -2,7 +2,10 @@ package com.finesse.backend.service;
 
 import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.domain.DeltaStats;
+import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.HighlightStats;
+import com.finesse.backend.calc.domain.HighlightZone;
+import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
@@ -101,5 +104,31 @@ class TrainingPayloadBuilderTest {
                 .isEqualTo("{\"chapter_id\":\"attack\",\"data\":{\"delta_app\":0.02,\"delta_weighted_app\":1.4}}");
         assertThat(MAPPER.writeValueAsString(p.heavy().get("strength_split")))
                 .isEqualTo("{\"chapter_id\":\"strength_split\",\"data\":{}}");
+    }
+
+    @Test
+    void 라이트_코멘트_요청은_calc_선정_결과를_한글_영역과_화면_원값으로_바꾼다() {
+        AnalysisOutcome.Analyzed base = analyzed();
+        HighlightJudgement j = new HighlightJudgement("ref-2026-10-15-g2", "t5", List.of(), List.of(
+                pick("delta_app", 0.02, HighlightZone.HIGH),
+                pick("delta_comeback", 0.31, HighlightZone.NORMAL),   // 판정값(축소값)
+                pick("session_vs_slope", null, HighlightZone.NONE)));
+        AnalysisOutcome.Analyzed analyzed = new AnalysisOutcome.Analyzed(base.summary(),
+                base.result().withHighlightJudgement(j), base.meta());
+
+        TrainingPayloadBuilder.Payloads p = new TrainingPayloadBuilder(mock(StatCalculatorFacade.class), statsService())
+                .payloads("abc", analyzed);
+
+        assertThat(p.judgement()).isSameAs(j);
+        // delta_comeback은 축소값이 아니라 화면 원값(comeback_rate − against = 0.4 − 0.25), 영역 none은 뺀다
+        assertThat(p.lightItems()).extracting(TrainingPayloadBuilder.LightItem::stat, TrainingPayloadBuilder.LightItem::zone)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("delta_app", "높음"),
+                        org.assertj.core.groups.Tuple.tuple("delta_comeback", "보통"));
+        assertThat(p.lightItems().get(0).value()).isEqualTo(0.02);
+        assertThat(p.lightItems().get(1).value()).isCloseTo(0.15, org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    private static JudgedMetric pick(String key, Double value, HighlightZone zone) {
+        return new JudgedMetric(key, key, value, -0.1, 0.1, zone, 1.0, null);
     }
 }
