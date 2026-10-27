@@ -135,7 +135,8 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(tr).getByRole('img', { name: 'TR 추이' })).toBeInTheDocument()
     /* ΔTR이 쓰는 최근 N판(tr_trend_basis.recent_matches)을 초록 구간으로 */
     expect(within(tr).getAllByText('최근 3판 (ΔTR 기준)').length).toBeGreaterThan(0)
-    /* 근거는 전체 평균만 — 최근·차이는 위쪽 ΔTR(백엔드 값)과 기준이 달라 두지 않는다 */
+    /* 근거는 최근 N판 평균 + 전체 평균 */
+    expect(within(tr).getByText('최근 3판 평균')).toBeInTheDocument()
     expect(within(tr).getByText('전체 4판 평균')).toBeInTheDocument()
     expect(within(tr).queryByText(/^Recent/)).not.toBeInTheDocument()
     expect(within(tr).queryByText('Gap')).not.toBeInTheDocument()
@@ -183,7 +184,7 @@ describe('ReportPage — 헤비 뷰', () => {
     const ps = chapter('플레이스타일 상대비교')
     await user.click(within(ps).getByRole('button', { name: '플레이스타일 상대비교 설명' }))
     const note = within(ps).getByRole('note')
-    expect(note).toHaveTextContent('Opener높은 APM으로 몰아치는')
+    expect(note).toHaveTextContent('OpenerOpening Build를 활용하는 강력한 초반 화력')
     expect(note).toHaveTextContent('Inf DS')
     expect(note).toHaveTextContent('나 − 상대 성향 점수')
     expect(note).toHaveTextContent('TETR.IO 공식 지표 아님')
@@ -222,6 +223,7 @@ describe('ReportPage — 헤비 뷰', () => {
     await ready()
 
     const tr = chapter('TR · 능력치 추이')
+    /* ΔTR은 AI 코멘트와 같은 백엔드 값 그대로 */
     const pill = within(tr).getByRole('button', { name: 'ΔTR +12.4 TR 설명' })
     expect(pill).toHaveTextContent('+12.4 TR')
     await user.click(pill)
@@ -295,7 +297,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(rv).getByText('2명 · 20명/페이지')).toBeInTheDocument()
     /* 5경기 이상 만난 상대가 5명이 안 되지만, 10판 이상이면 표본 안내를 따로 붙이지 않는다 */
     expect(within(rv).queryByRole('img', { name: '주의' })).not.toBeInTheDocument()
-    expect(within(rv).getByText('아직 상성을 말하기 이릅니다.')).toBeInTheDocument()
+    /* AI 코멘트 · 근거 칸은 없다 — 코멘트가 와도 보이지 않는다 */
+    expect(within(rv).queryByText('아직 상성을 말하기 이릅니다.')).not.toBeInTheDocument()
+    expect(within(rv).queryByText('AI')).not.toBeInTheDocument()
   })
 
   it('상대 데이터 취급 방식은 제목만 보이다가 누르면 펼쳐진다', async () => {

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react'
+import { LANG_SWITCH_ENABLED } from './components/Switches'
 import { LangProvider } from './i18n/LangProvider'
 import { addRecent, readRecent, removeRecent } from './lib/recent'
 import { readStored, writeStored } from './lib/storage'
@@ -30,7 +31,8 @@ function App() {
   }
 
   return (
-    <LangProvider>
+    /* 언어 버튼을 숨긴 동안은 한국어 고정 — 전에 EN을 골라 둔 사람이 영어에 갇히지 않게(저장값은 지우지 않는다) */
+    <LangProvider initial={LANG_SWITCH_ENABLED ? undefined : 'ko'}>
       {request ? (
         <Suspense fallback={<div className="min-h-screen" />}>
           <ReportPage

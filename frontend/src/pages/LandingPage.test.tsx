@@ -2,24 +2,29 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { LangSwitch } from '../components/Switches'
 import { LangProvider } from '../i18n/LangProvider'
 import type { AnalyzeRequest, Lang, View } from '../types'
 import { LandingPage } from './LandingPage'
 
-function setup({ lang = 'ko' as Lang, initialView = 'light' as View, initialUsername = '', recent = [] as string[] } = {}) {
+function setup({ lang = 'ko' as Lang, initialView = 'light' as View, initialUsername = '', recent = [] as string[], langSwitch = false } = {}) {
   const onAnalyze = vi.fn<(req: AnalyzeRequest) => void>()
   const onRemoveRecent = vi.fn<(name: string) => void>()
   function Harness() {
     const [view, setView] = useState<View>(initialView)
     return (
-      <LandingPage
-        view={view}
-        onViewChange={setView}
-        onAnalyze={onAnalyze}
-        initialUsername={initialUsername}
-        recent={recent}
-        onRemoveRecent={onRemoveRecent}
-      />
+      <>
+        {/* 헤더의 언어 버튼은 숨겨 두었다 — 기능 테스트는 버튼을 직접 붙여서 */}
+        {langSwitch && <LangSwitch />}
+        <LandingPage
+          view={view}
+          onViewChange={setView}
+          onAnalyze={onAnalyze}
+          initialUsername={initialUsername}
+          recent={recent}
+          onRemoveRecent={onRemoveRecent}
+        />
+      </>
     )
   }
   const user = userEvent.setup()
@@ -86,16 +91,16 @@ describe('LandingPage — 유저명 받아오기', () => {
   })
 
   it('최근 검색을 누르면 그 유저로 바로 조회하고, ×는 지우기만 한다', async () => {
-    const { user, onAnalyze, onRemoveRecent } = setup({ recent: ['icly', 'turtle'] })
+    const { user, onAnalyze, onRemoveRecent } = setup({ recent: ['player_a', 'player_b'] })
     const list = screen.getByRole('list', { name: '최근 검색' })
-    expect(list).toHaveTextContent(/icly.*turtle/)
+    expect(list).toHaveTextContent(/player_a.*player_b/)
 
-    await user.click(screen.getByRole('button', { name: 'turtle 최근 검색에서 지우기' }))
-    expect(onRemoveRecent).toHaveBeenCalledWith('turtle')
+    await user.click(screen.getByRole('button', { name: 'player_b 최근 검색에서 지우기' }))
+    expect(onRemoveRecent).toHaveBeenCalledWith('player_b')
     expect(onAnalyze).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('button', { name: 'icly' }))
-    expect(onAnalyze).toHaveBeenCalledExactlyOnceWith({ username: 'icly', view: 'light' })
+    await user.click(screen.getByRole('button', { name: 'player_a' }))
+    expect(onAnalyze).toHaveBeenCalledExactlyOnceWith({ username: 'player_a', view: 'light' })
   })
 
   it('스위치와 모드 카드가 같은 뷰 상태를 가리키고, 제출값에 반영된다', async () => {
@@ -156,8 +161,14 @@ describe('LandingPage — 유저명 받아오기', () => {
     expect(badge).toHaveFocus()
   })
 
-  it('EN으로 바꾸면 문구와 오류가 영어로 나온다', async () => {
-    const { user } = setup()
+  it('헤더에 언어 버튼을 보이지 않는다 (LANG_SWITCH_ENABLED = false)', () => {
+    setup()
+    expect(screen.queryByRole('group', { name: 'Language' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'EN' })).not.toBeInTheDocument()
+  })
+
+  it('EN으로 바꾸면 문구와 오류가 영어로 나온다 (버튼은 숨겼지만 기능은 남아 있다)', async () => {
+    const { user } = setup({ langSwitch: true })
     await user.click(screen.getByRole('button', { name: 'EN' }))
     const input = screen.getByRole('textbox', { name: 'USERNAME' })
     expect(input).toHaveAttribute('placeholder', 'Enter a username')

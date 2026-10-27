@@ -240,7 +240,7 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
   )
 }
 
-/** 헤비 챕터 카드 — 번호 · 영문 제목 · 한글 제목 · 오른쪽(배지·자세히 보기) / 본문 / AI 코멘트 · 근거 / 꼬리 */
+/** 헤비 챕터 카드 — 번호 · 영문 제목 · 한글 제목 · 오른쪽(배지·자세히 보기) / 본문 / AI 코멘트 · 근거(ai=false면 뺀다) / 꼬리 */
 export function Chapter({
   index,
   color,
@@ -251,6 +251,7 @@ export function Chapter({
   chips,
   result,
   foot,
+  ai = true,
   tail,
   children,
 }: {
@@ -263,6 +264,7 @@ export function Chapter({
   chips: Chip[]
   result?: HeavyChapterResult
   foot: FootState
+  ai?: boolean
   tail?: ReactNode
   children: ReactNode
 }) {
@@ -290,7 +292,7 @@ export function Chapter({
         </div>
       </div>
       <div className="p-5">{children}</div>
-      <Footnote result={result} state={foot} chips={chips} />
+      {ai && <Footnote result={result} state={foot} chips={chips} />}
       {tail && <div className="px-5 pt-[18px] pb-5">{tail}</div>}
     </section>
   )

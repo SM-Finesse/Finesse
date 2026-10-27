@@ -3,7 +3,7 @@ import type { StatsResponse } from '../../api/types'
 import { useI18n } from '../../i18n/context'
 import { cx } from '../../lib/cx'
 import { rankColor } from '../../lib/rankColors'
-import { num, numOrDash, rankLabel, signed, trendOf } from '../../lib/stats'
+import { num, numOrDash, rankLabel, signed, trendOf, winRateDeltaPp } from '../../lib/stats'
 import { BigNum, Caption, DeltaBadge } from './parts'
 
 function Cell({ k, children, sub, accent, tag }: { k: string; children: ReactNode; sub?: ReactNode; accent?: boolean; tag?: string }) {
@@ -40,12 +40,18 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
   const p = t.report.profile
   const pr = data.profile
   const rank = rankLabel(pr.rank)
-  const winRate = data.fixed_metrics.win_rate
-  const wins = typeof winRate === 'number' ? Math.round(winRate * data.match_count) : null
+  /* WIN RATE = 현재 시즌 랭크 승리 / 시즌 판수. 시즌 판수가 0이라 값이 없으면 지어내지 않고 '—' */
+  const sp = pr.season_games_played
+  const sw = pr.season_wins
+  const season = typeof sp === 'number' && typeof sw === 'number' && sp > 0 ? { rate: sw / sp, wins: sw, losses: pr.season_losses ?? sp - sw } : null
   /* 5칸 증감 — 최근 N판 vs 그 이전 판 변화율 %. 값이 빠지면 배지도 없다 */
   const wd = pr.window_delta
-  const pct = (v: number | undefined) =>
-    typeof v === 'number' ? <DeltaBadge text={`${signed(v, 1)}%`} trend={trendOf(v, 1)} /> : null
+  const badge = (v: number | null | undefined, unit: string) =>
+    typeof v === 'number' ? <DeltaBadge text={`${signed(v, 1)}${unit}`} trend={trendOf(v, 1)} /> : null
+  const pct = (v: number | undefined) => badge(v, '%')
+  /* 승률만 %p — 백엔드 변화율(%)을 분석 경기 승률과 함께 승률 차로 바꾼다 */
+  const overall = data.fixed_metrics.win_rate
+  const wrPp = wd?.wr_delta_pct !== undefined && typeof overall === 'number' ? winRateDeltaPp(overall, data.match_count, wd.recent_matches, wd.wr_delta_pct) : null
 
   return (
     <section className="panel overflow-hidden bg-surface" aria-label="PROFILE">
@@ -92,15 +98,15 @@ export function ProfilePanel({ data }: { data: StatsResponse }) {
         <Cell
           k="WIN RATE"
           sub={
-            (wd?.wr_delta_pct !== undefined || wins !== null) && (
+            (wrPp !== null || season) && (
               <>
-                {pct(wd?.wr_delta_pct)}
-                {wins !== null && <span>{p.wl(wins, data.match_count - wins)}</span>}
+                {badge(wrPp, '%p')}
+                {season && <span>{p.wl(season.wins, season.losses)}</span>}
               </>
             )
           }
         >
-          {typeof winRate === 'number' ? <BigNum value={(winRate * 100).toFixed(1)} suffix="%" /> : '—'}
+          {season ? <BigNum value={(season.rate * 100).toFixed(1)} suffix="%" /> : '—'}
         </Cell>
         <Cell
           k="APM"

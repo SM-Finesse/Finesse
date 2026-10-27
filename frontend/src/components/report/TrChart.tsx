@@ -43,7 +43,7 @@ export function TrChart({ series, height }: { series: number[]; height: number }
                 <div className="mb-1.5 font-mono text-[11px] text-faint">GAME {p.game}</div>
                 <div className="flex justify-between gap-3.5">
                   <span>TR</span>
-                  <b className="font-num tabular-nums">{num(p.tr, 1)}</b>
+                  <b className="font-num tabular-nums">{num(p.tr, 2)}</b>
                 </div>
               </div>
             )
