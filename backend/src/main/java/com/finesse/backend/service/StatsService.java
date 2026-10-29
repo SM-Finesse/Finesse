@@ -5,6 +5,9 @@ import com.finesse.backend.calc.domain.DeltaStats;
 import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.JudgedMetric;
+import com.finesse.backend.calc.domain.MetricReliability;
+import com.finesse.backend.calc.domain.ReliabilityReason;
+import com.finesse.backend.calc.domain.ReliabilityReport;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
@@ -32,6 +35,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -302,7 +306,28 @@ public class StatsService {
                 roundCurves(series),
                 new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
                 chapters,
-                highlightJudgement(r.highlightJudgement()));
+                highlightJudgement(r.highlightJudgement()),
+                reliability(r.reliability()));
+    }
+
+    /** calc 신뢰도를 그대로 옮긴다 — enum은 소문자 이름. calc가 판정하지 않았으면 null(생략) */
+    static StatsResponse.Reliability reliability(ReliabilityReport report) {
+        if (report == null) {
+            return null;
+        }
+        Map<String, StatsResponse.MetricReliability> metrics = new LinkedHashMap<>();
+        report.metrics().forEach((key, m) -> metrics.put(key, metricReliability(m)));
+        return new StatsResponse.Reliability(report.version(), metrics);
+    }
+
+    private static StatsResponse.MetricReliability metricReliability(MetricReliability m) {
+        Map<String, Integer> sizes = new LinkedHashMap<>();
+        m.sampleSizes().forEach((part, n) -> sizes.put(part.wireName(), n));
+        return new StatsResponse.MetricReliability(
+                m.caution() == null ? null : m.caution().wireName(),
+                m.sampleInsufficient(), m.suspiciousData(),
+                m.reasons().stream().map(ReliabilityReason::wireName).toList(),
+                sizes, m.errorMargin(), m.ciLow(), m.ciHigh(), m.threshold(), m.reliability(), m.outlierCount());
     }
 
     /** calc 판정·선정 결과를 그대로 옮긴다 — 영역은 소문자 이름(high·normal·low·none). calc가 판정하지 않았으면 null(생략) */
