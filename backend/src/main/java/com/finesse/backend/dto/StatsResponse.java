@@ -19,8 +19,8 @@ public record StatsResponse(
         RoundCurves roundCurves,
         Rivals rivals,
         Map<String, Object> chapters, // 헤비 뷰 8챕터 차트 데이터 — 세부 스키마 [협의 필요], 확정 전까지 자유 구조
-        HighlightJudgement highlightJudgement, // 라이트 하이라이트 판정·선정(calc v4.3) — 콜드스타트면 null(생략)
-        Reliability reliability // 하이라이트 후보 지표 신뢰도(calc v4.4) — 화면 표시 전용, 콜드스타트·판정 없음이면 null(생략)
+        HighlightJudgement highlightJudgement // 라이트 하이라이트 판정·선정(calc v4.3) — 콜드스타트면 null(생략)
+        // 지표 신뢰도는 delta_metrics.reliability로 이동(프론트 요청 11/2) — 여기 top-level 필드는 두지 않는다.
 ) {
 
     /** highlight_judgement 없이 만드는 생성자 — 기존 테스트·콜드스타트용 */
@@ -28,15 +28,7 @@ public record StatsResponse(
                          FixedMetrics fixedMetrics, DeltaMetrics deltaMetrics, RoundCurves roundCurves,
                          Rivals rivals, Map<String, Object> chapters) {
         this(username, coldStart, matchCount, updatedAt, profile, fixedMetrics, deltaMetrics, roundCurves,
-                rivals, chapters, null, null);
-    }
-
-    /** reliability 없이 만드는 생성자 — 기존 테스트용 */
-    public StatsResponse(String username, boolean coldStart, int matchCount, Instant updatedAt, Profile profile,
-                         FixedMetrics fixedMetrics, DeltaMetrics deltaMetrics, RoundCurves roundCurves,
-                         Rivals rivals, Map<String, Object> chapters, HighlightJudgement highlightJudgement) {
-        this(username, coldStart, matchCount, updatedAt, profile, fixedMetrics, deltaMetrics, roundCurves,
-                rivals, chapters, highlightJudgement, null);
+                rivals, chapters, null);
     }
 
     // avatarUrl·xp·country·joinedAt은 /users/{username} 호출이 실패했거나 값이 없는 계정이면 null(응답에서 생략).
@@ -81,8 +73,29 @@ public record StatsResponse(
             // 프론트가 LLM이 고른 stat의 근거 값을 delta_metrics에서 찾으므로 여기에도 둔다. 둘 중 하나라도 없으면 null
             Double deltaComeback,
             ComebackSamples comebackSamples,
-            Double sessionVsSlope
+            Double sessionVsSlope,
+            // 하이라이트 후보 11개의 신뢰도(calc ReliabilityReport) — 지표 키 → 라벨. 값이 null인 지표는 키가 없다.
+            // 화면(헤비뷰 근거 칩) 표시 전용 — LLM 요청에는 넣지 않는다(프론트 요청 11/2). 판정이 없으면 null(생략)
+            Map<String, MetricReliability> reliability
     ) {
+        /** reliability 없이 만드는 생성자 — 기존 테스트용 */
+        public DeltaMetrics(Double trTrendDelta, TrTrendBasis trTrendBasis, PlaystyleRelative playstyleRelative,
+                            Attack attack, Defense defense, Double strengthSplit,
+                            List<StrengthQuintile> strengthQuintiles, Double comebackRate, Double comebackRateAgainst,
+                            Double deltaComeback, ComebackSamples comebackSamples, Double sessionVsSlope) {
+            this(trTrendDelta, trTrendBasis, playstyleRelative, attack, defense, strengthSplit, strengthQuintiles,
+                    comebackRate, comebackRateAgainst, deltaComeback, comebackSamples, sessionVsSlope, null);
+        }
+    }
+
+    /**
+     * 지표 하나의 신뢰도 라벨 (calc MetricReliability, 「지표 신뢰도 판정 기준」). null인 필드는 생략한다.
+     * metricLevel: 지표 단위 표시 — "caution"(R₃₀₀ < 0.9, 해석 주의)·"unreliable"(R₃₀₀ < 0.5, 신뢰 불가), 표시 없음이면 null.
+     *   Δ 8종은 넣지 않는다(프론트 요청 11/2).
+     * lowSample·suspicious: 유저 단위 "표본 부족"·"의심 데이터 포함" — true일 때만 넣고 false는 null.
+     *   delta_comeback은 유저 단위 판정을 하지 않아 metricLevel만 넣는다.
+     */
+    public record MetricReliability(String metricLevel, Boolean lowSample, Boolean suspicious) {
     }
 
     /**
@@ -174,24 +187,4 @@ public record StatsResponse(
                                Double deviation, Double edgeGap) {
     }
 
-    /**
-     * 하이라이트 후보 지표의 신뢰도 (calc ReliabilityReport, 「지표 신뢰도 판정 기준」). 화면 표시 전용 — LLM 요청·하이라이트 선정에는 쓰지 않는다.
-     * version: 지표 단위 상수를 추정한 기준 버전. metrics: 지표 키(delta_app 등, highlight_judgement와 같은 키·순서) → 신뢰도.
-     * 값이 null인 지표는 키가 없다.
-     */
-    public record Reliability(String version, Map<String, MetricReliability> metrics) {
-    }
-
-    /**
-     * 지표 하나의 신뢰도. caution: none·interpretation_caution·unreliable (지표마다 고정, "해석 주의"·"신뢰 불가").
-     * sampleInsufficient: "! 표본 부족", suspiciousData: "! 의심 데이터 포함" — caution이 unreliable이면 둘 다 false.
-     * reasons: 라벨 근거(below_min_sample·reliability_below_target·below_reference_sample·outlier_impact·opponent_concentration), 없으면 [].
-     * sampleSizes: 표본 종류(all·q1·q5·round_indices·comeback·comeback_against) → 크기.
-     * errorMargin·ciLow·ciHigh·threshold·reliability·outlierCount: 적용되지 않는 지표면 null(생략).
-     */
-    public record MetricReliability(String caution, boolean sampleInsufficient, boolean suspiciousData,
-                                    List<String> reasons, Map<String, Integer> sampleSizes,
-                                    Double errorMargin, Double ciLow, Double ciHigh,
-                                    Double threshold, Double reliability, Integer outlierCount) {
-    }
 }

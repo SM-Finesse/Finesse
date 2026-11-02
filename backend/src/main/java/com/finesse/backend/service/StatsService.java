@@ -6,10 +6,10 @@ import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.HighlightStats;
 import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MetricReliability;
-import com.finesse.backend.calc.domain.ReliabilityReason;
 import com.finesse.backend.calc.domain.ReliabilityReport;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.MetricCaution;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryStats;
@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -57,6 +58,10 @@ public class StatsService {
     private static final Logger log = LoggerFactory.getLogger(StatsService.class);
 
     private static final int RIVAL_PAGE_SIZE = 20;
+
+    // 하이라이트 후보 중 Δ 8종 — 신뢰도 응답에서 metric_level을 넣지 않는 지표 (프론트 요청 11/2)
+    private static final Set<String> DELTA_METRICS = Set.of("delta_opener", "delta_plonk", "delta_stride", "delta_inf_ds",
+            "delta_app", "delta_weighted_app", "delta_vs_apm", "delta_cheese_index");
 
     // calc HighlightStatCalculator 11.1절과 같은 N 범위 — TR 추이 근거 값(tr_trend_basis)용
     static final int TR_TREND_MIN_N = 3;
@@ -283,7 +288,8 @@ public class StatsService {
                 highlight.deltaComeback(),
                 new StatsResponse.ComebackSamples(highlight.comebackOpportunities(), highlight.comebackWon(),
                         highlight.comebackAgainstOpportunities(), highlight.comebackAgainstAllowed()),
-                highlight.sessionVsSlope());
+                highlight.sessionVsSlope(),
+                reliability(r.reliability()));
 
         RivalryStats rivalry = r.rivalryStats();
         List<StatsResponse.RivalItem> rivalItems = rivalry.rivals().stream()
@@ -306,28 +312,7 @@ public class StatsService {
                 roundCurves(series),
                 new StatsResponse.Rivals(rivalItems, 1, RIVAL_PAGE_SIZE, rivalry.rivalCount()),
                 chapters,
-                highlightJudgement(r.highlightJudgement()),
-                reliability(r.reliability()));
-    }
-
-    /** calc 신뢰도를 그대로 옮긴다 — enum은 소문자 이름. calc가 판정하지 않았으면 null(생략) */
-    static StatsResponse.Reliability reliability(ReliabilityReport report) {
-        if (report == null) {
-            return null;
-        }
-        Map<String, StatsResponse.MetricReliability> metrics = new LinkedHashMap<>();
-        report.metrics().forEach((key, m) -> metrics.put(key, metricReliability(m)));
-        return new StatsResponse.Reliability(report.version(), metrics);
-    }
-
-    private static StatsResponse.MetricReliability metricReliability(MetricReliability m) {
-        Map<String, Integer> sizes = new LinkedHashMap<>();
-        m.sampleSizes().forEach((part, n) -> sizes.put(part.wireName(), n));
-        return new StatsResponse.MetricReliability(
-                m.caution() == null ? null : m.caution().wireName(),
-                m.sampleInsufficient(), m.suspiciousData(),
-                m.reasons().stream().map(ReliabilityReason::wireName).toList(),
-                sizes, m.errorMargin(), m.ciLow(), m.ciHigh(), m.threshold(), m.reliability(), m.outlierCount());
+                highlightJudgement(r.highlightJudgement()));
     }
 
     /** calc 판정·선정 결과를 그대로 옮긴다 — 영역은 소문자 이름(high·normal·low·none). calc가 판정하지 않았으면 null(생략) */
@@ -338,6 +323,34 @@ public class StatsService {
         return new StatsResponse.HighlightJudgement(judgement.rangesVersion(), judgement.rangeGroup(),
                 judgement.metrics().stream().map(StatsService::judgedMetric).toList(),
                 judgement.picks().stream().map(StatsService::judgedMetric).toList());
+    }
+
+    /**
+     * calc 신뢰도 → delta_metrics.reliability (프론트 요청 형식 11/2). 키는 calc가 판정한 지표만(값이 null인 지표는 없음).
+     * Δ 8종은 metric_level을 빼고, delta_comeback은 metric_level만 넣는다. false·표시 없음은 null로 둬 응답에서 빠진다.
+     * calc가 판정하지 않았거나 판정한 지표가 없으면 null(생략).
+     */
+    static Map<String, StatsResponse.MetricReliability> reliability(ReliabilityReport report) {
+        if (report == null || report.metrics().isEmpty()) {
+            return null;
+        }
+        Map<String, StatsResponse.MetricReliability> out = new LinkedHashMap<>();
+        report.metrics().forEach((key, m) -> {
+            String level = DELTA_METRICS.contains(key) ? null : metricLevel(m.caution());
+            boolean userLabels = !"delta_comeback".equals(key);
+            out.put(key, new StatsResponse.MetricReliability(level,
+                    userLabels && m.sampleInsufficient() ? Boolean.TRUE : null,
+                    userLabels && m.suspiciousData() ? Boolean.TRUE : null));
+        });
+        return out;
+    }
+
+    private static String metricLevel(MetricCaution caution) {
+        return switch (caution) {
+            case INTERPRETATION_CAUTION -> "caution";
+            case UNRELIABLE -> "unreliable";
+            case NONE -> null;
+        };
     }
 
     private static StatsResponse.JudgedMetric judgedMetric(JudgedMetric m) {

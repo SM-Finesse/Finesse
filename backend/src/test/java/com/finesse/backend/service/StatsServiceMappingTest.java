@@ -10,11 +10,9 @@ import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
 import com.finesse.backend.calc.domain.MetricCaution;
 import com.finesse.backend.calc.domain.MetricReliability;
-import com.finesse.backend.calc.domain.ReliabilityReason;
-import com.finesse.backend.calc.domain.ReliabilityReport;
-import com.finesse.backend.calc.domain.SamplePart;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
+import com.finesse.backend.calc.domain.ReliabilityReport;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
 import com.finesse.backend.calc.service.AnalysisMeta;
@@ -319,31 +317,33 @@ class StatsServiceMappingTest {
     }
 
     @Test
-    void 신뢰도를_소문자_이름으로_그대로_옮긴다() {
-        MetricReliability app = new MetricReliability(MetricCaution.INTERPRETATION_CAUTION, true, false,
-                Set.of(ReliabilityReason.RELIABILITY_BELOW_TARGET), Map.of(SamplePart.ALL, 120),
-                0.031, 0.062, 0.124, 0.025, 0.82, 1);
-        MetricReliability split = new MetricReliability(MetricCaution.NONE, false, true,
-                Set.of(ReliabilityReason.OPPONENT_CONCENTRATION), Map.of(SamplePart.Q1, 12, SamplePart.Q5, 9),
-                null, null, null, null, null, null);
+    void 신뢰도는_Δ_8종에_metric_level을_빼고_delta_comeback은_metric_level만_넣는다() {
         Map<String, MetricReliability> metrics = new LinkedHashMap<>();
-        metrics.put("delta_app", app);
-        metrics.put("strength_split", split);
+        metrics.put("delta_opener", calcReliability(MetricCaution.NONE, false, false));
+        metrics.put("delta_app", calcReliability(MetricCaution.INTERPRETATION_CAUTION, true, true));
+        metrics.put("strength_split", calcReliability(MetricCaution.INTERPRETATION_CAUTION, true, false));
+        metrics.put("session_vs_slope", calcReliability(MetricCaution.INTERPRETATION_CAUTION, false, false));
+        metrics.put("delta_comeback", calcReliability(MetricCaution.UNRELIABLE, true, true));
 
-        StatsResponse.Reliability mapped = StatsService.reliability(new ReliabilityReport("rel-test", metrics));
+        Map<String, StatsResponse.MetricReliability> mapped =
+                StatsService.reliability(new ReliabilityReport("test", metrics));
 
-        assertThat(mapped.version()).isEqualTo("rel-test");
-        assertThat(mapped.metrics().keySet()).containsExactly("delta_app", "strength_split");
-        assertThat(mapped.metrics().get("delta_app")).isEqualTo(new StatsResponse.MetricReliability(
-                "interpretation_caution", true, false, List.of("reliability_below_target"), Map.of("all", 120),
-                0.031, 0.062, 0.124, 0.025, 0.82, 1));
-        assertThat(mapped.metrics().get("strength_split").sampleSizes()).containsExactly(
-                Map.entry("q1", 12), Map.entry("q5", 9));
-        assertThat(mapped.metrics().get("strength_split").errorMargin()).isNull();
+        assertThat(mapped).containsExactly(
+                Map.entry("delta_opener", new StatsResponse.MetricReliability(null, null, null)),
+                Map.entry("delta_app", new StatsResponse.MetricReliability(null, true, true)),
+                Map.entry("strength_split", new StatsResponse.MetricReliability("caution", true, null)),
+                Map.entry("session_vs_slope", new StatsResponse.MetricReliability("caution", null, null)),
+                Map.entry("delta_comeback", new StatsResponse.MetricReliability("unreliable", null, null)));
     }
 
     @Test
-    void calc가_신뢰도를_판정하지_않았으면_reliability는_생략() {
+    void calc가_신뢰도를_판정하지_않았거나_판정한_지표가_없으면_reliability는_생략() {
         assertThat(StatsService.reliability(null)).isNull();
+        assertThat(StatsService.reliability(new ReliabilityReport("test", Map.of()))).isNull();
+    }
+
+    private static MetricReliability calcReliability(MetricCaution caution, boolean insufficient, boolean suspicious) {
+        return new MetricReliability(caution, insufficient, suspicious, Set.of(), Map.of(),
+                null, null, null, null, null, null);
     }
 }
