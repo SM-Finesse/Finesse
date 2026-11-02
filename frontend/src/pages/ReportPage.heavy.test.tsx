@@ -237,46 +237,67 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(tr).queryByRole('note')).not.toBeInTheDocument()
   })
 
-  it('근거 칩에 지표 신뢰도 라벨을 붙인다 — 값은 그대로, 칩이 따로 없는 지표는 라벨이 있을 때만 칩으로', async () => {
+  it('근거 위에 신뢰도 라벨을 하나씩 따로 띄우고, 누르면 무슨 표시인지 · 왜 붙었는지 펼친다', async () => {
     const reliability = {
       delta_opener: { low_sample: true },
       delta_app: { low_sample: true, suspicious: true },
-      strength_split: { metric_level: 'caution' as const },
+      delta_weighted_app: { low_sample: true },
+      strength_split: { metric_level: 'caution' as const, low_sample: true },
       delta_comeback: { metric_level: 'unreliable' as const },
       session_vs_slope: { metric_level: 'caution' as const, low_sample: true },
       /* 값이 없는 지표(delta_inf_ds)에 온 라벨은 무시 */
       delta_inf_ds: { suspicious: true },
+      /* Δ 8종은 라벨이 없으면 빈 객체로 온다 */
+      delta_plonk: {},
     }
     routeFetch({ stats: [() => json({ ...FULL, delta_metrics: { ...FULL.delta_metrics, reliability } })], comment: [pending] })
-    setup()
+    const { user } = setup()
     await ready()
     done()
 
-    /* 근거 줄의 칩 중 이름이 k인 것 */
-    const chipOf = (region: HTMLElement, k: string) => [...within(region).getByText('근거').nextElementSibling!.children].find((el) => el.textContent?.startsWith(`${k} `))!
-    const ps = chapter('플레이스타일 상대비교')
-    expect(chipOf(ps, 'Opener')).toHaveTextContent('Opener +0.08!표본 부족')
-    expect(chipOf(ps, 'Plonk')).not.toHaveTextContent('!')
-    expect(within(ps).queryByText('의심 데이터 포함')).not.toBeInTheDocument()
+    const row = (name: string) => within(chapter(name)).getByRole('group', { name: '지표 신뢰도' })
+    const tags = (name: string) => within(row(name)).getAllByRole('button').map((b) => b.textContent)
+    /* 라벨만 — 앞에 지표 이름은 없다. 같은 라벨이 두 지표에 붙어도 하나로 */
+    expect(tags('플레이스타일 상대비교')).toEqual(['!표본 부족'])
+    expect(tags('공격 효율')).toEqual(['!표본 부족', '!의심 데이터 포함'])
+    expect(tags('상대 강도별 승률')).toEqual(['!해석 주의', '!표본 부족'])
+    expect(tags('역전승 퍼포먼스')).toEqual(['!신뢰 불가'])
+    expect(tags('경기 내 컨디션 변화')).toEqual(['!해석 주의', '!표본 부족'])
+    expect(row('상대 강도별 승률')).not.toHaveTextContent('Strength Split')
+    expect(within(chapter('수비 · 가비지 처리')).queryByRole('group', { name: '지표 신뢰도' })).not.toBeInTheDocument()
+    /* 근거 칩은 값만 */
+    expect(within(chapter('상대 강도별 승률')).getByText('근거').nextElementSibling).toHaveTextContent(/^Strength Split −20.0%p$/)
 
-    expect(chipOf(chapter('공격 효율'), 'ΔAPP')).toHaveTextContent('ΔAPP +0.092!표본 부족!의심 데이터 포함')
-    expect(chipOf(chapter('공격 효율'), 'ΔWeighted APP')).not.toHaveTextContent('!')
-    expect(within(chapter('상대 강도별 승률')).getByText('해석 주의')).toBeInTheDocument()
+    /* 누르면 설명 — 무슨 표시인지 + 지표별 이유(응답의 표본 수 포함) */
+    const sp = chapter('상대 강도별 승률')
+    const low = within(row('상대 강도별 승률')).getByRole('button', { name: '표본 부족' })
+    await user.click(low)
+    expect(low).toHaveAttribute('aria-expanded', 'true')
+    const note = within(sp).getByRole('note')
+    expect(note).toHaveTextContent('이 값을 믿을 만큼 경기가 쌓이지 않았습니다')
+    expect(note).toHaveTextContent('Strength Split가장 약한 상대(Q1) 5판 · 가장 강한 상대(Q5) 5판. 두 구간 중 한쪽이라도 20판 미만이면 붙습니다.')
+    /* 다른 라벨을 누르면 그 설명으로 바뀐다 */
+    await user.click(within(row('상대 강도별 승률')).getByRole('button', { name: '해석 주의' }))
+    expect(within(sp).getByRole('note')).toHaveTextContent('300판 기준 신뢰도(R₃₀₀)가 0.9 미만입니다')
+    await user.keyboard('{Escape}')
+    expect(within(sp).queryByRole('note')).not.toBeInTheDocument()
 
-    /* 역전 Δ · 컨디션 기울기는 원래 칩이 없어 라벨과 함께 덧붙는다 */
-    expect(chipOf(chapter('역전승 퍼포먼스'), 'ΔComeback')).toHaveTextContent('ΔComeback +30.6%p!신뢰 불가')
-    expect(chipOf(chapter('경기 내 컨디션 변화'), 'VS Slope')).toHaveTextContent('VS Slope −0.12/R!해석 주의!표본 부족')
+    /* 한 라벨이 두 지표에 붙으면 설명에서 지표별로 나눠 보인다 */
+    await user.click(within(row('공격 효율')).getByRole('button', { name: '표본 부족' }))
+    const atk = within(chapter('공격 효율')).getByRole('note')
+    expect([...atk.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['ΔAPP', 'ΔWeighted APP'])
+
+    await user.click(within(row('경기 내 컨디션 변화')).getByRole('button', { name: '표본 부족' }))
+    expect(within(chapter('경기 내 컨디션 변화')).getByRole('note')).toHaveTextContent('라운드 순번 3개 · 분석 경기 120판')
   })
 
-  it('신뢰도가 오지 않으면 라벨도, 덧붙는 칩도 없다', async () => {
+  it('신뢰도가 오지 않으면 라벨 줄이 없다', async () => {
     routeFetch({ stats: [() => json(FULL)], comment: [pending] })
     setup()
     await ready()
     done()
-    for (const name of ['플레이스타일 상대비교', '역전승 퍼포먼스', '경기 내 컨디션 변화']) {
-      expect(within(chapter(name)).queryByText(/표본 부족|해석 주의|신뢰 불가/)).not.toBeInTheDocument()
-    }
-    expect(within(chapter('역전승 퍼포먼스')).queryByText('ΔComeback')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '지표 신뢰도' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/표본 부족|해석 주의|신뢰 불가|의심 데이터/)).not.toBeInTheDocument()
   })
 
   it('역전승률이 0%면 칸에 ▲를 붙이지 않는다', async () => {

@@ -6,9 +6,9 @@ import type { StatInfo } from '../../i18n/strings'
 import { ceilingTicks, comebackCeiling, gameTicks } from '../../lib/chart'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
-import { evidenceOf, flagsOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
+import { evidenceOf, FLAG_ORDER, flagsOf, num, signed, STAT_META, TREND_MARK, type Evidence, type Flag, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
-import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
+import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip, type FlagGroup } from './heavy/Chapter'
 import { GamesLine } from './GamesLine'
 import { ColdHeavy } from './heavy/ColdHeavy'
 import { CHAPTER_COLORS, EYEBROWS } from './heavy/meta'
@@ -73,10 +73,23 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
 
   const d = data.delta_metrics
   const ev = (k: StatKey) => evidenceOf(k, d)
-  /* 근거 칩 — 지표에 신뢰도 라벨(표본 부족 · 의심 데이터 · 해석 주의 · 신뢰 불가)이 있으면 같이 붙인다 */
-  const chipOf = (e: Evidence, k = e.meta.code): Chip => ({ k, v: e.text, flags: flagsOf(e.stat, d) })
-  /* 칩이 따로 없는 지표(역전 Δ · 컨디션 기울기)는 라벨이 있을 때만 칩으로 덧붙여 라벨이 빠지지 않게 */
-  const flaggedChip = (e: Evidence | null): Chip[] => (e && flagsOf(e.stat, d).length ? [chipOf(e)] : [])
+  const chipOf = (e: Evidence, k = e.meta.code): Chip => ({ k, v: e.text })
+  /* 라벨이 왜 붙었는지 — 판정 기준과, 응답에 있는 표본 수(Q1·Q5 판수 · 라운드 순번 · 분석 경기)를 함께 */
+  const whyOf = (f: Flag, k: StatKey): string => {
+    const w = h.flagInfo.why
+    if (f === 'unreliable' || f === 'caution') return w[f]
+    if (f === 'low_sample') {
+      if (k === 'strength_split') return w.lowSplit(quint[0]?.matches, quint[4]?.matches)
+      if (k === 'session_vs_slope') return w.lowSlope(vsCurve.length, data.match_count)
+      return w.lowDelta
+    }
+    return k === 'strength_split' ? w.suspSplit : w.suspDelta
+  }
+  /* 근거 위 신뢰도 라벨 — 라벨마다 하나씩, 같은 라벨이 챕터의 여러 지표에 붙으면 한 라벨 아래 지표별 이유로 모은다 */
+  const flagGroups = (keys: StatKey[], name: (k: StatKey) => string = (k) => STAT_META[k].code): FlagGroup[] =>
+    FLAG_ORDER.map((flag) => ({ flag, items: keys.filter((k) => flagsOf(k, d).includes(flag)).map((k) => ({ k: name(k), why: whyOf(flag, k) })) })).filter(
+      (g) => g.items.length > 0,
+    )
   const nameOf = (k: StatKey) => STAT_META[k].code.replace(/^Δ/, '')
   const subOf = (k: StatKey) => (lang === 'ko' ? STAT_META[k].label.ko : STAT_META[k].code)
   const noData = <Notice title={h.noData} />
@@ -175,7 +188,6 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
           { k: h.condition.first, v: vsCurve[0].toFixed(2) },
           { k: h.condition.last(vsCurve.length), v: vsCurve[vsCurve.length - 1].toFixed(2) },
           ...(ppsCurve.length ? [{ k: h.condition.ppsChange, v: signed(ppsCurve[ppsCurve.length - 1] - ppsCurve[0], 2) }] : []),
-          ...flaggedChip(slope),
         ]
       : slope
         ? [chipOf(slope)]
@@ -210,7 +222,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     ],
   })
 
-  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; ai?: boolean; tail?: ReactNode; body: ReactNode }> = {
+  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; flags?: FlagGroup[]; ai?: boolean; tail?: ReactNode; body: ReactNode }> = {
     tr_trend: {
       right: pill(tr, h.trend.deltaInfo(basis?.recent_matches, basis?.total_matches)),
       detail: buckets.length > 0,
@@ -235,11 +247,13 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       ),
       detail: hasPs,
       chips: ps.filter((p) => p.e).map((p) => chipOf(p.e!, nameOf(p.k))),
+      flags: flagGroups(PLAYSTYLE, nameOf),
       body: hasPs ? <DivergingBars items={psItems} max={psMax} tick={psTick} aria={h.playstyle.aria} /> : noData,
     },
     attack: {
       right: pill(app, withOthers(h.pillInfo.app, [[wapp, h.subInfo.wapp]])),
       chips: present([app, wapp]).map((e) => chipOf(e)),
+      flags: flagGroups(['delta_app', 'delta_weighted_app']),
       body:
         app || wapp ? (
           <>
@@ -253,6 +267,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     defense: {
       right: pill(vsApm, withOthers(h.pillInfo.vsapm, [[cheese, h.subInfo.cheese]])),
       chips: present([vsApm, cheese]).map((e) => chipOf(e)),
+      flags: flagGroups(['delta_vs_apm', 'delta_cheese_index']),
       body:
         vsApm || cheese ? (
           <>
@@ -267,6 +282,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       right: <Caption>{h.split.right}</Caption>,
       detail: quintItems.length > 0,
       chips: present([split]).map((e) => chipOf(e)),
+      flags: flagGroups(['strength_split']),
       body: split ? (
         <>
           <Strip>{tile('strength_split', h.split.sub, h.split.info)}</Strip>
@@ -280,7 +296,8 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     },
     comeback_rate: {
       right: pill(cbNet, h.comeback.netInfo),
-      chips: [...present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')), ...flaggedChip(cbNet)],
+      chips: present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')),
+      flags: flagGroups(['delta_comeback']),
       body:
         cb || ca ? (
           <>
@@ -312,6 +329,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       right: pill(slope, h.condition.slopeInfo),
       detail: vsCurve.length >= 2,
       chips: condChips,
+      flags: flagGroups(['session_vs_slope']),
       body:
         vsCurve.length >= 2 ? (
           <>
@@ -418,6 +436,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
               right={c.right}
               onDetail={c.detail ? () => setDetail(id as Detail) : undefined}
               chips={c.chips}
+              flags={c.flags}
               result={heavy.chapters[id]}
               foot={footStateOf(heavy.chapters[id], heavy.status)}
               ai={c.ai}

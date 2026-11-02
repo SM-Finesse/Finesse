@@ -334,6 +334,7 @@ export const HIGHLIGHT_CANDIDATES: ReadonlySet<StatKey> = new Set<StatKey>([
 
 /** 신뢰도 라벨 — 지표 단위(unreliable · caution) 먼저, 유저 단위(low_sample · suspicious) 뒤 */
 export type Flag = 'unreliable' | 'caution' | 'low_sample' | 'suspicious'
+export const FLAG_ORDER: readonly Flag[] = ['unreliable', 'caution', 'low_sample', 'suspicious']
 
 /** 지표 하나의 신뢰도 라벨. 값을 의심할 이유만 알리고 값은 그대로 둔다 — 값이 없으면 라벨도 없다 */
 export function flagsOf(stat: StatKey, delta: DeltaMetrics | undefined): Flag[] {
