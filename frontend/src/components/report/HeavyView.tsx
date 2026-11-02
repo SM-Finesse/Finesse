@@ -6,7 +6,7 @@ import type { StatInfo } from '../../i18n/strings'
 import { ceilingTicks, comebackCeiling, gameTicks } from '../../lib/chart'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
-import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
+import { evidenceOf, flagsOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
 import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
 import { GamesLine } from './GamesLine'
@@ -45,7 +45,6 @@ function trBuckets(series: number[]): LinePoint[] {
 }
 
 const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
-const chipOf = (ev: Evidence, k = ev.meta.code): Chip => ({ k, v: ev.text })
 const markText = (ev: Evidence) => (ev.trend ? `${ev.text} ${TREND_MARK[ev.trend]}` : ev.text)
 
 function StreamError({ heavy }: { heavy: HeavyState & { retry: () => void } }) {
@@ -74,6 +73,10 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
 
   const d = data.delta_metrics
   const ev = (k: StatKey) => evidenceOf(k, d)
+  /* 근거 칩 — 지표에 신뢰도 라벨(표본 부족 · 의심 데이터 · 해석 주의 · 신뢰 불가)이 있으면 같이 붙인다 */
+  const chipOf = (e: Evidence, k = e.meta.code): Chip => ({ k, v: e.text, flags: flagsOf(e.stat, d) })
+  /* 칩이 따로 없는 지표(역전 Δ · 컨디션 기울기)는 라벨이 있을 때만 칩으로 덧붙여 라벨이 빠지지 않게 */
+  const flaggedChip = (e: Evidence | null): Chip[] => (e && flagsOf(e.stat, d).length ? [chipOf(e)] : [])
   const nameOf = (k: StatKey) => STAT_META[k].code.replace(/^Δ/, '')
   const subOf = (k: StatKey) => (lang === 'ko' ? STAT_META[k].label.ko : STAT_META[k].code)
   const noData = <Notice title={h.noData} />
@@ -172,6 +175,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
           { k: h.condition.first, v: vsCurve[0].toFixed(2) },
           { k: h.condition.last(vsCurve.length), v: vsCurve[vsCurve.length - 1].toFixed(2) },
           ...(ppsCurve.length ? [{ k: h.condition.ppsChange, v: signed(ppsCurve[ppsCurve.length - 1] - ppsCurve[0], 2) }] : []),
+          ...flaggedChip(slope),
         ]
       : slope
         ? [chipOf(slope)]
@@ -276,7 +280,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     },
     comeback_rate: {
       right: pill(cbNet, h.comeback.netInfo),
-      chips: present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')),
+      chips: [...present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')), ...flaggedChip(cbNet)],
       body:
         cb || ca ? (
           <>

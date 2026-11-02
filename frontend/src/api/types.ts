@@ -106,6 +106,20 @@ export interface DeltaMetrics {
   /** tr_trend_delta의 근거 — 최근 N판(판수 × 0.3, 3~30판) 평균과 전체 평균. 차이가 tr_trend_delta */
   tr_trend_basis?: TrTrendBasis
   session_vs_slope?: number
+  /**
+   * 지표 신뢰도(「지표 신뢰도 판정 기준」) — 화면 표시 전용. 키는 하이라이트 후보 11개, 지표 값이 null이면 그 키도 빠진다.
+   * 백엔드 연결 전 임시 스키마 — 「지표 신뢰도 표시 백엔드 연결 안내」가 정해지면 맞춘다.
+   */
+  reliability?: Record<string, MetricReliability>
+}
+
+export interface MetricReliability {
+  /** 지표 단위(모든 유저에게 같음) — R₃₀₀ < 0.9 caution(해석 주의), < 0.5 unreliable(신뢰 불가). Δ 8종은 빠진다 */
+  metric_level?: 'caution' | 'unreliable'
+  /** 유저 단위 — 표본 부족 */
+  low_sample?: boolean
+  /** 유저 단위 — 의심 데이터 포함 */
+  suspicious?: boolean
 }
 
 export interface AttackAvg {

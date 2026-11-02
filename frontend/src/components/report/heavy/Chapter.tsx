@@ -5,13 +5,27 @@ import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
 import type { StatInfo } from '../../../i18n/strings'
 import { cx } from '../../../lib/cx'
-import { readable, TREND_MARK, type Trend } from '../../../lib/stats'
+import { readable, TREND_MARK, type Flag, type Trend } from '../../../lib/stats'
 import { BigNum } from '../parts'
 
-/** 근거 칩 한 개 — 이름과 값 */
+/** 근거 칩 한 개 — 이름과 값. flags는 그 지표의 신뢰도 라벨 */
 export interface Chip {
   k: string
   v: string
+  flags?: Flag[]
+}
+
+/** 신뢰도 라벨 — 신뢰 불가만 붉게, 나머지(해석 주의 · 표본 부족 · 의심 데이터)는 노랗게 */
+function FlagTag({ flag }: { flag: Flag }) {
+  const { t } = useI18n()
+  return (
+    <span className={cx('inline-flex items-center gap-1 font-semibold', flag === 'unreliable' ? 'text-loss' : 'text-signal')}>
+      <i aria-hidden="true" className="grid size-3.5 place-items-center rounded-[2px] bg-current font-display text-[10px] leading-none font-extrabold not-italic">
+        <span className="text-[#0E1E2B]">!</span>
+      </i>
+      {t.report.heavy.flags[flag]}
+    </span>
+  )
 }
 
 /** 챕터 번호 칩 — 챕터 색 블록 */
@@ -231,6 +245,7 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
             {chips.map((c) => (
               <span key={c.k} className="inline-flex h-7 items-center gap-[7px] rounded border-2 border-[#2C5573] bg-[#0E1E2B] px-[11px] text-xs text-muted">
                 {c.k} <b className="font-num font-bold text-ink">{c.v}</b>
+                {c.flags?.map((f) => <FlagTag key={f} flag={f} />)}
               </span>
             ))}
           </span>

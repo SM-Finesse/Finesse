@@ -237,6 +237,48 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(tr).queryByRole('note')).not.toBeInTheDocument()
   })
 
+  it('근거 칩에 지표 신뢰도 라벨을 붙인다 — 값은 그대로, 칩이 따로 없는 지표는 라벨이 있을 때만 칩으로', async () => {
+    const reliability = {
+      delta_opener: { low_sample: true },
+      delta_app: { low_sample: true, suspicious: true },
+      strength_split: { metric_level: 'caution' as const },
+      delta_comeback: { metric_level: 'unreliable' as const },
+      session_vs_slope: { metric_level: 'caution' as const, low_sample: true },
+      /* 값이 없는 지표(delta_inf_ds)에 온 라벨은 무시 */
+      delta_inf_ds: { suspicious: true },
+    }
+    routeFetch({ stats: [() => json({ ...FULL, delta_metrics: { ...FULL.delta_metrics, reliability } })], comment: [pending] })
+    setup()
+    await ready()
+    done()
+
+    /* 근거 줄의 칩 중 이름이 k인 것 */
+    const chipOf = (region: HTMLElement, k: string) => [...within(region).getByText('근거').nextElementSibling!.children].find((el) => el.textContent?.startsWith(`${k} `))!
+    const ps = chapter('플레이스타일 상대비교')
+    expect(chipOf(ps, 'Opener')).toHaveTextContent('Opener +0.08!표본 부족')
+    expect(chipOf(ps, 'Plonk')).not.toHaveTextContent('!')
+    expect(within(ps).queryByText('의심 데이터 포함')).not.toBeInTheDocument()
+
+    expect(chipOf(chapter('공격 효율'), 'ΔAPP')).toHaveTextContent('ΔAPP +0.092!표본 부족!의심 데이터 포함')
+    expect(chipOf(chapter('공격 효율'), 'ΔWeighted APP')).not.toHaveTextContent('!')
+    expect(within(chapter('상대 강도별 승률')).getByText('해석 주의')).toBeInTheDocument()
+
+    /* 역전 Δ · 컨디션 기울기는 원래 칩이 없어 라벨과 함께 덧붙는다 */
+    expect(chipOf(chapter('역전승 퍼포먼스'), 'ΔComeback')).toHaveTextContent('ΔComeback +30.6%p!신뢰 불가')
+    expect(chipOf(chapter('경기 내 컨디션 변화'), 'VS Slope')).toHaveTextContent('VS Slope −0.12/R!해석 주의!표본 부족')
+  })
+
+  it('신뢰도가 오지 않으면 라벨도, 덧붙는 칩도 없다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    setup()
+    await ready()
+    done()
+    for (const name of ['플레이스타일 상대비교', '역전승 퍼포먼스', '경기 내 컨디션 변화']) {
+      expect(within(chapter(name)).queryByText(/표본 부족|해석 주의|신뢰 불가/)).not.toBeInTheDocument()
+    }
+    expect(within(chapter('역전승 퍼포먼스')).queryByText('ΔComeback')).not.toBeInTheDocument()
+  })
+
   it('역전승률이 0%면 칸에 ▲를 붙이지 않는다', async () => {
     routeFetch({ stats: [() => json({ ...FULL, delta_metrics: { ...FULL.delta_metrics, comeback_rate: 0, delta_comeback: -0.25 } })], comment: [pending] })
     setup()

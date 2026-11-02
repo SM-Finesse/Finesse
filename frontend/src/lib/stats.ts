@@ -332,6 +332,20 @@ export const HIGHLIGHT_CANDIDATES: ReadonlySet<StatKey> = new Set<StatKey>([
   'session_vs_slope',
 ])
 
+/** 신뢰도 라벨 — 지표 단위(unreliable · caution) 먼저, 유저 단위(low_sample · suspicious) 뒤 */
+export type Flag = 'unreliable' | 'caution' | 'low_sample' | 'suspicious'
+
+/** 지표 하나의 신뢰도 라벨. 값을 의심할 이유만 알리고 값은 그대로 둔다 — 값이 없으면 라벨도 없다 */
+export function flagsOf(stat: StatKey, delta: DeltaMetrics | undefined): Flag[] {
+  const r = delta?.reliability?.[stat]
+  if (!r || !evidenceOf(stat, delta)) return []
+  const out: Flag[] = []
+  if (r.metric_level) out.push(r.metric_level)
+  if (r.low_sample) out.push('low_sample')
+  if (r.suspicious) out.push('suspicious')
+  return out
+}
+
 /** 수집했지만 분석에서 뺀 경기 — 정제 제외 + 구조 이상으로 버린 기록. 백엔드가 안 주면(콜드스타트 등) null */
 export function skippedOf(data: StatsResponse): number | null {
   const meta = data.chapters

@@ -1,5 +1,6 @@
 import type { HeavyChapterId } from '../api/types'
 import type { Lang, View } from '../types'
+import type { Flag } from '../lib/stats'
 import type { UsernameError } from '../lib/username'
 import { USERNAME_MAX, USERNAME_MIN } from '../lib/username'
 
@@ -146,6 +147,8 @@ export interface ReportStrings {
     streamFailed: string
     foot: { loading: string; failed: string; timeout: string; warn: string }
     evidence: string
+    /** 근거 칩 신뢰도 라벨 */
+    flags: Record<Flag, string>
     noData: string
     detail: { open: string; close: string; title: (chapter: string) => string }
     /** 스코어 칸 ? 버튼 이름 */
@@ -408,6 +411,7 @@ const ko: Strings = {
       streamFailed: '챕터 코멘트 연결이 끊겼습니다. 받은 챕터는 그대로 둡니다.',
       foot: { loading: '코멘트를 생성하는 중입니다 · 챕터별 개별 호출', failed: '이 챕터의 코멘트를 만들지 못했습니다.', timeout: '시간 안에 이 챕터의 코멘트를 받지 못했습니다.', warn: '주의' },
       evidence: '근거',
+      flags: { unreliable: '신뢰 불가', caution: '해석 주의', low_sample: '표본 부족', suspicious: '의심 데이터 포함' },
       noData: '이 챕터를 계산할 데이터가 아직 없습니다.',
       detail: { open: '자세히 보기', close: '닫기', title: (c) => `${c} 상세` },
       about: (name) => `${name} 설명`,
@@ -826,6 +830,7 @@ const en: Strings = {
       streamFailed: 'The chapter comment stream dropped. Chapters already received stay as they are.',
       foot: { loading: 'Generating comment · one call per chapter', failed: 'Could not write the comment for this chapter.', timeout: 'The comment for this chapter did not arrive in time.', warn: 'Caution' },
       evidence: 'Evidence',
+      flags: { unreliable: 'Unreliable', caution: 'Interpret with care', low_sample: 'Small sample', suspicious: 'Includes suspect data' },
       noData: 'There is no data to compute this chapter yet.',
       detail: { open: 'Details', close: 'Close', title: (c) => `${c} detail` },
       about: (name) => `About ${name}`,

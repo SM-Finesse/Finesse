@@ -9,7 +9,8 @@ export function SiteHeader({ onHome, actions, search }: { onHome?: () => void; a
   const logo = (
     <>
       <LogoMark className="size-[26px] flex-none" />
-      FINESSE
+      {/* 폰 폭에서 검색창이 있으면 글자는 숨기고 아이콘만 — 검색창 자리를 넓힌다 */}
+      <span className={search ? 'max-sm:sr-only' : undefined}>FINESSE</span>
     </>
   )
   const logoCls = 'flex flex-none items-center gap-2.5 font-display text-[19px] font-extrabold tracking-[.055em] text-head'
