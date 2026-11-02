@@ -72,8 +72,29 @@ public record StatsResponse(
             // 프론트가 LLM이 고른 stat의 근거 값을 delta_metrics에서 찾으므로 여기에도 둔다. 둘 중 하나라도 없으면 null
             Double deltaComeback,
             ComebackSamples comebackSamples,
-            Double sessionVsSlope
+            Double sessionVsSlope,
+            // 하이라이트 후보 11개의 신뢰도(calc ReliabilityReport) — 지표 키 → 라벨. 값이 null인 지표는 키가 없다.
+            // 화면(헤비뷰 근거 칩) 표시 전용 — LLM 요청에는 넣지 않는다(프론트 요청 11/2). 판정이 없으면 null(생략)
+            Map<String, MetricReliability> reliability
     ) {
+        /** reliability 없이 만드는 생성자 — 기존 테스트용 */
+        public DeltaMetrics(Double trTrendDelta, TrTrendBasis trTrendBasis, PlaystyleRelative playstyleRelative,
+                            Attack attack, Defense defense, Double strengthSplit,
+                            List<StrengthQuintile> strengthQuintiles, Double comebackRate, Double comebackRateAgainst,
+                            Double deltaComeback, ComebackSamples comebackSamples, Double sessionVsSlope) {
+            this(trTrendDelta, trTrendBasis, playstyleRelative, attack, defense, strengthSplit, strengthQuintiles,
+                    comebackRate, comebackRateAgainst, deltaComeback, comebackSamples, sessionVsSlope, null);
+        }
+    }
+
+    /**
+     * 지표 하나의 신뢰도 라벨 (calc MetricReliability, 「지표 신뢰도 판정 기준」). null인 필드는 생략한다.
+     * metricLevel: 지표 단위 표시 — "caution"(R₃₀₀ < 0.9, 해석 주의)·"unreliable"(R₃₀₀ < 0.5, 신뢰 불가), 표시 없음이면 null.
+     *   Δ 8종은 넣지 않는다(프론트 요청 11/2).
+     * lowSample·suspicious: 유저 단위 "표본 부족"·"의심 데이터 포함" — true일 때만 넣고 false는 null.
+     *   delta_comeback은 유저 단위 판정을 하지 않아 metricLevel만 넣는다.
+     */
+    public record MetricReliability(String metricLevel, Boolean lowSample, Boolean suspicious) {
     }
 
     /**

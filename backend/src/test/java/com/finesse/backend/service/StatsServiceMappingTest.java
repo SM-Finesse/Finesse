@@ -8,8 +8,11 @@ import com.finesse.backend.calc.domain.HighlightZone;
 import com.finesse.backend.calc.domain.JudgedMetric;
 import com.finesse.backend.calc.domain.MatchResult;
 import com.finesse.backend.calc.domain.MatchSeriesStats;
+import com.finesse.backend.calc.domain.MetricCaution;
+import com.finesse.backend.calc.domain.MetricReliability;
 import com.finesse.backend.calc.domain.ProfileWindowDeltaStats;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
+import com.finesse.backend.calc.domain.ReliabilityReport;
 import com.finesse.backend.calc.domain.RivalryStats;
 import com.finesse.backend.calc.domain.StatResult;
 import com.finesse.backend.calc.service.AnalysisMeta;
@@ -25,7 +28,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -308,5 +314,36 @@ class StatsServiceMappingTest {
     @Test
     void calc가_판정하지_않았으면_highlight_judgement는_생략() {
         assertThat(StatsService.highlightJudgement(null)).isNull();
+    }
+
+    @Test
+    void 신뢰도는_Δ_8종에_metric_level을_빼고_delta_comeback은_metric_level만_넣는다() {
+        Map<String, MetricReliability> metrics = new LinkedHashMap<>();
+        metrics.put("delta_opener", calcReliability(MetricCaution.NONE, false, false));
+        metrics.put("delta_app", calcReliability(MetricCaution.INTERPRETATION_CAUTION, true, true));
+        metrics.put("strength_split", calcReliability(MetricCaution.INTERPRETATION_CAUTION, true, false));
+        metrics.put("session_vs_slope", calcReliability(MetricCaution.INTERPRETATION_CAUTION, false, false));
+        metrics.put("delta_comeback", calcReliability(MetricCaution.UNRELIABLE, true, true));
+
+        Map<String, StatsResponse.MetricReliability> mapped =
+                StatsService.reliability(new ReliabilityReport("test", metrics));
+
+        assertThat(mapped).containsExactly(
+                Map.entry("delta_opener", new StatsResponse.MetricReliability(null, null, null)),
+                Map.entry("delta_app", new StatsResponse.MetricReliability(null, true, true)),
+                Map.entry("strength_split", new StatsResponse.MetricReliability("caution", true, null)),
+                Map.entry("session_vs_slope", new StatsResponse.MetricReliability("caution", null, null)),
+                Map.entry("delta_comeback", new StatsResponse.MetricReliability("unreliable", null, null)));
+    }
+
+    @Test
+    void calc가_신뢰도를_판정하지_않았거나_판정한_지표가_없으면_reliability는_생략() {
+        assertThat(StatsService.reliability(null)).isNull();
+        assertThat(StatsService.reliability(new ReliabilityReport("test", Map.of()))).isNull();
+    }
+
+    private static MetricReliability calcReliability(MetricCaution caution, boolean insufficient, boolean suspicious) {
+        return new MetricReliability(caution, insufficient, suspicious, Set.of(), Map.of(),
+                null, null, null, null, null, null);
     }
 }
