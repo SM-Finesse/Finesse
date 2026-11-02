@@ -66,7 +66,7 @@ export interface ReportStrings {
   updated: (ago: string) => string
   officialApi: string
   xpProgress: (pct: number) => string
-  viewTag: { light: string; lightCold: string; heavy: string }
+  viewTag: { light: string; lightCold: string; heavy: string; heavyCold: string }
   viewSwitchAria: string
   keyRefresh: string
   keyBack: string
@@ -163,6 +163,7 @@ export interface ReportStrings {
       /** 머리 ΔTR 알약을 눌렀을 때 — 백엔드가 준 최근·전체 판수가 있으면 그 숫자로 */
       deltaInfo: (recent?: number, total?: number) => StatInfo
       avgOf: (n: number) => string
+      recentAvgOf: (n: number) => string
       missing: string
       game: string
       tableNote: (n: number) => string
@@ -333,7 +334,7 @@ const ko: Strings = {
     updated: (ago) => `${ago} 갱신`,
     officialApi: '공식 API',
     xpProgress: (pct) => `다음 레벨까지 ${pct}%`,
-    viewTag: { light: '라이트 · 고정 지표 + 하이라이트 3', lightCold: '라이트 · 표본 부족', heavy: '헤비 · 8개 챕터' },
+    viewTag: { light: '라이트 · 고정 지표 + 하이라이트 3', lightCold: '라이트 · 표본 부족', heavy: '헤비 · 8개 챕터', heavyCold: '헤비 · 표본 부족' },
     viewSwitchAria: '뷰 전환 — 끄면 라이트, 켜면 헤비',
     keyRefresh: '갱신',
     keyBack: '처음으로',
@@ -352,7 +353,7 @@ const ko: Strings = {
       apmSub: '분당 공격',
       ppsSub: '초당 블록',
       vsSub: '종합 지표',
-      note: (n) => `값 아래 증감은 최근 ${n}판 평균을 그 이전 경기 평균과 비교한 변화율(%)입니다.`,
+      note: (n) => `값 아래 증감은 최근 ${n}판을 그 이전 경기와 비교한 값입니다 — 승률은 승률 차(%p), 나머지는 평균 변화율(%).`,
     },
     ai: {
       loading: '코멘트 생성 중… 통계는 이미 표시됨',
@@ -393,13 +394,13 @@ const ko: Strings = {
       body: (need) => `최근 1년 안의 테트라 리그 랭크 경기를 ${need}판 채우면 AI 총평과 강점·약점 하이라이트가 열립니다. 경기를 더 치른 뒤 전적 갱신(R)을 눌러 주세요.`,
     },
     hl: {
-      caption: 'AI가 고른 지표 · 문장마다 근거가 된 수치',
+      caption: '같은 티어대보다 두드러진 지표 · 문장마다 근거가 된 수치',
       coldCaption: '데이터 부족',
       evidence: '근거',
       coldTitle: '최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.',
       coldBody: (n) => `최근 1년 안의 랭크 경기가 10경기 이상 쌓이면 상대 대비 강점·약점 분석을 시작합니다. 현재 ${n}경기 기록됨.`,
       noneTitle: '하이라이트를 생성하지 못했습니다.',
-      noneBody: 'AI가 고른 지표를 이번 전적의 수치와 이을 수 없어 AI 총평만 보여드립니다.',
+      noneBody: '하이라이트 지표를 이번 전적의 수치와 이을 수 없어 AI 총평만 보여드립니다.',
       failed: '하이라이트를 불러오지 못했습니다.',
       failedHint: '위 AI READOUT 칸의 [다시 시도]를 누르면 코멘트와 하이라이트를 다시 불러옵니다.',
     },
@@ -456,7 +457,8 @@ const ko: Strings = {
             ['계산', '최근 평균 TR − 전체 평균 TR'],
           ],
         }),
-        avgOf: (n) => `Avg of ${n}g`,
+        avgOf: (n) => `전체 ${n}판 평균`,
+        recentAvgOf: (n) => `최근 ${n}판 평균`,
         missing: 'TR 추이 데이터를 받지 못해 ΔTR만 보여줍니다.',
         game: '경기',
         tableNote: (n) => `${n}경기 전부 · 표 안에서 스크롤`,
@@ -471,9 +473,9 @@ const ko: Strings = {
         info: {
           lead: '경기마다 나 − 상대 성향 점수를 평균낸 값 · +면 그 성향이 상대보다 강함',
           rows: [
-            ['Opener', '높은 APM으로 몰아치는 공격형'],
+            ['Opener', 'Opening Build를 활용하는 강력한 초반 화력'],
             ['Plonk', '느려도 효율 높은 공격·가비지 처리'],
-            ['Stride', '블록당 공격보다 속도(PPS)로 승부'],
+            ['Stride', '많은 블록을 빠른 속도로 두며 강한 압박'],
             ['Inf DS', '가비지를 지우며 버티는 방어형'],
           ],
           foot: '최근 1년 · 최대 300판 중 나와 상대 모두 계산되는 경기 (절반 미만이면 숨김) · APM·PPS·VS로 구하는 TetraStats 공개 식, TETR.IO 공식 지표 아님',
@@ -750,7 +752,7 @@ const en: Strings = {
     updated: (ago) => `updated ${ago}`,
     officialApi: 'official API',
     xpProgress: (pct) => `${pct}% to next level`,
-    viewTag: { light: 'Light · fixed metrics + 3 highlights', lightCold: 'Light · too few games', heavy: 'Heavy · 8 chapters' },
+    viewTag: { light: 'Light · fixed metrics + 3 highlights', lightCold: 'Light · too few games', heavy: 'Heavy · 8 chapters', heavyCold: 'Heavy · too few games' },
     viewSwitchAria: 'View — off is Light, on is Heavy',
     keyRefresh: 'Refresh',
     keyBack: 'Home',
@@ -769,7 +771,7 @@ const en: Strings = {
       apmSub: 'Attack per minute',
       ppsSub: 'Pieces per second',
       vsSub: 'Composite',
-      note: (n) => `The change under each value compares your last ${n} games with the games before them (% change).`,
+      note: (n) => `The change under each value compares your last ${n} games with the games before them — win rate in percentage points (%p), the rest as % change.`,
     },
     ai: {
       loading: 'Generating comment… stats are already shown',
@@ -810,13 +812,13 @@ const en: Strings = {
       body: (need) => `Play ${need} Tetra League ranked games within the last year to unlock the AI summary and strength/weakness highlights. Then press Refresh (R).`,
     },
     hl: {
-      caption: 'Metrics picked by AI · with the number behind each sentence',
+      caption: 'Metrics that stand out against your tier · with the number behind each sentence',
       coldCaption: 'Not enough data',
       evidence: 'Evidence',
       coldTitle: 'Not enough recent match data to show highlights.',
       coldBody: (n) => `Analysis starts once 10 or more ranked games from the last year are on record. ${n} games so far.`,
       noneTitle: 'Could not generate highlights.',
-      noneBody: 'The metrics the AI picked could not be tied to numbers in this record, so only the AI summary is shown.',
+      noneBody: 'The highlight metrics could not be tied to numbers in this record, so only the AI summary is shown.',
       failed: 'Could not load the highlights.',
       failedHint: 'Press [Try again] in the AI READOUT bar above to reload the comment and highlights.',
     },
@@ -873,7 +875,8 @@ const en: Strings = {
             ['Formula', 'Recent avg TR − overall avg TR'],
           ],
         }),
-        avgOf: (n) => `Avg of ${n}g`,
+        avgOf: (n) => `${n}-game avg`,
+        recentAvgOf: (n) => `Last ${n}-game avg`,
         missing: 'No TR series was received, so only ΔTR is shown.',
         game: 'Game',
         tableNote: (n) => `All ${n} games · scroll inside the table`,
@@ -887,9 +890,9 @@ const en: Strings = {
         info: {
           lead: 'Your playstyle score minus the opponent’s, averaged per match · + means that tendency is stronger than theirs',
           rows: [
-            ['Opener', 'Attack-first, high-APM pressure'],
+            ['Opener', 'Strong early firepower from opening builds'],
             ['Plonk', 'Slower but efficient attack and cleaning'],
-            ['Stride', 'Wins on speed (PPS) over attack per piece'],
+            ['Stride', 'Heavy pressure from placing many pieces fast'],
             ['Inf DS', 'Defensive, survives by clearing garbage'],
           ],
           foot: 'Past year · up to 300 matches where both sides can be scored (hidden if under half) · TetraStats formulas from APM, PPS and VS, not official TETR.IO stats',

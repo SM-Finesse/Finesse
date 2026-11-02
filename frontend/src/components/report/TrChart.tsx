@@ -12,7 +12,7 @@ export function TrChart({ series, height }: { series: number[]; height: number }
 
   return (
     <div data-testid="tr-chart">
-      <AreaChart responsive data={points} style={{ width: '100%', height }} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+      <AreaChart responsive data={points} style={{ width: '100%', height }} margin={{ top: 8, right: 18, bottom: 0, left: 0 }}>
         <defs>
           <linearGradient id={fill} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#66C0F4" stopOpacity={0.34} />
@@ -43,7 +43,7 @@ export function TrChart({ series, height }: { series: number[]; height: number }
                 <div className="mb-1.5 font-mono text-[11px] text-faint">GAME {p.game}</div>
                 <div className="flex justify-between gap-3.5">
                   <span>TR</span>
-                  <b className="font-num tabular-nums">{num(p.tr, 1)}</b>
+                  <b className="font-num tabular-nums">{num(p.tr, 2)}</b>
                 </div>
               </div>
             )

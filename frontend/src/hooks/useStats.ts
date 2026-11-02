@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError, getStats } from '../api/client'
 import type { StatsResponse } from '../api/types'
+import { withAfterTr } from '../lib/stats'
 
 export type StatsState =
   | { status: 'loading' }
@@ -36,7 +37,9 @@ export function useStats(username: string): UseStats {
   useEffect(() => {
     const ctrl = new AbortController()
     getStats(username, { refresh: req.refresh, signal: ctrl.signal })
-      .then((data) => {
+      .then((raw) => {
+        /* TR은 전부 경기 후 기준으로 — 마지막 점·평균·ΔTR·프로필 TR 배지가 지금 TR과 맞게 */
+        const data = withAfterTr(raw)
         setResult({ key, state: { status: 'success', data } })
         setLast({ key, data })
       })

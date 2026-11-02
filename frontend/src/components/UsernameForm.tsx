@@ -37,7 +37,7 @@ export function UsernameForm({ value, onChange, onSubmit, error, view, onToggleV
               : 'border-line focus-within:border-primary-bright',
           )}
         >
-          <span aria-hidden="true" className="flex-none font-mono text-[11px] font-medium tracking-[.08em] text-faint max-sm:hidden">{t.usernameLabel}</span>
+          <span aria-hidden="true" className="flex-none font-mono text-[11px] font-medium tracking-[.08em] text-faint ko:tracking-normal max-sm:hidden">{t.usernameLabel}</span>
           <input
             ref={inputRef}
             name="username"

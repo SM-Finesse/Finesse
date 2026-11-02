@@ -85,6 +85,7 @@ describe('ReportPage — 헤비 뷰', () => {
     await ready()
 
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(TITLES)
+    expect(screen.getByText('헤비 · 8개 챕터')).toBeInTheDocument()
     /* 자세히 보기는 큰 차트가 있는 챕터만 — 01 · 02 · 05(5구간이 왔을 때) · 07 */
     expect(screen.getAllByRole('button', { name: '자세히 보기' })).toHaveLength(4)
 
@@ -92,6 +93,16 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(FakeEventSource.last.url).toBe('/api/v1/comment/ExamplePlayer?scope=heavy')
     /* 라이트 코멘트는 부르지 않는다 */
     expect(urls().filter((u) => u.includes('/comment/'))).toHaveLength(0)
+  })
+
+  it('프로필 바로 아래 GAMES 칸 — 분석한 경기 수와 수집했지만 뺀 경기 수', async () => {
+    routeFetch({ stats: [() => json({ ...FULL, chapters: { excluded_matches: 5, dropped_records: 1 } })] })
+    setup()
+    await ready()
+    const games = within(screen.getByRole('region', { name: 'GAMES' })).getByText('GAMES').parentElement!
+    expect(games).toHaveTextContent('GAMES120분석한 최근 경기 · 수집 126판 중 6판 제외')
+    expect(games).toHaveAttribute('title', expect.stringContaining('실격·무효'))
+    expect(within(screen.getByRole('region', { name: 'PROFILE' })).queryByText('GAMES')).not.toBeInTheDocument()
   })
 
   it('코멘트는 도착하는 대로 그 챕터에 채우고, 실패·시간 초과는 챕터마다 따로 알린다', async () => {
@@ -124,8 +135,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(tr).getByRole('img', { name: 'TR 추이' })).toBeInTheDocument()
     /* ΔTR이 쓰는 최근 N판(tr_trend_basis.recent_matches)을 초록 구간으로 */
     expect(within(tr).getAllByText('최근 3판 (ΔTR 기준)').length).toBeGreaterThan(0)
-    /* 근거는 전체 평균만 — 최근·차이는 위쪽 ΔTR(백엔드 값)과 기준이 달라 두지 않는다 */
-    expect(within(tr).getByText('Avg of 4g')).toBeInTheDocument()
+    /* 근거는 최근 N판 평균 + 전체 평균 */
+    expect(within(tr).getByText('최근 3판 평균')).toBeInTheDocument()
+    expect(within(tr).getByText('전체 4판 평균')).toBeInTheDocument()
     expect(within(tr).queryByText(/^Recent/)).not.toBeInTheDocument()
     expect(within(tr).queryByText('Gap')).not.toBeInTheDocument()
 
@@ -172,7 +184,7 @@ describe('ReportPage — 헤비 뷰', () => {
     const ps = chapter('플레이스타일 상대비교')
     await user.click(within(ps).getByRole('button', { name: '플레이스타일 상대비교 설명' }))
     const note = within(ps).getByRole('note')
-    expect(note).toHaveTextContent('Opener높은 APM으로 몰아치는')
+    expect(note).toHaveTextContent('OpenerOpening Build를 활용하는 강력한 초반 화력')
     expect(note).toHaveTextContent('Inf DS')
     expect(note).toHaveTextContent('나 − 상대 성향 점수')
     expect(note).toHaveTextContent('TETR.IO 공식 지표 아님')
@@ -211,6 +223,7 @@ describe('ReportPage — 헤비 뷰', () => {
     await ready()
 
     const tr = chapter('TR · 능력치 추이')
+    /* ΔTR은 AI 코멘트와 같은 백엔드 값 그대로 */
     const pill = within(tr).getByRole('button', { name: 'ΔTR +12.4 TR 설명' })
     expect(pill).toHaveTextContent('+12.4 TR')
     await user.click(pill)
@@ -284,7 +297,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(rv).getByText('2명 · 20명/페이지')).toBeInTheDocument()
     /* 5경기 이상 만난 상대가 5명이 안 되지만, 10판 이상이면 표본 안내를 따로 붙이지 않는다 */
     expect(within(rv).queryByRole('img', { name: '주의' })).not.toBeInTheDocument()
-    expect(within(rv).getByText('아직 상성을 말하기 이릅니다.')).toBeInTheDocument()
+    /* AI 코멘트 · 근거 칸은 없다 — 코멘트가 와도 보이지 않는다 */
+    expect(within(rv).queryByText('아직 상성을 말하기 이릅니다.')).not.toBeInTheDocument()
+    expect(within(rv).queryByText('AI')).not.toBeInTheDocument()
   })
 
   it('상대 데이터 취급 방식은 제목만 보이다가 누르면 펼쳐진다', async () => {
@@ -480,6 +495,9 @@ describe('ReportPage — 헤비 뷰', () => {
     const meter = await screen.findByRole('region', { name: '분석이 열리기까지' })
     expect(within(meter).getByText('3')).toBeInTheDocument()
     expect(within(meter).getByText(/헤비 8개 챕터와 챕터별 AI 코멘트가 열립니다/)).toBeInTheDocument()
+    /* 뷰 배지도 표본 부족 문구로 — 잠긴 챕터를 '8개 챕터'라고 하지 않는다 */
+    expect(screen.getByText('헤비 · 표본 부족')).toBeInTheDocument()
+    expect(screen.queryByText('헤비 · 8개 챕터')).not.toBeInTheDocument()
 
     const locked = screen.getByRole('region', { name: '최근 1년 랭크 경기 10판이 쌓이면 열리는 챕터' })
     expect(within(locked).getAllByRole('listitem')).toHaveLength(8)

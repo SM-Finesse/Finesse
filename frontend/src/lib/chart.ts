@@ -8,11 +8,11 @@ function niceStep(raw: number): number {
 }
 
 /**
- * Y축 범위와 눈금 — 값 범위를 1·2·5 단위 눈금 4칸 안팎으로 감싼다(최소 간격 1).
+ * Y축 범위와 눈금 — 값 범위를 1·2·5 단위 눈금 4칸 안팎으로 감싼다(최소 간격 minStep, 기본 1).
  * Recharts에 범위만 주면 그릴 때마다 눈금을 골라 끝 눈금이 빠질 수 있어 눈금까지 정해서 넘긴다.
  */
-export function niceScale(lo: number, hi: number, count = 4): { domain: [number, number]; ticks: number[] } {
-  const step = Math.max(1, niceStep((hi - lo) / count || 1))
+export function niceScale(lo: number, hi: number, count = 4, minStep = 1): { domain: [number, number]; ticks: number[] } {
+  const step = Math.max(minStep, niceStep((hi - lo) / count || minStep))
   let a = Math.floor(lo / step) * step
   let b = Math.ceil(hi / step) * step
   if (a === b) {
@@ -20,7 +20,8 @@ export function niceScale(lo: number, hi: number, count = 4): { domain: [number,
     b += step
   }
   const ticks: number[] = []
-  for (let v = a; v <= b + step / 2; v += step) ticks.push(v)
+  /* 소수 간격을 더해 가면 0.30000000000000004 같은 값이 생겨 몇 번째 눈금인지로 계산한다 */
+  for (let i = 0; a + i * step <= b + step / 2; i++) ticks.push(+(a + i * step).toPrecision(12))
   return { domain: [a, b], ticks }
 }
 
@@ -34,6 +35,26 @@ export function gameTicks(n: number, count = 5): number[] {
   const mid: number[] = []
   for (let v = step; v < n; v += step) if (v - 1 > step / 2 && n - v > step / 2) mid.push(v)
   return [1, ...mid, n]
+}
+
+/**
+ * 역전 차트 천장(%) — m은 역전승률·역전 허용률 중 큰 값(%).
+ * 큰 쪽이 무조건 천장을 찍지 않고 작은 값도 바닥에 깔리지 않게, 천장을 20~40% 사이에서 m을 따라 이어서 올린다.
+ * m < 5 → 20 · 5 ≤ m < 35 → (2m + 50) / 3 · 35 ≤ m < 40 → 40 · m ≥ 40 → m (경계에서 값이 끊기지 않는다)
+ */
+export function comebackCeiling(m: number): number {
+  return Math.max(m, Math.min(40, Math.max(20, (2 * m + 50) / 3)))
+}
+
+/**
+ * 0부터 천장까지 눈금 — 사이는 1·2·5 단위, 맨 위는 천장 값 그대로(26.7이면 0 · 10 · 20 · 26.7).
+ * 천장과 반 칸 안으로 붙는 눈금은 글자가 겹쳐 뺀다(41이면 40 대신 41만).
+ */
+export function ceilingTicks(max: number, count = 5): number[] {
+  const step = niceStep(max / count)
+  const ticks: number[] = []
+  for (let i = 0; i * step < max - step / 2; i++) ticks.push(+(i * step).toPrecision(12))
+  return [...ticks, max]
 }
 
 /** 증감 방향 색 — 차트 SVG 안에서 쓴다 */

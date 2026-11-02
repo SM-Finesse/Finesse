@@ -20,6 +20,7 @@ public record StatsResponse(
         Rivals rivals,
         Map<String, Object> chapters, // 헤비 뷰 8챕터 차트 데이터 — 세부 스키마 [협의 필요], 확정 전까지 자유 구조
         HighlightJudgement highlightJudgement // 라이트 하이라이트 판정·선정(calc v4.3) — 콜드스타트면 null(생략)
+        // 지표 신뢰도는 delta_metrics.reliability로 이동(프론트 요청 11/2) — 여기 top-level 필드는 두지 않는다.
 ) {
 
     /** highlight_judgement 없이 만드는 생성자 — 기존 테스트·콜드스타트용 */
@@ -185,4 +186,5 @@ public record StatsResponse(
     public record JudgedMetric(String key, String group, Double value, double q1, double q3, String zone,
                                Double deviation, Double edgeGap) {
     }
+
 }

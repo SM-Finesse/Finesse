@@ -23,6 +23,23 @@ describe('ColumnChart', () => {
     expect(svg).toHaveTextContent('0.0%')
   })
 
+  it('막대 꼭대기가 축 눈금과 맞는다 — 칸을 통째로 버리지 않고 맨 위 칸은 남은 높이만큼', () => {
+    /* 역전 차트 천장 30% · 눈금 0·10·20·30에서 20% 막대는 20 눈금선 높이까지 (예전엔 6칸이라 17 근처에서 멈췄다) */
+    const { container } = render(
+      <ColumnChart aria="역전" h={250} mb={62} max={30} ticks={[0, 10, 20, 30]} items={[{ k: 'a', v: 20, c: '#D9524C' }]} />,
+    )
+    const svg = container.querySelector('svg')!
+    const line20 = [...svg.querySelectorAll('text')].find((t) => t.textContent === '20')!.previousElementSibling!
+    const top = Math.min(...[...svg.querySelectorAll('rect[fill="#D9524C"]')].map((r) => Number(r.getAttribute('y'))))
+    expect(top).toBeCloseTo(Number(line20.getAttribute('y1')), 6)
+  })
+
+  it('100% 막대 위 값 글자가 SVG 위 끝에 잘리지 않는다 — 글자 윗변(기준선 − 글자 크기)이 0보다 아래', () => {
+    const { container } = render(<ColumnChart aria="강도" h={250} mb={62} max={100} items={[{ k: 'Q1', v: 100 }]} />)
+    const label = [...container.querySelectorAll('text')].find((t) => t.textContent === '100.0%')!
+    expect(Number(label.getAttribute('y')) - Number(label.getAttribute('font-size'))).toBeGreaterThan(4)
+  })
+
   it('막대가 셋 이상이면 꼭대기를 점선으로 잇고, 둘이면 잇지 않는다', () => {
     const five = render(<ColumnChart aria="5구간" items={[80, 60, 60, 40, 60].map((v, i) => ({ k: `Q${i + 1}`, v }))} />)
     expect(five.container.querySelectorAll('path[stroke-dasharray="4 4"]')).toHaveLength(1)
@@ -37,12 +54,21 @@ describe('ColumnChart', () => {
     expect(rateColor(61)).toBe(rateColor(69))
   })
 
-  it('나 vs 상대 막대 — 음수끼리도 값이 클수록 길게, 0 눈금을 남긴다', () => {
+  it('나 vs 상대 막대 — 0선에서 시작해 음수는 왼쪽으로, 길이는 절댓값 (−20.7이 −6.5보다 길다)', () => {
     const { container } = render(
       <CompareBars me="나" opp="상대" aria="수비" rows={[{ k: 'ΔCheese Index', kr: '', mine: -20.7, opp: -6.5, decimals: 1, delta: '−14.2', trend: 'down' }]} />,
     )
-    const [mine, opp] = [...container.querySelectorAll('rect[height="18"]')].map((r) => Number(r.getAttribute('width')))
-    expect(opp).toBeGreaterThan(mine)
+    const [mine, opp] = [...container.querySelectorAll('rect[height="18"]')].map((r) => ({ x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) }))
+    expect(mine.w).toBeGreaterThan(opp.w)
+    /* 두 막대 모두 0선(오른쪽 끝)에서 끝난다 */
+    expect(mine.x + mine.w).toBeCloseTo(opp.x + opp.w)
     expect(container).toHaveTextContent('0')
+  })
+
+  it('양수와 음수가 섞이면 0선을 사이에 두고 반대쪽으로', () => {
+    const { container } = render(<CompareBars me="나" opp="상대" aria="수비" rows={[{ k: 'Δ', kr: '', mine: 10, opp: -5, decimals: 1, delta: '+15.0', trend: 'up' }]} />)
+    const [mine, opp] = [...container.querySelectorAll('rect[height="18"]')].map((r) => ({ x: Number(r.getAttribute('x')), w: Number(r.getAttribute('width')) }))
+    expect(opp.x + opp.w).toBeCloseTo(mine.x)
+    expect(mine.w).toBeCloseTo(opp.w * 2)
   })
 })

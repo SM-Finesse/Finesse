@@ -7,6 +7,9 @@
   $env:LLM_MODEL_PATH = "C:\\경로\\qwen2.5-1.5b-instruct-q4_k_m.gguf"
   python -m tools.try_heavy --runs 10 --repeat-penalty 1.1                 # 8챕터 × 10회
   python -m tools.try_heavy --runs 10 --repeat-penalty 1.1 --chapter comeback_rate
+  python -m tools.try_heavy --runs 10 --repeat-penalty 1.1 --out 결과_heavy.txt      # 화면 + UTF-8 파일
+
+※ PowerShell 에서 "| Out-File" 로 저장하면 한글이 cp949 로 한 번 잘못 읽혀 깨진다(10/16). 파일은 --out 으로 저장.
 
 마지막에 챕터별 표: 통과 / 502(서버라면 형식 오류) / 잘림(finish=length) / 평균·최대 생성 토큰.
 서버와 같은 처리(process_heavy_output)로 채점한다: 문장 다듬기 → 베낌·중국어·키 이름 검사.
@@ -25,6 +28,22 @@ from app.validation import OutputFormatError, process_heavy_output
 
 SAMPLE = Path(__file__).resolve().parent.parent / "tests" / "samples" / "heavy_chapters.json"
 
+class _Tee:
+    """화면과 파일에 같이 쓴다."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, text):
+        for st in self.streams:
+            st.write(text)
+            st.flush()
+
+    def flush(self):
+        for st in self.streams:
+            st.flush()
+
+
 def main() -> None:
     # Windows 콘솔 기본 인코딩(cp949)은 중국어 등을 못 찍어 멈춘다 → UTF-8 로 출력
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -35,7 +54,11 @@ def main() -> None:
     parser.add_argument("--json-mode", default="off", choices=JSON_MODES)
     parser.add_argument("--repeat-penalty", type=float, default=None)
     parser.add_argument("--quiet", action="store_true", help="출력 원문은 실패한 것만 보여 줌")
+    parser.add_argument("--out", help="결과를 이 파일에도 UTF-8 로 저장 (화면에도 그대로 보임)")
     args = parser.parse_args()
+    if args.out:
+        # 파일은 프로그램이 끝날 때까지 열어 둔다 (화면과 같이 쓰기)
+        sys.stdout = _Tee(sys.stdout, open(args.out, "w", encoding="utf-8"))  # noqa: SIM115
 
     model_path = os.environ.get("LLM_MODEL_PATH")
     if not model_path:
@@ -51,10 +74,10 @@ def main() -> None:
     table = {}
     for ch in chapters:
         req = HeavyRequest.model_validate({"chapter_id": ch, "data": data[ch]})
-        messages = build_heavy_messages(req)
         s = {"pass": 0, "fail": 0, "length": 0, "tokens": []}
         for i in range(1, args.runs + 1):
             t = time.perf_counter()
+            messages = build_heavy_messages(req)  # v4: 비교 표현을 매번 새로 고름 (서버와 같음)
             result = gen.generate_heavy(req, messages)
             elapsed = time.perf_counter() - t
             if result.finish_reason == "length":

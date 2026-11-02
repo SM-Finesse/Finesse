@@ -57,11 +57,18 @@ def test_긴_tr_trend도_정상_응답(base):
     assert r.status_code == 200
 
 
-def test_입력_길이_초과는_413(monkeypatch, base):
+@pytest.mark.parametrize("mode", ["v3", "a", "b", "c"])
+def test_입력_길이_초과는_413(monkeypatch, base, mode):
+    monkeypatch.setenv("LLM_LIGHT_MODE", mode)
     class OverflowGenerator:
         name = "overflow"
 
         def generate_light(self, req, messages):
+            raise ContextOverflowError("Requested tokens (2668) exceed context window of 2048")
+
+        generate_light_text = generate_light
+
+        def generate_text(self, label, messages, decoding):  # light-v4 (A/B/C)
             raise ContextOverflowError("Requested tokens (2668) exceed context window of 2048")
 
     monkeypatch.setattr(main_module, "generator", OverflowGenerator())
@@ -81,6 +88,8 @@ class _TextGenerator:
         from app.generator import GenerationResult
         return GenerationResult(text=self.text, finish_reason="stop")
 
+    generate_light_text = generate_light
+
 
 def _light_text(summary, stats):
     return json.dumps({"light_summary": summary,
@@ -88,12 +97,14 @@ def _light_text(summary, stats):
 
 
 def test_프롬프트를_베끼면_502(monkeypatch, base):
+    monkeypatch.setenv("LLM_LIGHT_PROMPT", "v2")  # 예전 JSON 방식 검사
     text = _light_text("당신은 테트리스 게임 TETR.IO의 전적 데이터를 분석해", ["delta_plonk", "delta_app", "delta_vs_apm"])
     monkeypatch.setattr(main_module, "generator", _TextGenerator(text))
     assert client.post("/v1/comment/light", json=base).status_code == 502
 
 
 def test_점_경로_키는_정리해서_200(monkeypatch, base):
+    monkeypatch.setenv("LLM_LIGHT_PROMPT", "v2")
     text = _light_text("요약", ["playstyle_relative.delta_plonk", "delta_app", "delta_vs_apm"]) + "\n덧붙인 글"
     monkeypatch.setattr(main_module, "generator", _TextGenerator(text))
     r = client.post("/v1/comment/light", json=base)

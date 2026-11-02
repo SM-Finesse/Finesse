@@ -9,7 +9,7 @@ export function SiteFooter({ keys }: { keys?: ReactNode }) {
         <div className="flex flex-wrap items-center gap-x-[22px] gap-y-3">
           {keys && (
             <>
-              <span className="flex flex-wrap items-center gap-[22px] font-mono text-[11px] tracking-[.1em] text-faint">{keys}</span>
+              <span className="flex flex-wrap items-center gap-[22px] font-mono text-[11px] tracking-[.1em] text-faint ko:tracking-normal">{keys}</span>
               <span className="hidden h-[18px] w-px bg-line sm:block" />
             </>
           )}
