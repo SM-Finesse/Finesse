@@ -1,5 +1,6 @@
 import type { HeavyChapterId } from '../api/types'
 import type { Lang, View } from '../types'
+import type { Flag } from '../lib/stats'
 import type { UsernameError } from '../lib/username'
 import { USERNAME_MAX, USERNAME_MIN } from '../lib/username'
 
@@ -146,6 +147,23 @@ export interface ReportStrings {
     streamFailed: string
     foot: { loading: string; failed: string; timeout: string; warn: string }
     evidence: string
+    /** 근거 위 신뢰도 라벨 */
+    flags: Record<Flag, string>
+    flagsAria: string
+    /** 라벨을 누르면 펼치는 설명 — 무슨 표시인지(what) · 왜 붙었는지(why, 지표마다) */
+    flagInfo: {
+      what: Record<Flag, string>
+      why: {
+        unreliable: string
+        caution: string
+        lowDelta: string
+        lowSplit: (q1?: number, q5?: number) => string
+        lowSlope: (rounds: number, games: number) => string
+        suspDelta: string
+        suspSplit: string
+      }
+      note: string
+    }
     noData: string
     detail: { open: string; close: string; title: (chapter: string) => string }
     /** 스코어 칸 ? 버튼 이름 */
@@ -408,6 +426,27 @@ const ko: Strings = {
       streamFailed: '챕터 코멘트 연결이 끊겼습니다. 받은 챕터는 그대로 둡니다.',
       foot: { loading: '코멘트를 생성하는 중입니다 · 챕터별 개별 호출', failed: '이 챕터의 코멘트를 만들지 못했습니다.', timeout: '시간 안에 이 챕터의 코멘트를 받지 못했습니다.', warn: '주의' },
       evidence: '근거',
+      flags: { unreliable: '신뢰 불가', caution: '해석 주의', low_sample: '표본 부족', suspicious: '의심 데이터 포함' },
+      flagsAria: '지표 신뢰도',
+      flagInfo: {
+        what: {
+          unreliable: '300판을 모아도 유저마다의 차이를 구분하지 못하는 지표입니다. 값은 참고로만 보세요.',
+          caution: '판수를 충분히 모아도 유저마다의 차이를 구분하는 힘이 약한 지표입니다. 해석에 주의하세요.',
+          low_sample: '이 값을 믿을 만큼 경기가 쌓이지 않았습니다. 판수가 쌓이면 사라집니다.',
+          suspicious: '일부 경기가 값을 크게 끌어당겼을 수 있습니다.',
+        },
+        why: {
+          unreliable: '300판 기준 신뢰도(R₃₀₀)가 0.5 미만입니다. 지표의 성질이라 모든 유저에게 붙습니다.',
+          caution: '300판 기준 신뢰도(R₃₀₀)가 0.9 미만입니다. 지표의 성질이라 모든 유저에게 붙습니다.',
+          lowDelta: '경기마다 기복에 비해 판수가 적어 신뢰도가 0.9 미만입니다. 판수가 같아도 기복이 크면 붙습니다.',
+          lowSplit: (q1, q5) =>
+            `${q1 !== undefined && q5 !== undefined ? `가장 약한 상대(Q1) ${q1}판 · 가장 강한 상대(Q5) ${q5}판. ` : ''}두 구간 중 한쪽이라도 20판 미만이면 붙습니다.`,
+          lowSlope: (rounds, games) => `라운드 순번 ${rounds}개 · 분석 경기 ${games}판. 순번이 3개 미만이거나 150판 미만이면 붙습니다.`,
+          suspDelta: '튀는 경기(이상치)를 뺀 평균과의 차이가 관측 오차보다 큽니다.',
+          suspSplit: 'Q1·Q5 경기 중 같은 상대와 치른 경기가 3판 이상이면서 10% 이상입니다. 특정 상대 한 명이 결과를 좌우했을 수 있습니다.',
+        },
+        note: '값은 바꾸지 않고, 의심할 이유만 알립니다.',
+      },
       noData: '이 챕터를 계산할 데이터가 아직 없습니다.',
       detail: { open: '자세히 보기', close: '닫기', title: (c) => `${c} 상세` },
       about: (name) => `${name} 설명`,
@@ -826,6 +865,27 @@ const en: Strings = {
       streamFailed: 'The chapter comment stream dropped. Chapters already received stay as they are.',
       foot: { loading: 'Generating comment · one call per chapter', failed: 'Could not write the comment for this chapter.', timeout: 'The comment for this chapter did not arrive in time.', warn: 'Caution' },
       evidence: 'Evidence',
+      flags: { unreliable: 'Unreliable', caution: 'Interpret with care', low_sample: 'Small sample', suspicious: 'Includes suspect data' },
+      flagsAria: 'Metric reliability',
+      flagInfo: {
+        what: {
+          unreliable: 'Even with 300 games, this metric cannot tell players apart. Treat the value as a rough reference.',
+          caution: 'Even with plenty of games, this metric separates players only weakly. Read it with care.',
+          low_sample: 'Not enough games yet to trust this value. The label goes away as more games are played.',
+          suspicious: 'A few games may be pulling this value strongly.',
+        },
+        why: {
+          unreliable: 'Reliability at 300 games (R₃₀₀) is below 0.5. It is a property of the metric, so every player gets it.',
+          caution: 'Reliability at 300 games (R₃₀₀) is below 0.9. It is a property of the metric, so every player gets it.',
+          lowDelta: 'Too few games for how much your games vary, so reliability is below 0.9. Large swings trigger it even at the same game count.',
+          lowSplit: (q1, q5) =>
+            `${q1 !== undefined && q5 !== undefined ? `Weakest opponents (Q1) ${q1} games · strongest (Q5) ${q5} games. ` : ''}Shown when either group has fewer than 20 games.`,
+          lowSlope: (rounds, games) => `${rounds} round positions · ${games} games analyzed. Shown with fewer than 3 positions or fewer than 150 games.`,
+          suspDelta: 'The average without outlier games differs from the full average by more than the observation error.',
+          suspSplit: 'One opponent accounts for 3+ games and 10%+ of the Q1·Q5 games, so a single opponent may be driving the result.',
+        },
+        note: 'The value itself is unchanged — this only flags a reason for doubt.',
+      },
       noData: 'There is no data to compute this chapter yet.',
       detail: { open: 'Details', close: 'Close', title: (c) => `${c} detail` },
       about: (name) => `About ${name}`,
