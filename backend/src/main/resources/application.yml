@@ -37,6 +37,14 @@ llm:
   server-exclude-seconds: 30        # 연결 실패한 서버를 이 시간 동안 라운드로빈에서 제외 (5.5절)
   light-path: /v1/comment/light            # LLM 추론 서버(PR #9)와 맞춤, 10/7 연동 확인
   heavy-chapter-path: /v1/comment/heavy-chapter   # LLM 쪽 heavy 엔드포인트가 나오면 확인
+  # 라이트 개별·기본 코멘트 (LLM light-v5.2, 10/21) — calc가 고른 지표마다 개별 1회 + 기본 1회를 동시에 부른다.
+  # enabled: false면 예전처럼 light-path 한 번 호출(LLM이 11개 중에서 고름)로 되돌아간다.
+  light-comment:
+    enabled: true
+    sentence-path: /v1/light/sentence
+    summary-path: /v1/light/summary
+    call-timeout-seconds: 10       # 호출 1회 — LLM 서버가 받은 시각부터 9초 안에 응답(강제 마감)
+    min-remaining-seconds: 10      # 다른 서버로 다시 부르려면 light 엔드포인트(40초)에 남아 있어야 하는 시간
 
 # 캐시 설정 (Finesse-API명세서 5장 — 인메모리 Caffeine, 최대 10분 유지 후 소멸)
 app:

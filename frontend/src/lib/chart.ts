@@ -37,6 +37,26 @@ export function gameTicks(n: number, count = 5): number[] {
   return [1, ...mid, n]
 }
 
+/**
+ * 역전 차트 천장(%) — m은 역전승률·역전 허용률 중 큰 값(%).
+ * 큰 쪽이 무조건 천장을 찍지 않고 작은 값도 바닥에 깔리지 않게, 천장을 20~40% 사이에서 m을 따라 이어서 올린다.
+ * m < 5 → 20 · 5 ≤ m < 35 → (2m + 50) / 3 · 35 ≤ m < 40 → 40 · m ≥ 40 → m (경계에서 값이 끊기지 않는다)
+ */
+export function comebackCeiling(m: number): number {
+  return Math.max(m, Math.min(40, Math.max(20, (2 * m + 50) / 3)))
+}
+
+/**
+ * 0부터 천장까지 눈금 — 사이는 1·2·5 단위, 맨 위는 천장 값 그대로(26.7이면 0 · 10 · 20 · 26.7).
+ * 천장과 반 칸 안으로 붙는 눈금은 글자가 겹쳐 뺀다(41이면 40 대신 41만).
+ */
+export function ceilingTicks(max: number, count = 5): number[] {
+  const step = niceStep(max / count)
+  const ticks: number[] = []
+  for (let i = 0; i * step < max - step / 2; i++) ticks.push(+(i * step).toPrecision(12))
+  return [...ticks, max]
+}
+
 /** 증감 방향 색 — 차트 SVG 안에서 쓴다 */
 export const TREND_COLOR = { up: '#8FC93A', down: '#D9524C', even: '#8F98A0' } as const
 

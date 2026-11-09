@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { DeltaMetrics } from '../api/types'
-import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, linkSummary, numOrDash, rankLabel, readable, signed, timeAgo, trendOf } from './stats'
+import type { DeltaMetrics, StatsResponse } from '../api/types'
+import { countryName, evidenceOf, formSummary, levelFromXp, mapHighlights, linkSummary, numOrDash, rankLabel, readable, signed, timeAgo, trAfterSeries, trendOf, winRateDeltaPp, withAfterTr } from './stats'
 
 const DELTA: DeltaMetrics = {
   tr_trend_delta: 12.34,
@@ -200,5 +200,57 @@ describe('linkSummary — 총평 구절 ↔ 하이라이트 카드', () => {
       ['delta_opener', 'Opener is strong'],
       ['delta_vs_apm', 'defense lags'],
     ])
+  })
+})
+
+describe('winRateDeltaPp — 승률 변화율(%)을 승률 차(%p)로', () => {
+  it('최근 30판 21승(70%) · 나머지 70판 35승(50%) → 변화율 +40% = +20%p', () => {
+    expect(winRateDeltaPp(56 / 100, 100, 30, 40)).toBeCloseTo(20, 9)
+  })
+
+  it('최근 30판 12승(40%) · 나머지 70판 42승(60%) → 변화율 −33.3% = −20%p', () => {
+    expect(winRateDeltaPp(54 / 100, 100, 30, (-1 / 3) * 100)).toBeCloseTo(-20, 9)
+  })
+
+  it('변화가 없으면 0%p', () => {
+    expect(winRateDeltaPp(0.6, 100, 30, 0)).toBe(0)
+  })
+
+  it('나눌 구간이 없으면 null', () => {
+    expect(winRateDeltaPp(0.5, 30, 30, 10)).toBeNull()
+    expect(winRateDeltaPp(0.5, 100, 0, 10)).toBeNull()
+  })
+})
+
+describe('trAfterSeries — TR 추이를 경기 후 TR로', () => {
+  it('한 칸씩 당기고 마지막은 지금 TR', () => {
+    expect(trAfterSeries([24000, 24100, 24050], 24400)).toEqual([24100, 24050, 24400])
+  })
+
+  it('지금 TR을 모르거나(언랭크 -1) 시계열이 비면 받은 그대로', () => {
+    expect(trAfterSeries([24000, 24100], -1)).toEqual([24000, 24100])
+    expect(trAfterSeries([], 24400)).toEqual([])
+  })
+})
+
+describe('withAfterTr — 응답의 TR 값을 모두 경기 후 기준으로', () => {
+  /* 매치 전 TR [100, 110, 120, 130, 140] + 지금 TR 150 → 경기 후 TR [110, 120, 130, 140, 150] */
+  const base = {
+    profile: { tr: 150, glicko: 0, rd: 0, window_delta: { recent_matches: 2, tr_delta_pct: 99 } },
+    fixed_metrics: { tr_trend: [100, 110, 120, 130, 140], recent_form: [] },
+    delta_metrics: { tr_trend_delta: 99, tr_trend_basis: { recent_matches: 2, total_matches: 5, recent_avg_tr: 0, overall_avg_tr: 0 } },
+  } as unknown as StatsResponse
+
+  it('그래프 · 프로필 TR 배지는 경기 후 시계열로, ΔTR · 근거 평균은 AI 코멘트와 맞게 백엔드 값 그대로', () => {
+    const out = withAfterTr(base)
+    expect(out.fixed_metrics.tr_trend).toEqual([110, 120, 130, 140, 150])
+    expect(out.delta_metrics).toBe(base.delta_metrics)
+    /* 최근 2판 평균 145 vs 나머지 평균 120 → +20.83% */
+    expect(out.profile.window_delta?.tr_delta_pct).toBeCloseTo(20.833, 3)
+  })
+
+  it('지금 TR을 모르면(언랭크 -1) 응답을 그대로 둔다', () => {
+    const unranked = { ...base, profile: { ...base.profile, tr: -1 } }
+    expect(withAfterTr(unranked)).toBe(unranked)
   })
 })

@@ -8,7 +8,10 @@ import com.finesse.backend.calc.collector.RawMatch;
 import com.finesse.backend.calc.collector.TetrIoCollector;
 import com.finesse.backend.calc.collector.UserSummary;
 import com.finesse.backend.calc.config.AnalyticsProperties;
+import com.finesse.backend.calc.config.HighlightProperties;
+import com.finesse.backend.calc.config.ReliabilityProperties;
 import com.finesse.backend.calc.domain.AnalyticsContext;
+import com.finesse.backend.calc.domain.HighlightJudgement;
 import com.finesse.backend.calc.domain.MatchHistory;
 import com.finesse.backend.calc.domain.RecentWinLossStats;
 import com.finesse.backend.calc.domain.RivalryAggregate;
@@ -17,11 +20,14 @@ import com.finesse.backend.calc.domain.StatResult;
 import com.finesse.backend.calc.exception.AllMatchesExcludedException;
 import com.finesse.backend.calc.exception.TetrIoApiException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
+import com.finesse.backend.calc.highlight.HighlightJudge;
+import com.finesse.backend.calc.highlight.HighlightSelector;
 import com.finesse.backend.calc.metrics.AnalyticsMetrics;
 import com.finesse.backend.calc.preprocessing.MatchPreprocessor;
 import com.finesse.backend.calc.preprocessing.NicknamePseudonymizer;
 import com.finesse.backend.calc.preprocessing.PreprocessResult;
 import com.finesse.backend.calc.preprocessing.PseudonymScope;
+import com.finesse.backend.calc.reliability.ReliabilityJudge;
 import com.finesse.backend.calc.service.AnalysisOutcome.ColdStartReason;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -45,12 +51,18 @@ public class StatCalculatorFacade {
     private final AnalyticsProperties properties;
     private final Clock clock;
     private final AnalyticsMetrics metrics;
+    private final HighlightJudge highlightJudge;
+    private final HighlightSelector highlightSelector;
+    private final ReliabilityJudge reliabilityJudge;
 
     @Autowired
     public StatCalculatorFacade(TetrIoCollector collector, MatchPreprocessor preprocessor,
                                 CalculatorRegistry registry, NicknamePseudonymizer masker,
-                                AnalyticsProperties properties, AnalyticsMetrics metrics) {
-        this(collector, preprocessor, registry, masker, properties, Clock.systemUTC(), metrics);
+                                AnalyticsProperties properties, AnalyticsMetrics metrics,
+                                HighlightJudge highlightJudge, HighlightSelector highlightSelector,
+                                ReliabilityJudge reliabilityJudge) {
+        this(collector, preprocessor, registry, masker, properties, Clock.systemUTC(), metrics,
+                highlightJudge, highlightSelector, reliabilityJudge);
     }
 
     StatCalculatorFacade(TetrIoCollector collector, MatchPreprocessor preprocessor,
@@ -62,6 +74,24 @@ public class StatCalculatorFacade {
     StatCalculatorFacade(TetrIoCollector collector, MatchPreprocessor preprocessor,
                          CalculatorRegistry registry, NicknamePseudonymizer masker,
                          AnalyticsProperties properties, Clock clock, AnalyticsMetrics metrics) {
+        this(collector, preprocessor, registry, masker, properties, clock, metrics,
+                new HighlightJudge(HighlightProperties.defaults()),
+                new HighlightSelector(HighlightProperties.defaults()));
+    }
+
+    StatCalculatorFacade(TetrIoCollector collector, MatchPreprocessor preprocessor,
+                         CalculatorRegistry registry, NicknamePseudonymizer masker,
+                         AnalyticsProperties properties, Clock clock, AnalyticsMetrics metrics,
+                         HighlightJudge highlightJudge, HighlightSelector highlightSelector) {
+        this(collector, preprocessor, registry, masker, properties, clock, metrics, highlightJudge,
+                highlightSelector, new ReliabilityJudge(ReliabilityProperties.defaults()));
+    }
+
+    StatCalculatorFacade(TetrIoCollector collector, MatchPreprocessor preprocessor,
+                         CalculatorRegistry registry, NicknamePseudonymizer masker,
+                         AnalyticsProperties properties, Clock clock, AnalyticsMetrics metrics,
+                         HighlightJudge highlightJudge, HighlightSelector highlightSelector,
+                         ReliabilityJudge reliabilityJudge) {
         this.collector = collector;
         this.preprocessor = preprocessor;
         this.registry = registry;
@@ -69,6 +99,9 @@ public class StatCalculatorFacade {
         this.properties = properties;
         this.clock = clock;
         this.metrics = metrics;
+        this.highlightJudge = highlightJudge;
+        this.highlightSelector = highlightSelector;
+        this.reliabilityJudge = reliabilityJudge;
     }
 
     public AnalysisOutcome analyze(String username) {
@@ -133,6 +166,12 @@ public class StatCalculatorFacade {
                 toRivalryStats(calculate(CalculatorKey.RIVALRY, context), current.scope()),
                 calculate(CalculatorKey.SERIES, context)
         );
+        // 4-1. 라이트 뷰 하이라이트 판정·선정 (19.5절 6-1단계, 30장) — 범위 묶음은 조회 시점 등급으로 고른다 (v4.3)
+        result = result.withHighlightJudgement(judgeHighlight(result, summary.rank()));
+        // 4-2. 지표 신뢰도 (「지표 신뢰도 판정 기준」) — 화면 표시 전용, 판정·선정에는 쓰지 않는다.
+        //      수집 레코드가 상한(300건)에 도달하면 더 모을 수 없으므로 2단계 표본 부족을 붙이지 않는다(5.2절)
+        boolean capped = collection.matches().size() + collection.droppedRecords() >= properties.maxMatchWindow();
+        result = result.withReliability(reliabilityJudge.judge(result, current.matches(), capped, user));
 
         AnalysisMeta meta = new AnalysisMeta(
                 current.matches().size(), 0, collection.partial(),   // previousMatches는 v3.10부터 항상 0 (@Deprecated)
@@ -178,6 +217,12 @@ public class StatCalculatorFacade {
     }
 
 
+
+    /** 1단계 판정 → 2단계 선정 (30.3·30.4절) */
+    private HighlightJudgement judgeHighlight(StatResult result, String rank) {
+        HighlightJudgement judged = highlightJudge.judge(result.delta(), result.highlight(), rank);
+        return judged.withPicks(highlightSelector.select(judged.metrics()));
+    }
 
     /** 마스킹 닉네임만 붙여 외부 노출용으로 바꾼다 — 원본 닉네임·유저 ID는 나가지 않는다 (11.12절). */
     private RivalryStats toRivalryStats(RivalryAggregate aggregate, PseudonymScope scope) {

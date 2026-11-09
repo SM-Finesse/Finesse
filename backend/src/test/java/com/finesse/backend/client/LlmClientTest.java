@@ -302,6 +302,23 @@ class LlmClientTest {
     }
 
     @Test
+    void heavy_fallback_표시를_읽고_예전_서버처럼_없으면_false() throws IOException {
+        AtomicInteger hits = new AtomicInteger();
+        String withFlag = llmServer(hits, HEAVY_PATH,
+                "{\"chapter_id\":\"attack\",\"footnote\":\"대체 문장\",\"fallback\":true}");
+        String withoutFlag = llmServer(hits, HEAVY_PATH, "{\"chapter_id\":\"attack\",\"footnote\":\"LLM 문장\"}");
+
+        HeavyCommentResponse.ChapterResult fb = client(3, withFlag).callHeavyChapter("attack", null, deadline());
+        HeavyCommentResponse.ChapterResult llm = client(3, withoutFlag).callHeavyChapter("attack", null, deadline());
+
+        assertThat(fb.status()).isEqualTo(HeavyCommentResponse.STATUS_OK);
+        assertThat(fb.fallback()).isTrue();
+        assertThat(fb.attemptCount()).as("대체 문장도 정상 응답이라 재요청하지 않음").isZero();
+        assertThat(llm.fallback()).isFalse();
+        assertThat(hits.get()).isEqualTo(2);
+    }
+
+    @Test
     void heavy_413_입력_길이_초과는_재요청하지_않고_바로_failed() throws IOException {
         AtomicInteger hits = new AtomicInteger();
         String url = statusServer(hits, HEAVY_PATH, 413);

@@ -2,6 +2,12 @@ import { useI18n } from '../i18n/context'
 import { cx } from '../lib/cx'
 import type { Lang, View } from '../types'
 
+/**
+ * 언어 전환(KO/EN) 버튼 — 지금은 숨기고 한국어로 고정한다. 다국어 문구·LangSwitch는 그대로 두었으니
+ * true로 바꾸면 헤더 버튼과 저장된 언어 선택(finesse.lang)이 다시 쓰인다.
+ */
+export const LANG_SWITCH_ENABLED = false
+
 export function LangSwitch() {
   const { lang, setLang } = useI18n()
   const langs: Lang[] = ['ko', 'en']

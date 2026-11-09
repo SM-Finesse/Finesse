@@ -135,7 +135,8 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(tr).getByRole('img', { name: 'TR 추이' })).toBeInTheDocument()
     /* ΔTR이 쓰는 최근 N판(tr_trend_basis.recent_matches)을 초록 구간으로 */
     expect(within(tr).getAllByText('최근 3판 (ΔTR 기준)').length).toBeGreaterThan(0)
-    /* 근거는 전체 평균만 — 최근·차이는 위쪽 ΔTR(백엔드 값)과 기준이 달라 두지 않는다 */
+    /* 근거는 최근 N판 평균 + 전체 평균 */
+    expect(within(tr).getByText('최근 3판 평균')).toBeInTheDocument()
     expect(within(tr).getByText('전체 4판 평균')).toBeInTheDocument()
     expect(within(tr).queryByText(/^Recent/)).not.toBeInTheDocument()
     expect(within(tr).queryByText('Gap')).not.toBeInTheDocument()
@@ -183,7 +184,7 @@ describe('ReportPage — 헤비 뷰', () => {
     const ps = chapter('플레이스타일 상대비교')
     await user.click(within(ps).getByRole('button', { name: '플레이스타일 상대비교 설명' }))
     const note = within(ps).getByRole('note')
-    expect(note).toHaveTextContent('Opener높은 APM으로 몰아치는')
+    expect(note).toHaveTextContent('OpenerOpening Build를 활용하는 강력한 초반 화력')
     expect(note).toHaveTextContent('Inf DS')
     expect(note).toHaveTextContent('나 − 상대 성향 점수')
     expect(note).toHaveTextContent('TETR.IO 공식 지표 아님')
@@ -222,6 +223,7 @@ describe('ReportPage — 헤비 뷰', () => {
     await ready()
 
     const tr = chapter('TR · 능력치 추이')
+    /* ΔTR은 AI 코멘트와 같은 백엔드 값 그대로 */
     const pill = within(tr).getByRole('button', { name: 'ΔTR +12.4 TR 설명' })
     expect(pill).toHaveTextContent('+12.4 TR')
     await user.click(pill)
@@ -233,6 +235,69 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(note).toHaveTextContent('4판 — 최근 1년')
     await user.keyboard('{Escape}')
     expect(within(tr).queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('근거 위에 신뢰도 라벨을 하나씩 따로 띄우고, 누르면 무슨 표시인지 · 왜 붙었는지 펼친다', async () => {
+    const reliability = {
+      delta_opener: { low_sample: true },
+      delta_app: { low_sample: true, suspicious: true },
+      delta_weighted_app: { low_sample: true },
+      strength_split: { metric_level: 'caution' as const, low_sample: true },
+      delta_comeback: { metric_level: 'unreliable' as const },
+      session_vs_slope: { metric_level: 'caution' as const, low_sample: true },
+      /* 값이 없는 지표(delta_inf_ds)에 온 라벨은 무시 */
+      delta_inf_ds: { suspicious: true },
+      /* Δ 8종은 라벨이 없으면 빈 객체로 온다 */
+      delta_plonk: {},
+    }
+    routeFetch({ stats: [() => json({ ...FULL, delta_metrics: { ...FULL.delta_metrics, reliability } })], comment: [pending] })
+    const { user } = setup()
+    await ready()
+    done()
+
+    const row = (name: string) => within(chapter(name)).getByRole('group', { name: '지표 신뢰도' })
+    const tags = (name: string) => within(row(name)).getAllByRole('button').map((b) => b.textContent)
+    /* 라벨만 — 앞에 지표 이름은 없다. 같은 라벨이 두 지표에 붙어도 하나로 */
+    expect(tags('플레이스타일 상대비교')).toEqual(['!표본 부족'])
+    expect(tags('공격 효율')).toEqual(['!표본 부족', '!의심 데이터 포함'])
+    expect(tags('상대 강도별 승률')).toEqual(['!해석 주의', '!표본 부족'])
+    expect(tags('역전승 퍼포먼스')).toEqual(['!신뢰 불가'])
+    expect(tags('경기 내 컨디션 변화')).toEqual(['!해석 주의', '!표본 부족'])
+    expect(row('상대 강도별 승률')).not.toHaveTextContent('Strength Split')
+    expect(within(chapter('수비 · 가비지 처리')).queryByRole('group', { name: '지표 신뢰도' })).not.toBeInTheDocument()
+    /* 근거 칩은 값만 */
+    expect(within(chapter('상대 강도별 승률')).getByText('근거').nextElementSibling).toHaveTextContent(/^Strength Split −20.0%p$/)
+
+    /* 누르면 설명 — 무슨 표시인지 + 지표별 이유(응답의 표본 수 포함) */
+    const sp = chapter('상대 강도별 승률')
+    const low = within(row('상대 강도별 승률')).getByRole('button', { name: '표본 부족' })
+    await user.click(low)
+    expect(low).toHaveAttribute('aria-expanded', 'true')
+    const note = within(sp).getByRole('note')
+    expect(note).toHaveTextContent('이 값을 믿을 만큼 경기가 쌓이지 않았습니다')
+    expect(note).toHaveTextContent('Strength Split가장 약한 상대(Q1) 5판 · 가장 강한 상대(Q5) 5판. 두 구간 중 한쪽이라도 20판 미만이면 붙습니다.')
+    /* 다른 라벨을 누르면 그 설명으로 바뀐다 */
+    await user.click(within(row('상대 강도별 승률')).getByRole('button', { name: '해석 주의' }))
+    expect(within(sp).getByRole('note')).toHaveTextContent('300판 기준 신뢰도(R₃₀₀)가 0.9 미만입니다')
+    await user.keyboard('{Escape}')
+    expect(within(sp).queryByRole('note')).not.toBeInTheDocument()
+
+    /* 한 라벨이 두 지표에 붙으면 설명에서 지표별로 나눠 보인다 */
+    await user.click(within(row('공격 효율')).getByRole('button', { name: '표본 부족' }))
+    const atk = within(chapter('공격 효율')).getByRole('note')
+    expect([...atk.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['ΔAPP', 'ΔWeighted APP'])
+
+    await user.click(within(row('경기 내 컨디션 변화')).getByRole('button', { name: '표본 부족' }))
+    expect(within(chapter('경기 내 컨디션 변화')).getByRole('note')).toHaveTextContent('라운드 순번 3개 · 분석 경기 120판')
+  })
+
+  it('신뢰도가 오지 않으면 라벨 줄이 없다', async () => {
+    routeFetch({ stats: [() => json(FULL)], comment: [pending] })
+    setup()
+    await ready()
+    done()
+    expect(screen.queryByRole('group', { name: '지표 신뢰도' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/표본 부족|해석 주의|신뢰 불가|의심 데이터/)).not.toBeInTheDocument()
   })
 
   it('역전승률이 0%면 칸에 ▲를 붙이지 않는다', async () => {
@@ -295,7 +360,9 @@ describe('ReportPage — 헤비 뷰', () => {
     expect(within(rv).getByText('2명 · 20명/페이지')).toBeInTheDocument()
     /* 5경기 이상 만난 상대가 5명이 안 되지만, 10판 이상이면 표본 안내를 따로 붙이지 않는다 */
     expect(within(rv).queryByRole('img', { name: '주의' })).not.toBeInTheDocument()
-    expect(within(rv).getByText('아직 상성을 말하기 이릅니다.')).toBeInTheDocument()
+    /* AI 코멘트 · 근거 칸은 없다 — 코멘트가 와도 보이지 않는다 */
+    expect(within(rv).queryByText('아직 상성을 말하기 이릅니다.')).not.toBeInTheDocument()
+    expect(within(rv).queryByText('AI')).not.toBeInTheDocument()
   })
 
   it('상대 데이터 취급 방식은 제목만 보이다가 누르면 펼쳐진다', async () => {

@@ -5,13 +5,76 @@ import type { FootState } from '../../../hooks/useHeavyComment'
 import { useI18n } from '../../../i18n/context'
 import type { StatInfo } from '../../../i18n/strings'
 import { cx } from '../../../lib/cx'
-import { readable, TREND_MARK, type Trend } from '../../../lib/stats'
+import { readable, TREND_MARK, type Flag, type Trend } from '../../../lib/stats'
 import { BigNum } from '../parts'
 
 /** 근거 칩 한 개 — 이름과 값 */
 export interface Chip {
   k: string
   v: string
+}
+
+/** 신뢰도 라벨 하나 — 그 라벨이 붙은 챕터 지표들과 붙은 이유 */
+export interface FlagGroup {
+  flag: Flag
+  items: { k: string; why: string }[]
+}
+
+const FLAG_TONE: Record<'warn' | 'bad', { tag: string; text: string; border: string }> = {
+  warn: { tag: 'border-signal/45 bg-signal/10 text-signal hover:bg-signal/20 aria-expanded:bg-signal/25', text: 'text-signal', border: 'border-signal/60' },
+  bad: { tag: 'border-loss/45 bg-loss/10 text-loss hover:bg-loss/20 aria-expanded:bg-loss/25', text: 'text-loss', border: 'border-loss/60' },
+}
+/* 신뢰 불가만 붉게, 나머지(해석 주의 · 표본 부족 · 의심 데이터)는 노랗게 */
+const toneOf = (f: Flag) => FLAG_TONE[f === 'unreliable' ? 'bad' : 'warn']
+
+/**
+ * 근거 위 신뢰도 라벨 줄 — 라벨마다 따로 뜨고, 누르면 바로 아래에 무슨 표시인지 · 왜 붙었는지 펼친다.
+ * 창은 줄 안에서 펼쳐 챕터 아래 끝에서도 잘리지 않는다. 다시 누르거나 Esc · 바깥 클릭이면 닫힌다.
+ */
+function FlagRow({ groups }: { groups: FlagGroup[] }) {
+  const { t } = useI18n()
+  const f = t.report.heavy.flagInfo
+  const [open, setOpen] = useState<Flag | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const id = useId()
+  const close = useCallback(() => setOpen(null), [])
+  useDismiss(open !== null, close, ref)
+  const shown = groups.find((g) => g.flag === open)
+
+  return (
+    <div ref={ref} role="group" aria-label={t.report.heavy.flagsAria} className="mb-3 flex flex-wrap items-center gap-2 border-b border-[#1E3A52] pb-3">
+      {groups.map((g) => (
+        <button
+          key={g.flag}
+          type="button"
+          aria-expanded={open === g.flag}
+          aria-controls={id}
+          onClick={() => setOpen(open === g.flag ? null : g.flag)}
+          className={cx('inline-flex h-6 cursor-pointer items-center gap-1.5 rounded border-2 px-2 text-xs font-semibold transition-colors', toneOf(g.flag).tag)}
+        >
+          <i aria-hidden="true" className="grid size-3.5 place-items-center rounded-[2px] bg-current font-display text-[10px] leading-none font-extrabold not-italic">
+            <span className="text-[#0E1E2B]">!</span>
+          </i>
+          {t.report.heavy.flags[g.flag]}
+        </button>
+      ))}
+      {shown && (
+        <div id={id} role="note" className={cx('basis-full animate-info-in rounded-md border-2 bg-[#0E1E2B] px-3.5 py-3 text-[13px] leading-[1.6] text-ink', toneOf(shown.flag).border)}>
+          <p className={cx('m-0 font-display font-bold', toneOf(shown.flag).text)}>{t.report.heavy.flags[shown.flag]}</p>
+          <p className="m-0 mt-0.5 text-muted">{f.what[shown.flag]}</p>
+          <dl className="m-0 mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-dashed border-[#27485F] pt-2.5">
+            {shown.items.map((i) => (
+              <div key={i.k} className="contents">
+                <dt className="font-display text-xs leading-[1.6] font-bold tracking-[.04em] text-primary-bright">{i.k}</dt>
+                <dd className="m-0 text-muted">{i.why}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="m-0 mt-2.5 border-t border-dashed border-[#27485F] pt-2 text-xs leading-[1.55] text-faint">{f.note}</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** 챕터 번호 칩 — 챕터 색 블록 */
@@ -199,7 +262,7 @@ export function Strip({ children }: { children: ReactNode }) {
 
 const HAIRLINE = 'before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.14)_12%,rgba(255,255,255,.14)_88%,transparent)]'
 
-function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state: FootState; chips: Chip[] }) {
+function Footnote({ result, state, chips, flags }: { result?: HeavyChapterResult; state: FootState; chips: Chip[]; flags: FlagGroup[] }) {
   const { t } = useI18n()
   const f = t.report.heavy.foot
   const aiTag = (
@@ -224,23 +287,28 @@ function Footnote({ result, state, chips }: { result?: HeavyChapterResult; state
           </p>
         )}
       </div>
-      {state !== 'loading' && chips.length > 0 && (
-        <div className={cx('relative mt-[13px] flex flex-wrap items-center gap-2 pt-3', HAIRLINE)}>
-          <span className="mr-0.5 font-display text-[10px] font-extrabold tracking-[.16em] text-faint ko:tracking-normal">{t.report.heavy.evidence}</span>
-          <span className="flex flex-wrap gap-2">
-            {chips.map((c) => (
-              <span key={c.k} className="inline-flex h-7 items-center gap-[7px] rounded border-2 border-[#2C5573] bg-[#0E1E2B] px-[11px] text-xs text-muted">
-                {c.k} <b className="font-num font-bold text-ink">{c.v}</b>
+      {state !== 'loading' && (chips.length > 0 || flags.length > 0) && (
+        <div className={cx('relative mt-[13px] pt-3', HAIRLINE)}>
+          {flags.length > 0 && <FlagRow groups={flags} />}
+          {chips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-0.5 font-display text-[10px] font-extrabold tracking-[.16em] text-faint ko:tracking-normal">{t.report.heavy.evidence}</span>
+              <span className="flex flex-wrap gap-2">
+                {chips.map((c) => (
+                  <span key={c.k} className="inline-flex h-7 items-center gap-[7px] rounded border-2 border-[#2C5573] bg-[#0E1E2B] px-[11px] text-xs text-muted">
+                    {c.k} <b className="font-num font-bold text-ink">{c.v}</b>
+                  </span>
+                ))}
               </span>
-            ))}
-          </span>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-/** 헤비 챕터 카드 — 번호 · 영문 제목 · 한글 제목 · 오른쪽(배지·자세히 보기) / 본문 / AI 코멘트 · 근거 / 꼬리 */
+/** 헤비 챕터 카드 — 번호 · 영문 제목 · 한글 제목 · 오른쪽(배지·자세히 보기) / 본문 / AI 코멘트 · 근거(ai=false면 뺀다) / 꼬리 */
 export function Chapter({
   index,
   color,
@@ -249,8 +317,10 @@ export function Chapter({
   right,
   onDetail,
   chips,
+  flags = [],
   result,
   foot,
+  ai = true,
   tail,
   children,
 }: {
@@ -261,8 +331,10 @@ export function Chapter({
   right?: ReactNode
   onDetail?: () => void
   chips: Chip[]
+  flags?: FlagGroup[]
   result?: HeavyChapterResult
   foot: FootState
+  ai?: boolean
   tail?: ReactNode
   children: ReactNode
 }) {
@@ -290,7 +362,7 @@ export function Chapter({
         </div>
       </div>
       <div className="p-5">{children}</div>
-      <Footnote result={result} state={foot} chips={chips} />
+      {ai && <Footnote result={result} state={foot} chips={chips} flags={flags} />}
       {tail && <div className="px-5 pt-[18px] pb-5">{tail}</div>}
     </section>
   )

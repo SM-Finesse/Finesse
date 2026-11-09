@@ -1,33 +1,43 @@
 package com.finesse.backend.client;
 
+import com.finesse.backend.config.LightCommentProperties;
 import com.finesse.backend.config.LlmProperties;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmHeavyChapterRequest;
 import com.finesse.backend.dto.LlmHeavyChapterResponse;
+import com.finesse.backend.dto.LlmLightComment;
 import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.exception.LlmFormatException;
 import com.finesse.backend.exception.LlmTimeoutException;
 import com.finesse.backend.exception.LlmUnavailableException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -42,10 +52,14 @@ import java.util.concurrent.atomic.AtomicLong;
 @Component
 public class LlmClient {
 
+    private static final Logger log = LoggerFactory.getLogger(LlmClient.class);
     private static final int PRIORITY_LIGHT = 0;
     private static final int PRIORITY_HEAVY = 1;
 
     private final LlmProperties props;
+    private final LightCommentProperties lightComment;
+    // 라이트 개별·기본 코멘트 4건을 동시에 기다리는 용도 — 실제 POST는 여전히 서버별 대기열(서버당 1건)로만 나간다
+    private final ExecutorService lightFanout = Executors.newVirtualThreadPerTaskExecutor();
     private final Map<String, WebClient> serverClients;
     private final Map<String, ExecutorService> serverQueues;
     private final AtomicInteger roundRobinCounter = new AtomicInteger(0);
@@ -54,7 +68,13 @@ public class LlmClient {
     private final Map<String, Long> excludedUntilNanos = new ConcurrentHashMap<>();
 
     public LlmClient(LlmProperties props, WebClient.Builder llmWebClientBuilder) {
+        this(props, llmWebClientBuilder, LightCommentProperties.defaults());
+    }
+
+    @Autowired
+    public LlmClient(LlmProperties props, WebClient.Builder llmWebClientBuilder, LightCommentProperties lightComment) {
         this.props = props;
+        this.lightComment = lightComment;
         this.serverClients = new LinkedHashMap<>();
         this.serverQueues = new LinkedHashMap<>();
         for (String server : props.servers()) {
@@ -88,6 +108,11 @@ public class LlmClient {
     }
 
     private <T> T submitToServer(String server, int priority, Callable<T> work) throws Exception {
+        return await(enqueue(server, priority, work));
+    }
+
+    /** 서버 대기열에 넣기만 하고 바로 돌아온다 — 넣은 순서가 곧 보내는 순서(같은 우선순위끼리) */
+    private <T> CompletableFuture<T> enqueue(String server, int priority, Callable<T> work) {
         CompletableFuture<T> future = new CompletableFuture<>();
         serverQueues.get(server).execute(new PrioritizedTask(priority, () -> {
             try {
@@ -96,6 +121,10 @@ public class LlmClient {
                 future.completeExceptionally(e);
             }
         }));
+        return future;
+    }
+
+    private static <T> T await(CompletableFuture<T> future) throws Exception {
         try {
             return future.get();
         } catch (ExecutionException e) {
@@ -232,6 +261,139 @@ public class LlmClient {
     }
 
     /**
+     * 라이트 개별·기본 코멘트 결과.
+     *
+     * @param highlights   입력 순서(pick1 → pick3) 그대로 — 지표마다 문장이 하나씩 반드시 있다
+     * @param attemptCount 다른 서버로 다시 부른 횟수(0~3, heavy·예전 light와 같은 범위로 자름)
+     * @param fallbacks    대체 문장 수(LLM 서버 대체 문장 + 백엔드 문장 틀), 0~4
+     * @param templates    그중 백엔드 문장 틀(부록 A)로 채운 수 — 두 서버 모두 실패했거나 시간이 모자란 호출
+     * @param version      LLM 서버가 알려 준 문장 틀 버전(예: light-v5.6d-p1rules-20261027), 받은 응답이 없으면 null
+     */
+    public record LightCommentOutcome(String lightSummary, List<LightCommentResponse.Highlight> highlights,
+                                      int attemptCount, int fallbacks, int templates, String version) {
+    }
+
+    /**
+     * scope=light (light-v5.2~v5.6d) — calc가 고른 지표(1~3개)마다 개별 코멘트 1회 + 묶음 기본 코멘트 1회를 동시에 부른다
+     * (LLM 연동 명세 light-v5.2 4.3·7절, 10/21).
+     * 서버 2대면 A = 개별 3회, B = 기본 1회. 서버 1대면 같은 서버에 기본을 먼저, 이어서 개별 3회를 넣는다.
+     * 실제 POST는 서버별 대기열(서버당 1건, light 우선)로만 나가고, 호출 1회 제한은 10초(LLM 서버가 9초 안에 응답).
+     * LLM 서버는 내용 문제를 스스로 처리해 항상 200(검사 실패면 fallback=true 대체 문장)이므로, 백엔드는
+     * 연결 실패·호출 시간 초과·5xx만 다른 서버로 1회 다시 부른다(엔드포인트에 minRemaining 이상 남았을 때). 422 등 4xx는
+     * 요청 버그라 다시 부르지 않는다. 끝내 못 받은 호출과 마감까지 안 끝난 호출은 부록 A1·A2 문장 틀로 채운다 — 절대 예외를 던지지 않는다.
+     */
+    public LightCommentOutcome callLightComments(List<LlmLightComment.Item> items, long endpointDeadlineNanos) {
+        AtomicInteger retries = new AtomicInteger();
+        String a = nextAvailableServer();
+        String b = a == null ? null : nextAvailableServer();
+        CompletableFuture<LlmLightComment.SummaryResponse> summary = CompletableFuture.completedFuture(null);
+        List<CompletableFuture<LlmLightComment.SentenceResponse>> sentences = new ArrayList<>();
+        if (a != null) {
+            String summaryServer = b == null ? a : b; // 2대면 B, 1대면 같은 서버에 기본 먼저(넣은 순서대로 보낸다)
+            summary = dispatchLightComment(summaryServer, lightComment.summaryPath(),
+                    new LlmLightComment.SummaryRequest(items), LlmLightComment.SummaryResponse.class,
+                    endpointDeadlineNanos, retries);
+            for (LlmLightComment.Item item : items) {
+                sentences.add(dispatchLightComment(a, lightComment.sentencePath(), item,
+                        LlmLightComment.SentenceResponse.class, endpointDeadlineNanos, retries));
+            }
+        }
+        List<CompletableFuture<?>> all = new ArrayList<>(sentences);
+        all.add(summary);
+        try {
+            long waitMs = Math.max(0, (endpointDeadlineNanos - System.nanoTime()) / 1_000_000);
+            CompletableFuture.allOf(all.toArray(CompletableFuture<?>[]::new)).get(waitMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            log.warn("light 코멘트 엔드포인트 마감 — 끝나지 않은 호출은 문장 틀로 채움");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            // dispatchLightComment는 예외 대신 null을 돌려주므로 오지 않는다
+        }
+
+        Random rng = ThreadLocalRandom.current();
+        int fallbacks = 0;
+        int templates = 0;
+        String version = null;
+        List<LightCommentResponse.Highlight> highlights = new ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            LlmLightComment.Item item = items.get(i);
+            LlmLightComment.SentenceResponse r = sentences.isEmpty() ? null : sentences.get(i).getNow(null);
+            String sentence;
+            if (r != null && item.stat().equals(r.stat()) && r.sentence() != null && !r.sentence().isBlank()) {
+                sentence = r.sentence();
+                fallbacks += Boolean.TRUE.equals(r.fallback()) ? 1 : 0;
+                version = version != null ? version : r.version();
+            } else {
+                sentence = LightCommentTemplates.sentence(item.stat(), item.value(), item.zone(), rng);
+                fallbacks++;
+                templates++;
+            }
+            highlights.add(new LightCommentResponse.Highlight(item.stat(), sentence));
+        }
+        LlmLightComment.SummaryResponse s = summary.getNow(null);
+        String lightSummary;
+        if (s != null && s.lightSummary() != null && !s.lightSummary().isBlank()) {
+            lightSummary = s.lightSummary();
+            fallbacks += Boolean.TRUE.equals(s.fallback()) ? 1 : 0;
+            version = version != null ? version : s.version();
+        } else {
+            lightSummary = LightCommentTemplates.summary(items.stream().map(LlmLightComment.Item::stat).toList(),
+                    items.stream().map(LlmLightComment.Item::value).toList(),
+                    items.stream().map(LlmLightComment.Item::zone).toList(), rng);
+            fallbacks++;
+            templates++;
+        }
+        return new LightCommentOutcome(lightSummary, List.copyOf(highlights),
+                Math.min(retries.get(), props.maxRetries()), fallbacks, templates, version);
+    }
+
+    /** 첫 서버 대기열에 바로 넣고, 실패하면 다른 서버로 1회 — 결과를 못 받으면 null (예외를 던지지 않는다) */
+    private <T> CompletableFuture<T> dispatchLightComment(String server, String path, Object body, Class<T> type,
+                                                          long endpointDeadlineNanos, AtomicInteger retries) {
+        int timeout = lightComment.callTimeoutSeconds();
+        CompletableFuture<T> first = enqueue(server, PRIORITY_LIGHT, () -> postTracked(server, path, body, type, timeout));
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return await(first);
+            } catch (Exception e) {
+                if (!isRetryableLightComment(e)) {
+                    log.warn("light 코멘트 {} 요청 거절(다시 부르지 않음): {}", path, e.getMessage());
+                    return null;
+                }
+                String other = otherAvailableServer(server);
+                if (other == null || !canStartNewAttempt(endpointDeadlineNanos, lightComment.minRemainingSeconds())) {
+                    return null;
+                }
+                retries.incrementAndGet();
+                try {
+                    return submitToServer(other, PRIORITY_LIGHT, () -> postTracked(other, path, body, type, timeout));
+                } catch (Exception e2) {
+                    return null;
+                }
+            }
+        }, lightFanout);
+    }
+
+    /** 연결 실패·호출 시간 초과·5xx만 다른 서버로 다시 부른다. 4xx(422 형식 오류·413)는 요청 문제라 같은 결과 */
+    private static boolean isRetryableLightComment(Exception e) {
+        if (e instanceof WebClientResponseException r) {
+            return r.getStatusCode().is5xxServerError();
+        }
+        return true;
+    }
+
+    /** 이 서버가 아닌, 제외 중이 아닌 서버 — 없으면 null */
+    private String otherAvailableServer(String server) {
+        for (String candidate : props.servers()) {
+            if (!candidate.equals(server) && !isExcluded(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 추론 서버의 413 "LLM 입력 길이 초과" — 프롬프트가 모델 입력 한도를 넘은 것이라 같은 요청을 다시 보내도 결과가 같다
      * (LLM 담당 협의 10/7). 재요청하지 않고 끝내며, light는 받은 응답이 없으면 502 LLM_FORMAT_ERROR로 끝난다.
      */
@@ -299,7 +461,8 @@ public class LlmClient {
                     && !resp.footnote().isBlank();
             if (valid) {
                 return new HeavyCommentResponse.ChapterResult(
-                        chapterId, HeavyCommentResponse.STATUS_OK, resp.footnote(), attempt);
+                        chapterId, HeavyCommentResponse.STATUS_OK, resp.footnote(), attempt,
+                        Boolean.TRUE.equals(resp.fallback()));
             }
             attempt++;
         }

@@ -1,5 +1,6 @@
 import type { HeavyChapterId } from '../api/types'
 import type { Lang, View } from '../types'
+import type { Flag } from '../lib/stats'
 import type { UsernameError } from '../lib/username'
 import { USERNAME_MAX, USERNAME_MIN } from '../lib/username'
 
@@ -146,6 +147,23 @@ export interface ReportStrings {
     streamFailed: string
     foot: { loading: string; failed: string; timeout: string; warn: string }
     evidence: string
+    /** 근거 위 신뢰도 라벨 */
+    flags: Record<Flag, string>
+    flagsAria: string
+    /** 라벨을 누르면 펼치는 설명 — 무슨 표시인지(what) · 왜 붙었는지(why, 지표마다) */
+    flagInfo: {
+      what: Record<Flag, string>
+      why: {
+        unreliable: string
+        caution: string
+        lowDelta: string
+        lowSplit: (q1?: number, q5?: number) => string
+        lowSlope: (rounds: number, games: number) => string
+        suspDelta: string
+        suspSplit: string
+      }
+      note: string
+    }
     noData: string
     detail: { open: string; close: string; title: (chapter: string) => string }
     /** 스코어 칸 ? 버튼 이름 */
@@ -163,6 +181,7 @@ export interface ReportStrings {
       /** 머리 ΔTR 알약을 눌렀을 때 — 백엔드가 준 최근·전체 판수가 있으면 그 숫자로 */
       deltaInfo: (recent?: number, total?: number) => StatInfo
       avgOf: (n: number) => string
+      recentAvgOf: (n: number) => string
       missing: string
       game: string
       tableNote: (n: number) => string
@@ -352,7 +371,7 @@ const ko: Strings = {
       apmSub: '분당 공격',
       ppsSub: '초당 블록',
       vsSub: '종합 지표',
-      note: (n) => `값 아래 증감은 최근 ${n}판 평균을 그 이전 경기 평균과 비교한 변화율(%)입니다.`,
+      note: (n) => `값 아래 증감은 최근 ${n}판을 그 이전 경기와 비교한 값입니다 — 승률은 승률 차(%p), 나머지는 평균 변화율(%).`,
     },
     ai: {
       loading: '코멘트 생성 중… 통계는 이미 표시됨',
@@ -393,13 +412,13 @@ const ko: Strings = {
       body: (need) => `최근 1년 안의 테트라 리그 랭크 경기를 ${need}판 채우면 AI 총평과 강점·약점 하이라이트가 열립니다. 경기를 더 치른 뒤 전적 갱신(R)을 눌러 주세요.`,
     },
     hl: {
-      caption: 'AI가 고른 지표 · 문장마다 근거가 된 수치',
+      caption: '같은 티어대보다 두드러진 지표 · 문장마다 근거가 된 수치',
       coldCaption: '데이터 부족',
       evidence: '근거',
       coldTitle: '최근 매치 데이터가 부족해 하이라이트를 표시할 수 없습니다.',
       coldBody: (n) => `최근 1년 안의 랭크 경기가 10경기 이상 쌓이면 상대 대비 강점·약점 분석을 시작합니다. 현재 ${n}경기 기록됨.`,
       noneTitle: '하이라이트를 생성하지 못했습니다.',
-      noneBody: 'AI가 고른 지표를 이번 전적의 수치와 이을 수 없어 AI 총평만 보여드립니다.',
+      noneBody: '하이라이트 지표를 이번 전적의 수치와 이을 수 없어 AI 총평만 보여드립니다.',
       failed: '하이라이트를 불러오지 못했습니다.',
       failedHint: '위 AI READOUT 칸의 [다시 시도]를 누르면 코멘트와 하이라이트를 다시 불러옵니다.',
     },
@@ -407,6 +426,27 @@ const ko: Strings = {
       streamFailed: '챕터 코멘트 연결이 끊겼습니다. 받은 챕터는 그대로 둡니다.',
       foot: { loading: '코멘트를 생성하는 중입니다 · 챕터별 개별 호출', failed: '이 챕터의 코멘트를 만들지 못했습니다.', timeout: '시간 안에 이 챕터의 코멘트를 받지 못했습니다.', warn: '주의' },
       evidence: '근거',
+      flags: { unreliable: '신뢰 불가', caution: '해석 주의', low_sample: '표본 부족', suspicious: '의심 데이터 포함' },
+      flagsAria: '지표 신뢰도',
+      flagInfo: {
+        what: {
+          unreliable: '300판을 모아도 유저마다의 차이를 구분하지 못하는 지표입니다. 값은 참고로만 보세요.',
+          caution: '판수를 충분히 모아도 유저마다의 차이를 구분하는 힘이 약한 지표입니다. 해석에 주의하세요.',
+          low_sample: '이 값을 믿을 만큼 경기가 쌓이지 않았습니다. 판수가 쌓이면 사라집니다.',
+          suspicious: '일부 경기가 값을 크게 끌어당겼을 수 있습니다.',
+        },
+        why: {
+          unreliable: '300판 기준 신뢰도(R₃₀₀)가 0.5 미만입니다. 지표의 성질이라 모든 유저에게 붙습니다.',
+          caution: '300판 기준 신뢰도(R₃₀₀)가 0.9 미만입니다. 지표의 성질이라 모든 유저에게 붙습니다.',
+          lowDelta: '경기마다 기복에 비해 판수가 적어 신뢰도가 0.9 미만입니다. 판수가 같아도 기복이 크면 붙습니다.',
+          lowSplit: (q1, q5) =>
+            `${q1 !== undefined && q5 !== undefined ? `가장 약한 상대(Q1) ${q1}판 · 가장 강한 상대(Q5) ${q5}판. ` : ''}두 구간 중 한쪽이라도 20판 미만이면 붙습니다.`,
+          lowSlope: (rounds, games) => `라운드 순번 ${rounds}개 · 분석 경기 ${games}판. 순번이 3개 미만이거나 150판 미만이면 붙습니다.`,
+          suspDelta: '튀는 경기(이상치)를 뺀 평균과의 차이가 관측 오차보다 큽니다.',
+          suspSplit: 'Q1·Q5 경기 중 같은 상대와 치른 경기가 3판 이상이면서 10% 이상입니다. 특정 상대 한 명이 결과를 좌우했을 수 있습니다.',
+        },
+        note: '값은 바꾸지 않고, 의심할 이유만 알립니다.',
+      },
       noData: '이 챕터를 계산할 데이터가 아직 없습니다.',
       detail: { open: '자세히 보기', close: '닫기', title: (c) => `${c} 상세` },
       about: (name) => `${name} 설명`,
@@ -457,6 +497,7 @@ const ko: Strings = {
           ],
         }),
         avgOf: (n) => `전체 ${n}판 평균`,
+        recentAvgOf: (n) => `최근 ${n}판 평균`,
         missing: 'TR 추이 데이터를 받지 못해 ΔTR만 보여줍니다.',
         game: '경기',
         tableNote: (n) => `${n}경기 전부 · 표 안에서 스크롤`,
@@ -471,9 +512,9 @@ const ko: Strings = {
         info: {
           lead: '경기마다 나 − 상대 성향 점수를 평균낸 값 · +면 그 성향이 상대보다 강함',
           rows: [
-            ['Opener', '높은 APM으로 몰아치는 공격형'],
+            ['Opener', 'Opening Build를 활용하는 강력한 초반 화력'],
             ['Plonk', '느려도 효율 높은 공격·가비지 처리'],
-            ['Stride', '블록당 공격보다 속도(PPS)로 승부'],
+            ['Stride', '많은 블록을 빠른 속도로 두며 강한 압박'],
             ['Inf DS', '가비지를 지우며 버티는 방어형'],
           ],
           foot: '최근 1년 · 최대 300판 중 나와 상대 모두 계산되는 경기 (절반 미만이면 숨김) · APM·PPS·VS로 구하는 TetraStats 공개 식, TETR.IO 공식 지표 아님',
@@ -769,7 +810,7 @@ const en: Strings = {
       apmSub: 'Attack per minute',
       ppsSub: 'Pieces per second',
       vsSub: 'Composite',
-      note: (n) => `The change under each value compares your last ${n} games with the games before them (% change).`,
+      note: (n) => `The change under each value compares your last ${n} games with the games before them — win rate in percentage points (%p), the rest as % change.`,
     },
     ai: {
       loading: 'Generating comment… stats are already shown',
@@ -810,13 +851,13 @@ const en: Strings = {
       body: (need) => `Play ${need} Tetra League ranked games within the last year to unlock the AI summary and strength/weakness highlights. Then press Refresh (R).`,
     },
     hl: {
-      caption: 'Metrics picked by AI · with the number behind each sentence',
+      caption: 'Metrics that stand out against your tier · with the number behind each sentence',
       coldCaption: 'Not enough data',
       evidence: 'Evidence',
       coldTitle: 'Not enough recent match data to show highlights.',
       coldBody: (n) => `Analysis starts once 10 or more ranked games from the last year are on record. ${n} games so far.`,
       noneTitle: 'Could not generate highlights.',
-      noneBody: 'The metrics the AI picked could not be tied to numbers in this record, so only the AI summary is shown.',
+      noneBody: 'The highlight metrics could not be tied to numbers in this record, so only the AI summary is shown.',
       failed: 'Could not load the highlights.',
       failedHint: 'Press [Try again] in the AI READOUT bar above to reload the comment and highlights.',
     },
@@ -824,6 +865,27 @@ const en: Strings = {
       streamFailed: 'The chapter comment stream dropped. Chapters already received stay as they are.',
       foot: { loading: 'Generating comment · one call per chapter', failed: 'Could not write the comment for this chapter.', timeout: 'The comment for this chapter did not arrive in time.', warn: 'Caution' },
       evidence: 'Evidence',
+      flags: { unreliable: 'Unreliable', caution: 'Interpret with care', low_sample: 'Small sample', suspicious: 'Includes suspect data' },
+      flagsAria: 'Metric reliability',
+      flagInfo: {
+        what: {
+          unreliable: 'Even with 300 games, this metric cannot tell players apart. Treat the value as a rough reference.',
+          caution: 'Even with plenty of games, this metric separates players only weakly. Read it with care.',
+          low_sample: 'Not enough games yet to trust this value. The label goes away as more games are played.',
+          suspicious: 'A few games may be pulling this value strongly.',
+        },
+        why: {
+          unreliable: 'Reliability at 300 games (R₃₀₀) is below 0.5. It is a property of the metric, so every player gets it.',
+          caution: 'Reliability at 300 games (R₃₀₀) is below 0.9. It is a property of the metric, so every player gets it.',
+          lowDelta: 'Too few games for how much your games vary, so reliability is below 0.9. Large swings trigger it even at the same game count.',
+          lowSplit: (q1, q5) =>
+            `${q1 !== undefined && q5 !== undefined ? `Weakest opponents (Q1) ${q1} games · strongest (Q5) ${q5} games. ` : ''}Shown when either group has fewer than 20 games.`,
+          lowSlope: (rounds, games) => `${rounds} round positions · ${games} games analyzed. Shown with fewer than 3 positions or fewer than 150 games.`,
+          suspDelta: 'The average without outlier games differs from the full average by more than the observation error.',
+          suspSplit: 'One opponent accounts for 3+ games and 10%+ of the Q1·Q5 games, so a single opponent may be driving the result.',
+        },
+        note: 'The value itself is unchanged — this only flags a reason for doubt.',
+      },
       noData: 'There is no data to compute this chapter yet.',
       detail: { open: 'Details', close: 'Close', title: (c) => `${c} detail` },
       about: (name) => `About ${name}`,
@@ -874,6 +936,7 @@ const en: Strings = {
           ],
         }),
         avgOf: (n) => `${n}-game avg`,
+        recentAvgOf: (n) => `Last ${n}-game avg`,
         missing: 'No TR series was received, so only ΔTR is shown.',
         game: 'Game',
         tableNote: (n) => `All ${n} games · scroll inside the table`,
@@ -887,9 +950,9 @@ const en: Strings = {
         info: {
           lead: 'Your playstyle score minus the opponent’s, averaged per match · + means that tendency is stronger than theirs',
           rows: [
-            ['Opener', 'Attack-first, high-APM pressure'],
+            ['Opener', 'Strong early firepower from opening builds'],
             ['Plonk', 'Slower but efficient attack and cleaning'],
-            ['Stride', 'Wins on speed (PPS) over attack per piece'],
+            ['Stride', 'Heavy pressure from placing many pieces fast'],
             ['Inf DS', 'Defensive, survives by clearing garbage'],
           ],
           foot: 'Past year · up to 300 matches where both sides can be scored (hidden if under half) · TetraStats formulas from APM, PPS and VS, not official TETR.IO stats',

@@ -13,9 +13,9 @@ describe('최근 검색 저장', () => {
   })
 
   it('지운 이름은 저장소에서도 빠진다', () => {
-    const list = removeRecent(addRecent(addRecent([], 'icly'), 'turtle'), 'ICLY')
-    expect(list).toEqual(['turtle'])
-    expect(readRecent()).toEqual(['turtle'])
+    const list = removeRecent(addRecent(addRecent([], 'player_a'), 'player_b'), 'PLAYER_A')
+    expect(list).toEqual(['player_b'])
+    expect(readRecent()).toEqual(['player_b'])
   })
 
   it('저장값이 깨져 있으면 유효한 이름만 남기거나 빈 목록으로 시작한다', () => {

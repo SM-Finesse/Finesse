@@ -22,7 +22,7 @@ import java.time.Duration;
 public class WebClientConfig {
 
     // records/league/recent?limit=100 응답은 라운드별 상세 데이터까지 포함해 기본 버퍼 한도(256KB)를 넘는다
-    // (실측: turtle 100판 응답에서 DataBufferLimitException 발생) — 10MB로 넉넉히 올려둔다.
+    // (실측: 300판 유저의 100판짜리 응답에서 DataBufferLimitException 발생) — 10MB로 넉넉히 올려둔다.
     private static final int MAX_IN_MEMORY_SIZE = 10 * 1024 * 1024;
 
     // 주의: WebClient.builder()가 기본으로 쓰는 Jackson 코덱은 spring.jackson.property-naming-strategy

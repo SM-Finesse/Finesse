@@ -3,12 +3,12 @@ import { HEAVY_CHAPTERS, type HeavyChapterId, type StatsResponse } from '../../a
 import { footStateOf, type HeavyState } from '../../hooks/useHeavyComment'
 import { useI18n } from '../../i18n/context'
 import type { StatInfo } from '../../i18n/strings'
-import { gameTicks } from '../../lib/chart'
+import { ceilingTicks, comebackCeiling, gameTicks } from '../../lib/chart'
 import { retryWait } from '../../lib/retry'
 import { sortRivals } from '../../lib/rivals'
-import { evidenceOf, num, signed, STAT_META, TREND_MARK, type Evidence, type StatKey, type Trend } from '../../lib/stats'
+import { evidenceOf, FLAG_ORDER, flagsOf, num, signed, STAT_META, TREND_MARK, type Evidence, type Flag, type StatKey, type Trend } from '../../lib/stats'
 import { RetryButton } from '../RetryButton'
-import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip } from './heavy/Chapter'
+import { Chapter, DataTable, DetailModal, HeadTip, PillInfo, StatBox, Strip, type Chip, type FlagGroup } from './heavy/Chapter'
 import { GamesLine } from './GamesLine'
 import { ColdHeavy } from './heavy/ColdHeavy'
 import { CHAPTER_COLORS, EYEBROWS } from './heavy/meta'
@@ -30,20 +30,21 @@ function niceMax(v: number): number {
   return [1, 2, 5, 10].map((f) => f * p).find((x) => x >= target) ?? 10 * p
 }
 
-/** 챕터 차트는 경기 단위 추이를 최대 15점으로 묶은 평균을 쓴다 — 축 글자는 그 구간의 마지막 경기 번호 */
+/**
+ * 챕터 차트는 경기 단위 추이를 최대 15점으로 줄여 쓴다 — 점마다 그 구간 마지막 경기를 마친 뒤 TR(축 글자 = 그 경기 번호).
+ * 평균을 쓰면 마지막 점이 지금 TR(프로필 TR 칸)과 달라진다.
+ */
 function trBuckets(series: number[]): LinePoint[] {
   const per = Math.ceil(series.length / 15)
   const out: LinePoint[] = []
   for (let a = 0; a < series.length; a += per) {
-    const seg = series.slice(a, a + per)
-    const b = a + seg.length
-    out.push({ label: String(b), head: `GAMES ${a + 1}–${b}`, values: { tr: Math.round(avg(seg)) } })
+    const b = Math.min(a + per, series.length)
+    out.push({ label: String(b), head: `GAME ${b}`, values: { tr: series[b - 1] } })
   }
   return out
 }
 
 const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
-const chipOf = (ev: Evidence, k = ev.meta.code): Chip => ({ k, v: ev.text })
 const markText = (ev: Evidence) => (ev.trend ? `${ev.text} ${TREND_MARK[ev.trend]}` : ev.text)
 
 function StreamError({ heavy }: { heavy: HeavyState & { retry: () => void } }) {
@@ -72,28 +73,50 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
 
   const d = data.delta_metrics
   const ev = (k: StatKey) => evidenceOf(k, d)
+  const chipOf = (e: Evidence, k = e.meta.code): Chip => ({ k, v: e.text })
+  /* 라벨이 왜 붙었는지 — 판정 기준과, 응답에 있는 표본 수(Q1·Q5 판수 · 라운드 순번 · 분석 경기)를 함께 */
+  const whyOf = (f: Flag, k: StatKey): string => {
+    const w = h.flagInfo.why
+    if (f === 'unreliable' || f === 'caution') return w[f]
+    if (f === 'low_sample') {
+      if (k === 'strength_split') return w.lowSplit(quint[0]?.matches, quint[4]?.matches)
+      if (k === 'session_vs_slope') return w.lowSlope(vsCurve.length, data.match_count)
+      return w.lowDelta
+    }
+    return k === 'strength_split' ? w.suspSplit : w.suspDelta
+  }
+  /* 근거 위 신뢰도 라벨 — 라벨마다 하나씩, 같은 라벨이 챕터의 여러 지표에 붙으면 한 라벨 아래 지표별 이유로 모은다 */
+  const flagGroups = (keys: StatKey[], name: (k: StatKey) => string = (k) => STAT_META[k].code): FlagGroup[] =>
+    FLAG_ORDER.map((flag) => ({ flag, items: keys.filter((k) => flagsOf(k, d).includes(flag)).map((k) => ({ k: name(k), why: whyOf(flag, k) })) })).filter(
+      (g) => g.items.length > 0,
+    )
   const nameOf = (k: StatKey) => STAT_META[k].code.replace(/^Δ/, '')
   const subOf = (k: StatKey) => (lang === 'ko' ? STAT_META[k].label.ko : STAT_META[k].code)
   const noData = <Notice title={h.noData} />
 
   /* 01 — TR 추이 */
+  /* 점마다 그 경기 후 TR — 마지막 점이 지금 TR (useStats가 withAfterTr로 이미 바꿔 둔다) */
   const series = data.fixed_metrics.tr_trend
   const tr = ev('tr_trend_delta')
   const buckets = series.length >= 2 ? trBuckets(series) : []
-  const trSeries = [{ key: 'tr', label: h.trend.legendTr, color: '#66C0F4', fill: '#66C0F4', fmt: (v: number) => num(v) }]
-  /* 최근·전체 판수와 평균은 백엔드가 tr_trend_delta를 계산한 근거 그대로 — 없으면(구버전 응답) 그래프 시계열로 */
+  /* 툴팁은 프로필 TR 칸과 같은 소수 둘째 자리 */
+  const trSeries = [{ key: 'tr', label: h.trend.legendTr, color: '#66C0F4', fill: '#66C0F4', fmt: (v: number) => num(v, 2) }]
+  /* 최근·전체 판수와 평균은 tr_trend_delta의 근거(백엔드 매치 전 TR 값 그대로) — 없으면(구버전 응답) 그래프 시계열로 */
   const basis = d?.tr_trend_basis
   /*
    * ΔTR이 쓰는 최근 N판(백엔드 tr_trend_basis — TR 있는 경기의 30%, 3~30판)을 초록으로.
-   * 경기 g(0부터)는 묶음 차트에서 (g − (per−1)/2) ÷ per 위치 — 최근 구간의 왼쪽 경계는 그 사이 반 칸.
+   * 묶음 차트의 점 k(0부터)는 경기 (k+1)·per − 1(구간 끝)이라 경기 g는 (g + 1) ÷ per − 1 위치 — 최근 구간의 왼쪽 경계는 그 앞 반 칸.
    */
   const recentN = basis && basis.recent_matches < series.length ? basis.recent_matches : 0
   const bandAt = (per: number): RecentBand | undefined =>
-    recentN ? { from: (series.length - recentN - per / 2) / per, label: h.trend.recentBand(recentN) } : undefined
+    recentN ? { from: (series.length - recentN + 0.5) / per - 1, label: h.trend.recentBand(recentN) } : undefined
   const trLegend = recentN ? [...trSeries, { label: h.trend.recentBand(recentN), color: RECENT_COLOR }] : trSeries
   const trChips: Chip[] = []
-  if (basis) trChips.push({ k: h.trend.avgOf(basis.total_matches), v: num(Math.round(basis.overall_avg_tr)) })
-  else if (buckets.length) trChips.push({ k: h.trend.avgOf(series.length), v: num(Math.round(avg(series))) })
+  if (basis) {
+    /* 두 평균 차이 = 머리 ΔTR 알약 = AI 코멘트 숫자 (모두 백엔드 매치 전 TR 기준) */
+    if (recentN) trChips.push({ k: h.trend.recentAvgOf(recentN), v: num(Math.round(basis.recent_avg_tr)) })
+    trChips.push({ k: h.trend.avgOf(basis.total_matches), v: num(Math.round(basis.overall_avg_tr)) })
+  } else if (buckets.length) trChips.push({ k: h.trend.avgOf(series.length), v: num(Math.round(avg(series))) })
   else if (tr) trChips.push(chipOf(tr))
 
   /* 02 — 플레이스타일 */
@@ -142,7 +165,8 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
   const cb = ev('comeback_rate')
   const ca = ev('comeback_rate_against')
   const cbNet = ev('delta_comeback')
-  const cbMax = Math.max(cb?.value ?? 0, ca?.value ?? 0) * 100 <= 50 ? 50 : 100
+  /* 천장은 두 비율 중 큰 값에 따라 20~40% 사이에서 이어서 오르고, 40%를 넘으면 그 값 */
+  const cbMax = comebackCeiling(Math.max(cb?.value ?? 0, ca?.value ?? 0) * 100)
   /* 비율 아래에 "몇 번 중 몇 번" — 표본이 안 왔으면 설명만 */
   const cs = d?.comeback_samples
   const sampled = (sub: string, total?: number, hit?: number) => (total !== undefined && hit !== undefined ? `${sub} · ${h.comeback.of(total, hit)}` : sub)
@@ -198,7 +222,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     ],
   })
 
-  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; tail?: ReactNode; body: ReactNode }> = {
+  const chapters: Record<HeavyChapterId, { right?: ReactNode; detail?: boolean; chips: Chip[]; flags?: FlagGroup[]; ai?: boolean; tail?: ReactNode; body: ReactNode }> = {
     tr_trend: {
       right: pill(tr, h.trend.deltaInfo(basis?.recent_matches, basis?.total_matches)),
       detail: buckets.length > 0,
@@ -223,11 +247,13 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       ),
       detail: hasPs,
       chips: ps.filter((p) => p.e).map((p) => chipOf(p.e!, nameOf(p.k))),
+      flags: flagGroups(PLAYSTYLE, nameOf),
       body: hasPs ? <DivergingBars items={psItems} max={psMax} tick={psTick} aria={h.playstyle.aria} /> : noData,
     },
     attack: {
       right: pill(app, withOthers(h.pillInfo.app, [[wapp, h.subInfo.wapp]])),
       chips: present([app, wapp]).map((e) => chipOf(e)),
+      flags: flagGroups(['delta_app', 'delta_weighted_app']),
       body:
         app || wapp ? (
           <>
@@ -241,6 +267,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     defense: {
       right: pill(vsApm, withOthers(h.pillInfo.vsapm, [[cheese, h.subInfo.cheese]])),
       chips: present([vsApm, cheese]).map((e) => chipOf(e)),
+      flags: flagGroups(['delta_vs_apm', 'delta_cheese_index']),
       body:
         vsApm || cheese ? (
           <>
@@ -255,6 +282,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       right: <Caption>{h.split.right}</Caption>,
       detail: quintItems.length > 0,
       chips: present([split]).map((e) => chipOf(e)),
+      flags: flagGroups(['strength_split']),
       body: split ? (
         <>
           <Strip>{tile('strength_split', h.split.sub, h.split.info)}</Strip>
@@ -269,6 +297,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     comeback_rate: {
       right: pill(cbNet, h.comeback.netInfo),
       chips: present([cb, ca]).map((e) => chipOf(e, e.stat === 'comeback_rate' ? 'Comeback Rate' : 'Comeback Allowed')),
+      flags: flagGroups(['delta_comeback']),
       body:
         cb || ca ? (
           <>
@@ -286,8 +315,9 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
               h={250}
               mb={62}
               max={cbMax}
+              ticks={ceilingTicks(cbMax)}
               bw={120}
-              note={h.comeback.note(cbMax)}
+              note={h.comeback.note(Math.round(cbMax * 10) / 10)}
               aria={h.comeback.aria}
             />
           </>
@@ -299,6 +329,7 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
       right: pill(slope, h.condition.slopeInfo),
       detail: vsCurve.length >= 2,
       chips: condChips,
+      flags: flagGroups(['session_vs_slope']),
       body:
         vsCurve.length >= 2 ? (
           <>
@@ -320,11 +351,9 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
     },
     rivals: {
       right: <Caption>{r.right(rivals.length)}</Caption>,
-      chips: [
-        { k: r.nemesis, v: r.nemesisRule },
-        { k: r.edge, v: r.edgeRule },
-        { k: r.repeat, v: r.repeatSub },
-      ],
+      /* AI 코멘트 · 근거 칸 없음 — 천적 · 우세 기준은 순위표 위 범례에 있다 */
+      chips: [],
+      ai: false,
       tail: <RivalPolicy />,
       body: rivals.length ? <RivalBoard items={rivals} /> : <Notice title={r.empty} />,
     },
@@ -407,8 +436,10 @@ export function HeavyView({ data, heavy, onLight }: { data: StatsResponse; heavy
               right={c.right}
               onDetail={c.detail ? () => setDetail(id as Detail) : undefined}
               chips={c.chips}
+              flags={c.flags}
               result={heavy.chapters[id]}
               foot={footStateOf(heavy.chapters[id], heavy.status)}
+              ai={c.ai}
               tail={c.tail}
             >
               {c.body}

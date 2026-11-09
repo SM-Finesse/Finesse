@@ -37,7 +37,7 @@ describe('ReportPage — 라이트 뷰', () => {
     const profile = await screen.findByRole('region', { name: 'PROFILE' })
     /* 랭크 글자는 TETR.IO 랭크 색 */
     expect(within(profile).getByText('X')).toHaveStyle({ color: '#FF45FF' })
-    expect(within(profile).getByText('75승 45패')).toBeInTheDocument()
+    expect(within(profile).getByText('300승 100패')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'exampleplayer' })).toBeInTheDocument()
 
     /* 코멘트는 아직 오는 중 — 자리만 잡혀 있다 */
@@ -127,13 +127,18 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(playTime.parentElement).toHaveTextContent(/^가입 \d+년 전 · 플레이 1,804시간 · /)
     expect(playTime.parentElement).not.toHaveTextContent('경기')
     expect(within(profile).getByText('237')).toBeInTheDocument()
-    /* 5칸 증감 배지 — 최근 N판 vs 그 이전 판 변화율 %. WR도 %p가 아니라 % */
+    /* WIN RATE — 현재 시즌 랭크 승리 / 시즌 판수 (300 / 400). 분석 경기 승률(62.5%)이 아니다 */
+    const wr = within(profile).getByText('WIN RATE').parentElement!
+    expect(wr).toHaveTextContent('75.0%')
+    expect(wr).not.toHaveTextContent('62.5%')
+    /* 5칸 증감 배지 — 최근 N판 vs 그 이전 판. 승률만 %p(변화율 −19.03%를 승률 차로), 나머지는 변화율 % */
+    expect(within(profile).getByText('−12.4%p')).toBeInTheDocument()
+    expect(within(profile).queryByText('−19.0%')).not.toBeInTheDocument()
     expect(within(profile).getByText('+0.5%')).toBeInTheDocument()
-    expect(within(profile).getByText('−19.0%')).toBeInTheDocument()
     expect(within(profile).getByText('+16.7%')).toBeInTheDocument()
     expect(within(profile).getByText('+23.6%')).toBeInTheDocument()
     expect(within(profile).getByText('+17.0%')).toBeInTheDocument()
-    expect(within(profile).getByText('값 아래 증감은 최근 26판 평균을 그 이전 경기 평균과 비교한 변화율(%)입니다.')).toBeInTheDocument()
+    expect(within(profile).getByText('값 아래 증감은 최근 26판을 그 이전 경기와 비교한 값입니다 — 승률은 승률 차(%p), 나머지는 평균 변화율(%).')).toBeInTheDocument()
 
     fireEvent.error(img)
     expect(photo()).toBeNull()
@@ -203,7 +208,7 @@ describe('ReportPage — 라이트 뷰', () => {
   })
 
   it("랭크 'z'(언랭크)는 '?'로 쓰고, 표본 부족으로 보지 않아 TR·분석을 그대로 보여준다 (수집 명세 6.1)", async () => {
-    /* 실측 사례 sung1ow — 28판, rd 115.2, tr 19702.18 */
+    /* 실측 사례 — 28판, rd 115.2, tr 19702.18 */
     const profile = { ...STATS.profile, rank: 'z', tr: 19702.18, rd: 115.2 }
     const { urls } = routeFetch({ stats: [() => json({ ...STATS, match_count: 28, profile })], comment: [pending] })
     setup()
@@ -238,11 +243,23 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(screen.getByText('구간 최고')).toBeInTheDocument()
   })
 
+  it('TR 추이는 경기 후 TR — 마지막 점이 지금 TR이고, 언랭크(-1)면 받은 그대로', async () => {
+    /* 매치 전 TR [24000, 24100, 24050, 24321.6] + 지금 TR 24400 → 경기 후 TR [24100, 24050, 24321.6, 24400] */
+    routeFetch({ stats: [() => json({ ...STATS, profile: { ...STATS.profile, tr: 24400 } })], comment: [pending] })
+    setup()
+    const card = await screen.findByRole('region', { name: 'TR 추이' })
+    const stat = (k: string) => within(card).getByText(k).parentElement!
+    expect(stat('구간 최고')).toHaveTextContent('24,400.0')
+    expect(stat('구간 최저')).toHaveTextContent('24,050.0')
+    expect(stat('전체 변동')).toHaveTextContent('+300.0')
+  })
+
   it('TR 추이의 ΔTR 알약을 누르면 헤비 01장과 같은 설명이 펼쳐지고, Esc로 카드만 닫힌다', async () => {
     routeFetch({ stats: [() => json(STATS)], comment: [pending] })
     const { user, onBack } = setup()
     const card = await screen.findByRole('region', { name: 'TR 추이' })
 
+    /* AI 코멘트와 같은 백엔드 ΔTR (헤비 01장과 같은 값) */
     await user.click(within(card).getByRole('button', { name: 'ΔTR +12.4 TR 설명' }))
     const note = within(card).getByRole('note')
     expect(note).toHaveTextContent('ΔTR · TR 흐름+12.4 TR ▲')
@@ -300,8 +317,9 @@ describe('ReportPage — 라이트 뷰', () => {
     expect(within(meter).getByLabelText('지금까지 승률')).toHaveTextContent(/^WIN RATE—$/)
   })
 
-  it('승률을 모르면(win_rate 없음) NaN 대신 —로 보여준다', async () => {
-    routeFetch({ stats: [() => json({ ...COLD, match_count: 4, fixed_metrics: { tr_trend: [], recent_form: [] } })] })
+  it('시즌 전적이 없으면(이번 시즌 0판) NaN 대신 —로 보여준다', async () => {
+    const profile0 = { ...COLD.profile, season_games_played: undefined, season_wins: undefined, season_losses: undefined, season_win_rate: undefined }
+    routeFetch({ stats: [() => json({ ...COLD, match_count: 4, profile: profile0, fixed_metrics: { tr_trend: [], recent_form: [] } })] })
     setup()
 
     const profile = await screen.findByRole('region', { name: 'PROFILE' })
@@ -381,7 +399,7 @@ describe('ReportPage — 전적 갱신 · 뷰 전환', () => {
     await user.keyboard('r')
     expect(urls()).toContain('/api/v1/stats/ExamplePlayer?refresh=true')
     expect(screen.getByRole('button', { name: /전적을 불러오는 중입니다/ })).toBeDisabled()
-    expect(screen.getByText('75승 45패')).toBeInTheDocument()
+    expect(screen.getByText('300승 100패')).toBeInTheDocument()
 
     resolve(new Response(JSON.stringify({ ...STATS, match_count: 200 }), { status: 200 }))
     /* 새 결과의 경기 수 — AI READOUT 아래 GAMES 줄 */

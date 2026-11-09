@@ -7,6 +7,7 @@ import java.util.List;
  * comeback 계열은 비율과 함께 모수(기회 수·성공 수)를 정수로 따로 반환한다.
  * deltaComeback = comebackRate − comebackRateAgainst이며, 둘 중 하나라도 null이면 null이다(LLM 하이라이트 후보).
  * eligible은 4개 Double 지표 중 하나라도 값이 있으면 true다.
+ * sessionVsSlope는 정의 불가(서로 다른 roundIndex 2개 미만·분모 0)면 null이다 (11.5절, v4.4).
  * strengthQuintiles는 strength_split의 분위별 승률(Q1 → Q5)이며, strengthSplit이 null이면 빈 목록이다 (11.2절, v3.8).
  */
 public record HighlightStats(
@@ -19,7 +20,7 @@ public record HighlightStats(
         int comebackAgainstAllowed,
         Double comebackRateAgainst,
         Double deltaComeback,
-        double sessionVsSlope,
+        Double sessionVsSlope,
         boolean eligible,
         List<StrengthQuintile> strengthQuintiles
 ) {

@@ -52,12 +52,21 @@ export interface Profile {
   play_time_seconds?: number
   /** 이 유저를 친구로 추가한 플레이어 수 */
   friend_count?: number
+  /*
+   * 현재 시즌 TETRA LEAGUE 통산 판수·승·패·승률(0~1) — 프로필 WIN RATE용(팀 결정: 시즌 통산 승률).
+   * fixed_metrics.win_rate(분석한 최근 경기 기준)와 기준이 다르다. 이번 시즌 판수가 0이면 4개 모두 빠진다.
+   */
+  season_games_played?: number
+  season_wins?: number
+  season_losses?: number
+  season_win_rate?: number
   /** 프로필 5칸 증감 배지 — 콜드스타트나 비교할 수 없으면 빠진다 */
   window_delta?: WindowDelta
 }
 
 /**
- * 최근 N판(recent_matches) 평균 vs 그 이전 판 평균의 변화율 % — 9.4 = +9.4%. WR도 %p가 아니라 %.
+ * 최근 N판(recent_matches) 평균 vs 그 이전 판 평균의 변화율 % — 9.4 = +9.4%. WR도 %p가 아니라 %
+ * (화면에는 프론트가 승률 차 %p로 바꿔 보인다 — lib/stats winRateDeltaPp).
  * tr_delta_pct는 따로 빠질 수 있다 (매치 당시 TR이 없을 때).
  */
 export interface WindowDelta {
@@ -97,6 +106,20 @@ export interface DeltaMetrics {
   /** tr_trend_delta의 근거 — 최근 N판(판수 × 0.3, 3~30판) 평균과 전체 평균. 차이가 tr_trend_delta */
   tr_trend_basis?: TrTrendBasis
   session_vs_slope?: number
+  /**
+   * 지표 신뢰도(「지표 신뢰도 판정 기준」) — 화면 표시 전용. 키는 하이라이트 후보 11개, 지표 값이 null이면 그 키도 빠진다.
+   * 백엔드 연결 전 임시 스키마 — 「지표 신뢰도 표시 백엔드 연결 안내」가 정해지면 맞춘다.
+   */
+  reliability?: Record<string, MetricReliability>
+}
+
+export interface MetricReliability {
+  /** 지표 단위(모든 유저에게 같음) — R₃₀₀ < 0.9 caution(해석 주의), < 0.5 unreliable(신뢰 불가). Δ 8종은 빠진다 */
+  metric_level?: 'caution' | 'unreliable'
+  /** 유저 단위 — 표본 부족 */
+  low_sample?: boolean
+  /** 유저 단위 — 의심 데이터 포함 */
+  suspicious?: boolean
 }
 
 export interface AttackAvg {
