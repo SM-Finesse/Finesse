@@ -35,10 +35,6 @@ heavy 시간 예산 (10/20, 백엔드 회신: 챕터 호출 10초는 백엔드�
   LLM_HEAVY_GEN_RESERVE_SEC (기본 2.0): 생성을 새로 시작하려면 남아 있어야 하는 시간. 이보다 적으면 생성(재생성
       포함)을 시작하지 않고, 다른 요청 때문에 그 전까지 차례가 오지 않아도 바로 대체 문장을 보낸다.
   응답의 fallback: 서버 대체 문장이면 true (백엔드 요청, 캐시 제외용).
-
-논문 실험용 (11/09 요청, app/paper.py) — LLM_PAPER_ENDPOINT=on 일 때만 열린다 (기본 off → 404)
-  POST /v1/paper/generate  {condition, seed, call_type, slot, payload} → messages·원문·finish_reason·토큰 수 (생성 1회)
-  GET  /v1/paper/meta      모델 해시·llama_cpp 버전·서버 코드·프롬프트 버전
 """
 import logging
 import os
@@ -50,7 +46,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from app import light_comment as lc
-from app import paper
 from app.fallback import build_fallback
 from app.generator import ContextOverflowError, GeneratorBusyError, build_generator
 from app.light6 import (
@@ -95,9 +90,6 @@ async def lifespan(_app: FastAPI):
     if hasattr(generator, "warmup"):
         generator.warmup()  # 기동 직후 첫 요청 지연 대비 (v1.2 4.3절)
         logger.info("워밍업 완료")
-    if paper.enabled():
-        logger.info("논문용 엔드포인트 켜짐 (/v1/paper/*), 모델 SHA256 확인 중")
-        logger.info("모델 SHA256 %s", paper.model_sha256() if generator.name == "llama" else "(mock)")
     yield
 
 
@@ -394,39 +386,3 @@ def _generate(generate, req, messages, **kwargs):
         # 같은 요청을 다시 보내도 결과가 같으므로 재요청 대상(502)과 구분한다 (10/7 백엔드 합의)
         logger.warning("입력 길이 초과 generator=%s: %s", generator.name, e)
         raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
-
-
-# ---- 논문 실험용 (서비스와 분리, app/paper.py) ----
-def _paper_or_404():
-    if not paper.enabled():
-        raise HTTPException(status_code=404, detail="Not Found")
-
-
-@app.get("/v1/paper/meta")
-def paper_meta():
-    _paper_or_404()
-    return paper.meta(generator)
-
-
-@app.post("/v1/paper/generate")
-def paper_generate(req: paper.PaperRequest):
-    """프롬프트 조립(rng_seed 고정) → 생성 1회(llama seed = 요청 seed). 재시도·검사·대체 문장·후처리·마감 없음."""
-    _paper_or_404()
-    rng_seed = paper.rng_seed_of(req)
-    try:
-        messages, base, version = paper.build_paper_prompt(req, random.Random(rng_seed))
-    except ValueError as e:                     # payload 형식 오류 (pydantic ValidationError 포함)
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    decoding = paper.paper_decoding(base)
-    try:
-        r = generator.generate_raw(messages, decoding, req.seed)
-    except ContextOverflowError as e:
-        raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
-    return {
-        "condition": req.condition, "seed": req.seed, "call_type": req.call_type, "slot": req.slot,
-        "messages": messages, "prompt_version": version, "prompt_sha256": paper.sha256_messages(messages),
-        "rng_seed": rng_seed, "llama_seed": req.seed, "decoding": decoding,
-        "raw_text": r.text, "finish_reason": r.finish_reason,
-        "prompt_tokens": r.prompt_tokens, "completion_tokens": r.completion_tokens,
-        "gen_sec": round(r.gen_sec, 3), "wait_sec": round(r.wait_sec, 3),
-    }

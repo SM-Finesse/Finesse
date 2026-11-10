@@ -60,8 +60,8 @@ def test_괄호_값_부호_붙임():
     assert why is None and s.endswith("(+0.42).")
 
 
-def test_역전_둘째_자리():
-    assert lc.fmt_value("delta_comeback", -0.019844693701466777) == "-0.02"
+def test_역전_원값():
+    assert lc.fmt_value("delta_comeback", -0.025) == "-0.025"
     assert lc.fmt_value("delta_cheese_index", -2.56) == "-2.6"
 
 
