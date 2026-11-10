@@ -14,10 +14,14 @@ import com.finesse.backend.exception.LlmUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import io.netty.channel.ChannelOption;
+import reactor.netty.http.client.HttpClient;
+import tools.jackson.databind.JsonNode;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -55,6 +59,8 @@ public class LlmClient {
     private static final Logger log = LoggerFactory.getLogger(LlmClient.class);
     private static final int PRIORITY_LIGHT = 0;
     private static final int PRIORITY_HEAVY = 1;
+    // 논문 실험 호출 — 서비스 light·heavy가 대기 중이면 항상 그 뒤로 (이미 나간 호출은 끊지 않음)
+    private static final int PRIORITY_PAPER = 2;
 
     private final LlmProperties props;
     private final LightCommentProperties lightComment;
@@ -66,6 +72,9 @@ public class LlmClient {
     private final AtomicLong taskSeq = new AtomicLong();
     // 연결 실패한 서버를 일시 제외하기 위한 맵 (server -> 제외 해제 시각, System.nanoTime() 기준) — 5.5절
     private final Map<String, Long> excludedUntilNanos = new ConcurrentHashMap<>();
+    // 논문용 — 서비스 WebClient는 전송 계층 응답 제한이 15초라 120초 생성을 받을 수 없어 서버별로 따로 만든다
+    private final WebClient.Builder llmWebClientBuilder;
+    private final Map<String, WebClient> paperClients = new ConcurrentHashMap<>();
 
     public LlmClient(LlmProperties props, WebClient.Builder llmWebClientBuilder) {
         this(props, llmWebClientBuilder, LightCommentProperties.defaults());
@@ -75,6 +84,7 @@ public class LlmClient {
     public LlmClient(LlmProperties props, WebClient.Builder llmWebClientBuilder, LightCommentProperties lightComment) {
         this.props = props;
         this.lightComment = lightComment;
+        this.llmWebClientBuilder = llmWebClientBuilder.clone();
         this.serverClients = new LinkedHashMap<>();
         this.serverQueues = new LinkedHashMap<>();
         for (String server : props.servers()) {
@@ -468,6 +478,42 @@ public class LlmClient {
         }
         return new HeavyCommentResponse.ChapterResult(
                 chapterId, HeavyCommentResponse.STATUS_FAILED, null, Math.min(attempt, props.maxRetries()));
+    }
+
+    /**
+     * 논문 실험용(/api/paper/generate) 서버 선택 — 서비스와 같은 라운드로빈. 모두 제외 상태면 null.
+     * 고른 서버 주소를 호출부가 응답(llm_server)에 그대로 적을 수 있게 선택과 호출을 나눠 둔다.
+     */
+    public String nextPaperServer() {
+        return nextAvailableServer();
+    }
+
+    /**
+     * 논문 실험용 호출 1회 — 재시도 없음, 다른 서버로 넘기지 않음, 서버 제외 표시도 하지 않음(서비스 상태를 바꾸지 않는다).
+     * 서버당 동시 1건은 지키도록 같은 서버 대기열을 쓰되 우선순위는 서비스 호출보다 낮다.
+     * 실패는 그대로 던진다 — WebClientResponseException(서버가 오류 상태로 응답), WebClientRequestException(연결 실패),
+     * 그 밖(호출 시간 초과 등). 응답 본문은 해석하지 않고 JSON 그대로 돌려준다.
+     */
+    public JsonNode callPaper(String server, String path, JsonNode body, int timeoutSeconds) throws Exception {
+        WebClient client = paperClients.computeIfAbsent(server, s -> newPaperClient(s, timeoutSeconds));
+        return submitToServer(server, PRIORITY_PAPER, () -> client.post()
+                .uri(path)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .block());
+    }
+
+    private WebClient newPaperClient(String server, int timeoutSeconds) {
+        // 전송 계층 제한은 호출 제한(.timeout)보다 조금 길게 — 시간 초과가 연결 실패(WebClientRequestException)로 보이지 않게
+        HttpClient httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, props.connectTimeoutSeconds() * 1000)
+                .responseTimeout(Duration.ofSeconds(timeoutSeconds + 5L));
+        return llmWebClientBuilder.clone()
+                .baseUrl(server)
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .build();
     }
 
     /**

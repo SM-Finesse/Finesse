@@ -126,12 +126,29 @@ class LightCommentFlowTest {
     }
 
     @Test
-    void 설정으로_끄면_예전_한_번_호출로_돌아간다() {
+    void 설정으로_끄면_LLM을_부르지_않고_하이라이트_없이_응답한다() {
         LlmClient llm = mock(LlmClient.class);
-        when(llm.callLight(any(), anyLong())).thenReturn(new LightCommentResponse("예전", List.of(), 0));
         CommentService service = service(stats(THREE), llm, new LightCommentProperties(false, null, null, null, null));
 
-        assertThat(service.getLight("abc").lightSummary()).isEqualTo("예전");
+        LightCommentResponse r = service.getLight("abc");
+
+        assertThat(r.highlights()).isEmpty();
+        assertThat(r.lightSummary()).isEqualTo(CommentService.NO_HIGHLIGHT_SUMMARY);
         verify(llm, never()).callLightComments(any(), anyLong());
+        verify(llm, never()).callLight(any(), anyLong()); // 예전 한 번 호출은 쓰지 않는다(11/9)
+    }
+
+    @Test
+    void calc가_고른_지표가_없으면_LLM을_부르지_않고_하이라이트_없이_응답한다() {
+        LlmClient llm = mock(LlmClient.class);
+        CommentService service = service(stats(List.of(pick("delta_app", "none", null))), llm, LightCommentProperties.defaults());
+
+        LightCommentResponse first = service.getLight("abc");
+        service.getLight("abc");
+
+        assertThat(first.highlights()).isEmpty();
+        assertThat(first.lightSummary()).isEqualTo(CommentService.NO_HIGHLIGHT_SUMMARY);
+        verify(llm, never()).callLightComments(any(), anyLong());
+        verify(llm, never()).callLight(any(), anyLong());
     }
 }

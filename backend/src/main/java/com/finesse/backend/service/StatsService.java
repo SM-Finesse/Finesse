@@ -133,6 +133,15 @@ public class StatsService {
         }
     }
 
+    /**
+     * 논문 실험 입력 스냅샷용(/api/paper/inputs) — stats 캐시를 읽지도 쓰지도 않고 새로 계산한다.
+     * comment 캐시도 건드리지 않는다(서비스 캐시 상태를 바꾸지 않음). 수집 동시 상한·stats 마감은 서비스와 같게 적용 —
+     * TETR.IO 호출 간격(RateLimiter)을 서비스와 함께 지키기 위함.
+     */
+    public StatsResponse computeUncached(String username) {
+        return compute(Usernames.normalize(username));
+    }
+
     private void evictCommentCaches(String normalized) {
         Cache light = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
         if (light != null) {

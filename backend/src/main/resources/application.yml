@@ -35,10 +35,11 @@ llm:
   light-min-remaining-seconds: 12  # light 새 시도 시작 조건
   max-retries: 3                    # 최초 시도 포함 총 4회 (표5)
   server-exclude-seconds: 30        # 연결 실패한 서버를 이 시간 동안 라운드로빈에서 제외 (5.5절)
-  light-path: /v1/comment/light            # LLM 추론 서버(PR #9)와 맞춤, 10/7 연동 확인
+  light-path: /v1/comment/light            # 예전 한 번 호출 경로 — 11/9부터 서비스에서 부르지 않음(light-comment 참고)
   heavy-chapter-path: /v1/comment/heavy-chapter   # LLM 쪽 heavy 엔드포인트가 나오면 확인
   # 라이트 개별·기본 코멘트 (LLM light-v5.2, 10/21) — calc가 고른 지표마다 개별 1회 + 기본 1회를 동시에 부른다.
-  # enabled: false면 예전처럼 light-path 한 번 호출(LLM이 11개 중에서 고름)로 되돌아간다.
+  # enabled: false이거나 calc가 고른 지표가 없으면 LLM을 부르지 않고 하이라이트 없이 응답한다.
+  # 예전 light-path 한 번 호출은 11/9부터 쓰지 않는다(파인튜닝 모델이 그 형식을 학습하지 않아 품질이 무너짐 — LLM 요청).
   light-comment:
     enabled: true
     sentence-path: /v1/light/sentence
@@ -66,6 +67,16 @@ app:
     light-seconds: 40
     heavy-seconds: 60
     heavy-single-server-seconds: 120
+  # 논문 실험(P0·P1) 배치 추출용 /api/paper/** — 기본은 꺼 둔다. 실험 기간에만 환경변수로 켤 것.
+  # FINESSE_PAPER_ENABLED=true, FINESSE_PAPER_TOKEN=<X-Paper-Token 값>, FINESSE_CALC_COMMIT=<git 해시(선택)>
+  # 재시도·다른 서버 재요청·캐시·대체 문장·엔드포인트 마감 없음. 서비스 설정(llm.*, app.endpoint)은 건드리지 않는다.
+  paper:
+    enabled: ${FINESSE_PAPER_ENABLED:false}
+    token: ${FINESSE_PAPER_TOKEN:}
+    llm-path: /v1/paper/generate        # llm-server 논문용 엔드포인트(윤세연 님 추가 예정) — 명세 나오면 확인
+    call-timeout-seconds: 120           # 생성 호출 1회 — 중간에 끊기지 않게 넉넉히
+    max-usernames-per-request: 5        # /api/paper/inputs 한 번에 받는 유저 수 — 1명당 약 10초
+    calc-commit: ${FINESSE_CALC_COMMIT:}
 
 # data-eng calc 모듈(StatCalculatorFacade) 설정 — 값은 data-eng 테스트 기준값
 # max-retry-attempts: 최초 포함 총 3회, 페이지당 100판(max-matches-per-page) — 데이터 엔지니어 검토(2026-10-01)

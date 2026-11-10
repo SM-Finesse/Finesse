@@ -9,7 +9,6 @@ import com.finesse.backend.dto.ApiErrorResponse;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmLightComment;
-import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.dto.StatsResponse;
 import com.finesse.backend.exception.GlobalExceptionHandler;
 import com.finesse.backend.exception.ServerBusyException;
@@ -273,10 +272,14 @@ public class CommentService {
         if (!items.isEmpty()) {
             return computeLightComments(items, deadline);
         }
-        // 예전 흐름(LLM이 11개 중에서 직접 고름) — 설정으로 껐거나 calc가 고른 지표가 없을 때만. 한 요청 안에서 섞지 않는다
-        LlmLightRequest request = LlmLightRequest.from(stats);
-        return new LightResult(llmClient.callLight(request, deadline), false);
+        // 설정으로 껐거나 calc가 고른 지표가 없으면 LLM을 부르지 않고 하이라이트 없이 응답한다(11/9 LLM 요청).
+        // 예전 한 번 호출(/v1/comment/light)은 쓰지 않는다 — 파인튜닝 모델(llm-ft-v0.1)이 그 형식을 학습하지 않아 엉뚱한 문장이 나왔다.
+        // 프론트는 하이라이트 0개면 "하이라이트를 생성하지 못했습니다" 안내와 함께 총평 칸에 이 문장만 보여 준다.
+        // 하이라이트가 3개 미만이라 getLight가 캐시에 남기지 않지만, LLM을 부르지 않으니 다시 만들어도 비용이 없다
+        return new LightResult(new LightCommentResponse(NO_HIGHLIGHT_SUMMARY, List.of()), false);
     }
+
+    static final String NO_HIGHLIGHT_SUMMARY = "이번 전적에서는 AI 코멘트로 짚을 지표를 고르지 못했습니다.";
 
     /** light-v5.2 — calc가 고른 지표마다 개별 코멘트, 묶어서 기본 코멘트 (LLM 연동 명세 light-v5.2, 10/21) */
     private LightResult computeLightComments(List<LlmLightComment.Item> items, long deadline) {
