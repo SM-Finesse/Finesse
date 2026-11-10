@@ -17,6 +17,7 @@ LLM_JSON_MODE (설계 문서에 없는 실험 옵션 — 시험 후 팀과 채�
 Mock 규칙(실제 서비스 로직이 아님): light 는 값이 있는 후보를 순서대로 앞 3개, heavy 는 고정 문장.
 문장에 [Mock] 표시. light-v4(generate_text)는 목록 앞에서부터 그룹이 겹치지 않게 3개를 고르는 흉내만 낸다.
 """
+import hashlib
 import json
 import logging
 import os
@@ -42,6 +43,17 @@ class GenerationResult:
     finish_reason: str  # "stop" 정상 종료 / "length" 출력 예산에서 잘림 (v1.2 12.1절 기록 대상)
 
 
+@dataclass
+class RawResult:
+    """논문용 생성 1회 결과 (app/paper.py). 서비스 경로와 달리 원문·토큰 수·시간을 그대로 돌려준다."""
+    text: str
+    finish_reason: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    gen_sec: float
+    wait_sec: float
+
+
 class GeneratorBusyError(Exception):
     """정해진 시간 안에 생성기(서버당 1건 잠금)를 얻지 못함 — 다른 요청이 생성 중 (헤비 시간 예산, 10/20)."""
 
@@ -52,6 +64,15 @@ class ContextOverflowError(Exception):
 
 class MockGenerator:
     name = "mock"
+    n_ctx = 2048
+
+    def generate_raw(self, messages: list[dict[str, str]], decoding: dict, seed: int) -> RawResult:
+        """논문용 Mock — 실제 모델이 아님. 응답 형태 시험용으로 messages·seed 에 따라 늘 같은 원문을 낸다."""
+        digest = hashlib.sha256(json.dumps([messages, seed], ensure_ascii=False).encode("utf-8")).hexdigest()[:8]
+        text = f"[Mock] 논문용 원문 seed={seed} {digest}"
+        prompt_chars = sum(len(m["content"]) for m in messages)
+        return RawResult(text=text, finish_reason="stop", prompt_tokens=prompt_chars // 2,
+                         completion_tokens=len(text) // 2, gen_sec=0.0, wait_sec=0.0)
 
     def generate_light(self, req: LightRequest, messages: list[dict[str, str]]) -> GenerationResult:
         # Mock 은 messages(프롬프트)를 읽지 않는다. Qwen 생성기와 같은 모양을 맞추려고 받기만 한다.
@@ -194,6 +215,7 @@ class LlamaGenerator:
 
         self.json_mode = json_mode
         self.repeat_penalty = repeat_penalty
+        self.n_ctx = n_ctx
         # n_gpu_layers=-1: 모든 층을 GPU에 / n_ctx=2048: v1.2 4.1절 max_seq_length
         self._llm = Llama(model_path=model_path, n_gpu_layers=-1, n_ctx=n_ctx, verbose=False)
         # 서버당 동시 1건(v1.2 4.3절). 백엔드 대기열이 보장하지만 서버 쪽에서도 한 번 더 막는다.
@@ -223,6 +245,30 @@ class LlamaGenerator:
         # heavy-draft-v2 는 문장만 쓰므로 JSON 모드(json/schema)를 적용하지 않는다
         return self._complete(f"heavy:{req.chapter_id}", messages, HEAVY_DECODING, None, text_only=True,
                               lock_timeout=lock_timeout, stop_at=stop_at)
+
+    def generate_raw(self, messages: list[dict[str, str]], decoding: dict, seed: int) -> RawResult:
+        """논문용 생성 1회 (app/paper.py): 시드 고정, 스트리밍·시간 마감·JSON 모드 없음.
+        decoding 은 호출하는 쪽이 정한 값을 그대로 쓴다 (repeat_penalty 포함). 잠금은 차례가 올 때까지 기다린다."""
+        kwargs = {**decoding, "seed": seed}
+        t_wait = time.perf_counter()
+        with self._lock:
+            waited = time.perf_counter() - t_wait
+            t = time.perf_counter()
+            try:
+                out = self._llm.create_chat_completion(messages=messages, **kwargs)
+            except ValueError as e:
+                if "context window" in str(e):
+                    raise ContextOverflowError(str(e)) from e
+                raise
+            elapsed = time.perf_counter() - t
+        choice = out["choices"][0]
+        usage = out.get("usage", {})
+        result = RawResult(text=choice["message"]["content"] or "", finish_reason=choice.get("finish_reason") or "",
+                           prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"),
+                           gen_sec=elapsed, wait_sec=waited)
+        logger.info("paper 생성 %.1fs (대기 %.1fs) finish=%s prompt=%s gen=%s seed=%s",
+                    elapsed, waited, result.finish_reason, result.prompt_tokens, result.completion_tokens, seed)
+        return result
 
     def _complete(self, label: str, messages: list[dict[str, str]], decoding: dict,
                   schema: dict | None, text_only: bool = False,
