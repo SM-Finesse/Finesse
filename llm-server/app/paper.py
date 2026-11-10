@@ -35,16 +35,28 @@ from app.prompt import (
 from app.schemas import HeavyRequest, SentenceRequest, SummaryRequest, _Strict
 
 PAPER_ENDPOINT_VERSION = "paper-endpoint-v1-20261109"
-P0_PROMPT_VERSION = "paper-p0-draft-20261109"     # 협의 전 초안
+P0_PROMPT_VERSION = "paper-p0-v1-20261110"       # 11/10 확정 문구 (팀 메모 「P0 예시 프롬프트」). 이전: paper-p0-draft-20261109
 PAPER_REPEAT_PENALTY = 1.1
 
 PAPER_CHAPTERS = ("tr_trend", "playstyle", "attack", "defense", "strength_split", "comeback_rate", "session_vs_slope")
 SLOTS = {"sentence": ("pick1", "pick2", "pick3"), "summary": ("summary",), "heavy": PAPER_CHAPTERS}
 
-# ---- P0 기본 지시 (규칙·방향·예시 없음) ----
-P0_SENTENCE = "다음 지표와 값을 보고 한국어 한 문장으로 설명하세요."
-P0_SUMMARY = "다음 지표들과 값을 보고 이 플레이어의 전적을 한국어 2~3문장으로 요약하세요."
-P0_HEAVY = "다음 데이터를 보고 한국어 한두 문장으로 설명하세요."
+# ---- P0 기본 지시 (규칙·방향·예시 없음) — 11/10 팀 메모 「P0 예시 프롬프트」 ----
+# P1 system 의 첫머리(무엇을 몇 자로 쓰는지)와 끝줄(출력 형식)만 남기고, 규칙 목록·방향·예시·비교 표현은 뺀 것.
+# P1 과 같은 구조: system = 지시, user = 데이터.
+P0_SENTENCE = ("TETR.IO 전적 분석 페이지 첫 화면의 하이라이트 문장 하나를 한국어로 씁니다.\n"
+               "아래 지표 값이 이 플레이어에 대해 무엇을 뜻하는지 한 문장(40~60자)으로 쓰세요.\n"
+               "문장 하나만 쓰세요. 제목, 목록, 따옴표는 쓰지 마세요.")
+P0_SUMMARY = ("TETR.IO 전적 분석 페이지 첫 화면의 요약 코멘트를 한국어로 씁니다.\n"
+              "아래 지표 세 개를 묶어 이 플레이어의 전적을 2~3문장(70~100자)으로 요약하세요.\n"
+              "요약 문장만 쓰세요. 제목, 목록, 따옴표는 쓰지 마세요.")
+P0_HEAVY = ("TETR.IO 전적 분석 리포트의 '{title}' 챕터 아래에 붙는 각주를 한국어로 씁니다.\n"
+            "입력된 값이 무엇을 뜻하는지 1-2문장(40~70자)으로 짧게 설명하세요.\n"
+            "각주 문장만 쓰세요. 제목·번호·목록·따옴표·JSON은 쓰지 마세요.")
+
+
+def _p0(system: str, lines: list[str]) -> list[dict[str, str]]:
+    return [{"role": "system", "content": system}, {"role": "user", "content": "\n".join(lines)}]
 
 
 def enabled() -> bool:
@@ -95,9 +107,8 @@ def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict
         zone = _zone(p.stat, p.value, p.zone)
         dec = lc.LIGHT_COMMENT_DECODING["sentence"]
         if req.condition == "P0":
-            user = "\n".join([P0_SENTENCE, f"지표: {lc.NAMES[p.stat]}", f"값: {lc.fmt_value(p.stat, p.value)}",
-                              f"영역: {zone}"])
-            return [{"role": "user", "content": user}], dec, P0_PROMPT_VERSION
+            return _p0(P0_SENTENCE, [f"지표: {lc.NAMES[p.stat]}", f"값: {lc.fmt_value(p.stat, p.value)}",
+                                     f"영역: {zone}"]), dec, P0_PROMPT_VERSION
         return lc.build_sentence(p.stat, p.value, zone, rng), dec, lc.LIGHT_COMMENT_VERSION
     if req.call_type == "summary":
         p = SummaryRequest.model_validate(req.payload)
@@ -106,14 +117,15 @@ def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict
         items = [(i.stat, i.value, _zone(i.stat, i.value, i.zone)) for i in p.items]
         dec = lc.LIGHT_COMMENT_DECODING["summary"]
         if req.condition == "P0":
-            lines = [P0_SUMMARY] + [f"- {lc.NAMES[k]}: 값 {lc.fmt_value(k, v)}, 영역 {z}" for k, v, z in items]
-            return [{"role": "user", "content": "\n".join(lines)}], dec, P0_PROMPT_VERSION
+            lines = ["지표"] + [f"- {lc.NAMES[k]}: 값 {lc.fmt_value(k, v)}, 영역 {z}" for k, v, z in items]
+            return _p0(P0_SUMMARY, lines), dec, P0_PROMPT_VERSION
         return lc.build_summary(items, rng), dec, lc.LIGHT_COMMENT_VERSION
     p = HeavyRequest.model_validate(req.payload)
     if req.condition == "P0":
-        lines = [P0_HEAVY, f"챕터: {HEAVY_CHAPTERS[p.chapter_id]['title']}"]
+        title = HEAVY_CHAPTERS[p.chapter_id]["title"]
+        lines = [f"챕터: {title}"]
         lines += [f"- {HEAVY_LABELS.get(k, k)}: {_p0_value(k, v)}" for k, v in p.data.items() if v is not None]
-        return [{"role": "user", "content": "\n".join(lines)}], HEAVY_DECODING, P0_PROMPT_VERSION
+        return _p0(P0_HEAVY.format(title=title), lines), HEAVY_DECODING, P0_PROMPT_VERSION
     return build_heavy_messages(p, rng=rng), HEAVY_DECODING, HEAVY_PROMPT_VERSION
 
 

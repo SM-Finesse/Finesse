@@ -84,7 +84,8 @@ def test_P0_는_규칙_방향_예시가_없고_데이터는_같음():
     p0 = client.post("/v1/paper/generate", json=_req("P0")).json()
     text = "\n".join(m["content"] for m in p0["messages"])
     assert p0["prompt_version"] == paper.P0_PROMPT_VERSION
-    assert [m["role"] for m in p0["messages"]] == ["user"]
+    assert [m["role"] for m in p0["messages"]] == ["system", "user"]
+    assert p0["messages"][0]["content"] == paper.P0_SENTENCE      # 11/10 메모 문구 그대로
     assert "방향:" not in text and "예시:" not in text and "규칙" not in text
     assert "Infinite Downstack 성향" in text and "+0.31" in text and "높음" in text
     p1 = client.post("/v1/paper/generate", json=_req("P1")).json()
