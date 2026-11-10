@@ -5,6 +5,7 @@ Finesse LLM 추론 서버 시작 스크립트 (Windows PowerShell)
   .\scripts\start-server.ps1 -GpuIndex 1                      # 모델이 models\ 아래 기본 이름일 때
   .\scripts\start-server.ps1 -ModelPath D:\models\qwen2.5-1.5b-instruct-q4_k_m.gguf -GpuIndex 0
   .\scripts\start-server.ps1 -ListDevices                     # Vulkan 장치 번호 확인만
+  .\scripts\start-server.ps1 -GpuIndex 1 -Paper              # 논문 실험용 /v1/paper/* 도 켜기 (app/paper.py)
 
 GpuIndex: Vulkan 장치 번호. nvidia-smi 번호와 다르다(내장그래픽이 0번이 될 수 있음).
   -ListDevices 결과에서 "GTX 1050" 이 몇 번인지 보고 넣는다. (11번 PC = 1, 13번 PC = 0)
@@ -19,7 +20,8 @@ param(
     [ValidateSet("off", "json", "schema")][string]$JsonMode = "off",
     [string]$RepeatPenalty = "1.1",
     [switch]$SkipHashCheck,
-    [switch]$ListDevices
+    [switch]$ListDevices,
+    [switch]$Paper
 )
 $ErrorActionPreference = "Stop"
 Set-Location "$PSScriptRoot\.."
@@ -65,7 +67,9 @@ $env:LLM_MODEL_PATH = $ModelPath
 $env:LLM_JSON_MODE = $JsonMode
 $env:LLM_REPEAT_PENALTY = $RepeatPenalty
 $env:GGML_VK_VISIBLE_DEVICES = "$GpuIndex"
+$env:LLM_PAPER_ENDPOINT = if ($Paper) { "on" } else { "off" }
+if ($Paper -and -not $SkipHashCheck) { $env:LLM_MODEL_SHA256 = $hash.ToLower() }   # 위에서 계산한 값 재사용
 
-Write-Host "서버 시작: port=$Port gpu=$GpuIndex json_mode=$JsonMode repeat_penalty=$RepeatPenalty"
+Write-Host "서버 시작: port=$Port gpu=$GpuIndex json_mode=$JsonMode repeat_penalty=$RepeatPenalty paper=$($env:LLM_PAPER_ENDPOINT)"
 Write-Host "이 창을 닫으면 서버가 꺼집니다."
 & $Python -m uvicorn app.main:app --host 0.0.0.0 --port $Port
