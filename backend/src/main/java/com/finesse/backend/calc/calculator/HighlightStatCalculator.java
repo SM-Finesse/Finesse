@@ -78,7 +78,7 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
         Double deltaComeback = comebackRate == null || comebackRateAgainst == null
                 ? null : comebackRate - comebackRateAgainst;
 
-        double vsSlope = sessionVsSlope(matches);
+        Double vsSlope = sessionVsSlope(matches);
 
         boolean eligible = trTrend != null || strengthSplit != null
                 || comebackRate != null || comebackRateAgainst != null;
@@ -222,9 +222,10 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
     /**
      * 전체 매치의 라운드를 roundIndex별로 모아 평균 VS를 구하고(x = roundIndex, y = 평균 VS),
      * 조기 종료 매치는 마지막 라운드를 빼고 모은다.
-     * OLS 기울기를 계산한다. 서로 다른 roundIndex가 2개 미만이거나 분모가 0이면 0.0.
+     * OLS 기울기를 계산한다. 서로 다른 roundIndex가 2개 미만이거나 분모가 0이면 정의할 수 없어 null이다
+     * (11.5절, v4.4 — v4.3까지는 0.0이라 실제 기울기 0과 구분되지 않았다).
      */
-    static double sessionVsSlope(List<MatchHistory> matches) {
+    static Double sessionVsSlope(List<MatchHistory> matches) {
         Map<Integer, double[]> sumAndCount = new TreeMap<>();
         for (MatchHistory m : matches) {
             int lastIndex = m.rounds().stream().mapToInt(MatchRound::roundIndex).max().orElse(-1);
@@ -239,7 +240,7 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
         }
         int n = sumAndCount.size();
         if (n < 2) {
-            return 0.0;
+            return null;
         }
 
         double[] xs = new double[n];
@@ -253,10 +254,10 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
         return olsSlope(xs, ys);
     }
 
-    static double olsSlope(double[] xs, double[] ys) {
+    static Double olsSlope(double[] xs, double[] ys) {
         int n = xs.length;
         if (n < 2) {
-            return 0.0;
+            return null;
         }
         double meanX = 0;
         double meanY = 0;
@@ -274,6 +275,6 @@ public class HighlightStatCalculator implements AnalyticsCalculator<HighlightSta
             numerator += dx * (ys[i] - meanY);
             denominator += dx * dx;
         }
-        return denominator == 0.0 ? 0.0 : numerator / denominator;
+        return denominator == 0.0 ? null : numerator / denominator;
     }
 }

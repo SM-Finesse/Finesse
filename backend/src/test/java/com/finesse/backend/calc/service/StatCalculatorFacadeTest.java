@@ -4,6 +4,10 @@ import com.finesse.backend.calc.calculator.*;
 import com.finesse.backend.calc.collector.*;
 import com.finesse.backend.calc.config.AnalyticsProperties;
 import com.finesse.backend.calc.config.CollectorProperties;
+import com.finesse.backend.calc.config.ReliabilityProperties;
+import com.finesse.backend.calc.domain.JudgedMetric;
+import com.finesse.backend.calc.domain.MetricCaution;
+import com.finesse.backend.calc.domain.ReliabilityReport;
 import com.finesse.backend.calc.exception.TetrIoApiException;
 import com.finesse.backend.calc.exception.TetrIoUserNotFoundException;
 import com.finesse.backend.calc.metrics.AnalyticsMetrics;
@@ -168,6 +172,36 @@ class StatCalculatorFacadeTest {
             assertThat(a.result().rivalryStats().rivals())
                     .extracting(RivalOpponentStatsNickname::of)
                     .containsExactly("alp**one", "bra**two");
+        });
+    }
+
+    @Test
+    void 정상_분석은_조회_시점_등급의_묶음_범위로_하이라이트를_판정하고_최대_3개를_고른다() {
+        // 가짜 API의 등급은 "s" → S-~S+ 묶음(t4)
+        AnalysisOutcome outcome = facade(api(50, matches(12, 0), false, false)).analyze("user");
+
+        assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.Analyzed.class, a -> {
+            assertThat(a.result().highlightJudgement()).isNotNull();
+            assertThat(a.result().highlightJudgement().rangeGroup()).isEqualTo("t4");
+            assertThat(a.result().highlightJudgement().metrics()).hasSize(11);
+            assertThat(a.result().highlightJudgement().picks().size()).isLessThanOrEqualTo(3);
+        });
+    }
+
+    @Test
+    void 정상_분석은_값이_있는_지표마다_신뢰도를_판정한다() {
+        // 12판뿐이라 상한(300판)에 닿지 않는다. 값이 null인 지표(TR 없음 → strength_split 등)는 신뢰도도 없다
+        AnalysisOutcome outcome = facade(api(50, matches(12, 0), false, false)).analyze("user");
+
+        assertThat(outcome).isInstanceOfSatisfying(AnalysisOutcome.Analyzed.class, a -> {
+            ReliabilityReport report = a.result().reliability();
+            assertThat(report).isNotNull();
+            assertThat(report.version()).isEqualTo(ReliabilityProperties.DEFAULT_VERSION);
+            for (JudgedMetric metric : a.result().highlightJudgement().metrics()) {
+                assertThat(report.metrics().containsKey(metric.key())).isEqualTo(metric.value() != null);
+            }
+            assertThat(report.metric("delta_comeback") == null
+                    || report.metric("delta_comeback").caution() == MetricCaution.UNRELIABLE).isTrue();
         });
     }
 

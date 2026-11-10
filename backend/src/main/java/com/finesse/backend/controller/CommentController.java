@@ -65,7 +65,7 @@ public class CommentController {
             content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @GetMapping("/api/v1/comment/{username}")
     public Object getComment(
-            @Parameter(description = "TETR.IO 유저명", example = "icly") @PathVariable String username,
+            @Parameter(description = "TETR.IO 유저명", example = "example_user") @PathVariable String username,
             @Parameter(description = "light 또는 heavy",
                     schema = @Schema(allowableValues = {"light", "heavy"}))
             @RequestParam String scope) {
