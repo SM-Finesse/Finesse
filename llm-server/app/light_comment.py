@@ -48,8 +48,7 @@ from app.names import COMMENT_NAMES as NAMES  # v5.5: 31번 1.8절 이름 (PM �
 from app.prompt import COMPARE_PHRASES, HEAVY_RANGES
 from app.validation import _BASIS, _INTENSIFIERS
 
-LIGHT_COMMENT_VERSION = "light-v5.6e-p1rules-20261104"
-# v5.6e (11/04): delta_comeback 값도 소수 둘째 자리로 반올림(백엔드가 원값을 반올림 없이 보냄 → 프롬프트에 18자리). 학습 데이터와 같게.
+LIGHT_COMMENT_VERSION = "light-v5.6d-p1rules-20261027"
 # v5.6 (10/26 저녁): 「P1 프롬프트에 넣을 규칙 — 최종(최소안)」(정본 claude/31) — 학습 데이터(작업자 문장)와 같은 규칙.
 #   Infinite Downstack 성향, delta_comeback 원값, 숫자는 괄호에 부호째·다시 반올림 금지(요약은 숫자 없음),
 #   strength_split "…승률이 떨어집니다/크게 흔들리지 않습니다/오히려 높습니다", session "오릅니다/처집니다", 보통 "~하는 편·흐름",
@@ -98,14 +97,17 @@ _VAGUE = ("크지 않", "비슷", "같은 수준", "차이가 없", "차이는 �
 # 값·영역
 # =====================================================================================
 def round_value(k: str, v: float) -> float:
-    """P1 규칙 1절: 소수 둘째 자리, 가비지 처리 성향(delta_cheese_index)은 첫째 자리.
-    delta_comeback 도 둘째 자리 — '원값'은 축소값이 아니라는 뜻이다(백엔드는 반올림 안 한 원값을 보냄, 11/04)."""
+    """P1 규칙 1절: 소수 둘째 자리, 가비지 처리 성향(delta_cheese_index)은 첫째 자리, delta_comeback 은 원값."""
+    if k == "delta_comeback":
+        return float(v)
     return round(float(v), 1 if k == "delta_cheese_index" else 2)
 
 
 def fmt_value(k: str, v: float) -> str:
     """입력·괄호 인용에 쓰는 값 — 부호를 붙인다(+0.37 / -0.66). 모델은 이 글자 그대로 인용한다(다시 반올림 ✗)."""
     r = round_value(k, v)
+    if k == "delta_comeback":
+        return "0" if r == 0 else f"{r:+}"
     if r == 0:
         return "0.0" if k == "delta_cheese_index" else "0.00"
     return f"{r:+.1f}" if k == "delta_cheese_index" else f"{r:+.2f}"
