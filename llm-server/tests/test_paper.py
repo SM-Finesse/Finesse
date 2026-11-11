@@ -155,11 +155,12 @@ def test_rng_seed_는_sha256_앞_8바이트():
 def test_P0_v2_값의_기준과_영역_표기():
     p0 = client.post("/v1/paper/generate", json=_req("P0")).json()
     user = p0["messages"][1]["content"]
-    assert user.splitlines() == ["지표: Infinite Downstack 성향", "값: +0.31",
+    assert user.splitlines() == ["지표: Infinite Downstack 성향", "뜻: 다운스택(수비) 위주의 플레이 성향", "값: +0.31",
                                  "값의 기준: 맞붙은 상대와의 성향 차이(내 값 − 상대 값)",
                                  "영역(비슷한 실력대 기준): 높음"]
     s = client.post("/v1/paper/generate", json=_req("P0", call_type="summary", slot="summary", payload=SUMM)).json()
-    assert "- 블록당 공격력: 값 +0.08, 값의 기준: 맞붙은 상대와의 차이(내 값 − 상대 값), 영역: 높음" in s["messages"][1]["content"]
+    assert ("- 블록당 공격력: 뜻: 블록 1개당 공격량. 적은 블록으로 많은 공격을 할수록 높음, 값 +0.08, "
+            "값의 기준: 맞붙은 상대와의 차이(내 값 − 상대 값), 영역(비슷한 실력대 기준): 높음") in s["messages"][1]["content"]
 
 
 @pytest.mark.parametrize("ch", ["tr_trend", "playstyle", "attack", "defense", "strength_split", "comeback_rate", "session_vs_slope"])
@@ -171,5 +172,20 @@ def test_P0_v2_heavy_값의_기준_부호(ch):
         if line.startswith(tuple("- " + c for c in counts)):
             assert "+" not in line and "값의 기준" not in line
         else:
-            assert "(값의 기준: " in line, line
+            assert "값의 기준: " in line, line
     assert "방향" not in r["messages"][1]["content"] and "[예시]" not in r["messages"][0]["content"]
+
+
+def test_P0_v3_지표_뜻은_모든_지표에_있고_쓰는_법은_없음():
+    from app.schemas import CANDIDATE_KEYS
+    assert set(CANDIDATE_KEYS) <= set(paper.P0_MEANING)
+    text = " ".join(paper.P0_MEANING.values())
+    for rule in ("잘하고 못함", "성향입니다", "번 중", "앞섭니다", "밀립니다", "상대 대비", "짙", "옅"):
+        assert rule not in text, rule
+
+
+@pytest.mark.parametrize("ch", ["tr_trend", "playstyle", "attack", "defense", "strength_split", "session_vs_slope"])
+def test_P0_v3_heavy_뜻(ch):
+    r = client.post("/v1/paper/generate", json=_req("P0", call_type="heavy", slot=ch, payload=_heavy(ch))).json()
+    for line in r["messages"][1]["content"].splitlines()[1:]:
+        assert "(뜻: " in line, line

@@ -12,7 +12,7 @@
 조건
   P1 : 서비스 프롬프트 (lc.build_sentence / lc.build_summary / build_heavy_messages)
   FT : P1 과 같은 프롬프트 (파인튜닝 모델로 서버를 켜서 실행)
-  P0 : 같은 데이터 + 규칙 없는 기본 지시 1~2문장 (아래 P0_*). 문구는 협의 중 — 바꾸면 P0_PROMPT_VERSION 도 바꾼다.
+  P0 : 같은 데이터 + 지표 뜻·값의 기준(정보) + 규칙 없는 기본 지시 (아래 P0_*). 바꾸면 P0_PROMPT_VERSION 도 바꾼다.
 """
 import hashlib
 import json
@@ -35,7 +35,7 @@ from app.prompt import (
 from app.schemas import HeavyRequest, SentenceRequest, SummaryRequest, _Strict
 
 PAPER_ENDPOINT_VERSION = "paper-endpoint-v1-20261109"
-P0_PROMPT_VERSION = "paper-p0-v2-20261111"       # 11/11 값의 기준 추가 (④ 배치명세 2.1절). 이전: paper-p0-v1-20261110, paper-p0-draft-20261109
+P0_PROMPT_VERSION = "paper-p0-v3-20261111"       # 11/11 지표 뜻 추가 (P1 헤비 [용어]의 사실 부분). 이전: v2(값의 기준), v1, draft
 PAPER_REPEAT_PENALTY = 1.1
 
 PAPER_CHAPTERS = ("tr_trend", "playstyle", "attack", "defense", "strength_split", "comeback_rate", "session_vs_slope")
@@ -86,6 +86,24 @@ P0_BASIS_HEAVY = {
     "comeback_rate_against": "점수가 앞섰던 매치 중 진 비율",
     "session_vs_slope": "한 매치 안에서 라운드당 공방 능력 변화",
 }
+# ---- P0 user 의 원정보 — 지표 뜻 (v3, 11/11) ----
+# P1 헤비 system 의 [용어](prompt.HEAVY_CHAPTERS[*]["terms"])에서 '그 지표가 무엇을 재는지'만 옮긴 것.
+# P1 의 [용어]에 함께 있는 쓰는 법('잘하고 못함이 아니라 성향입니다', 역전 '…n번 중 m번' 틀)은 규칙이므로 넣지 않는다.
+# 라이트 P1 은 [용어]가 없지만 방향 문장을 받으므로, P0 는 뜻을 받아야 지표를 해석할 수 있다 (정보 동등).
+P0_MEANING = {
+    "delta_opener": "초반 공격 위주의 플레이 성향",
+    "delta_plonk": "효율·가비지 활용 위주의 플레이 성향",
+    "delta_stride": "속도 위주의 플레이 성향",
+    "delta_inf_ds": "다운스택(수비) 위주의 플레이 성향",
+    "delta_app": "블록 1개당 공격량. 적은 블록으로 많은 공격을 할수록 높음",
+    "delta_weighted_app": "가비지 처리 성향으로 보정한 공격 효율",
+    "delta_vs_apm": "공격량 대비 총 처리량의 비율. 공격보다 방어에 치중할수록 큼",
+    "delta_cheese_index": "공격 효율은 낮고 가비지 처리는 많은 판일수록 큼",
+    "strength_split": "본인 기록 안에서 강한 상대를 만났을 때와 약한 상대를 만났을 때의 승률 차이",
+    "delta_comeback": "불리할 때 뒤집는 경향(역전승)과 유리하다가 뒤집히는 경향(역전패)의 차이",
+    "session_vs_slope": "한 매치 안에서 라운드가 진행될수록 공방 능력(공격과 수비를 합친 총 처리량)이 오르거나 내리는 정도",
+    "tr_trend_delta": "TR은 공식 대전 점수",
+}
 # heavy 이름 — 서버 HEAVY_LABELS 에서 괄호 안 설명을 뺀 것 (그 설명은 값의 기준으로 옮김). 나머지는 HEAVY_LABELS 그대로.
 P0_HEAVY_NAMES = {"tr_trend_delta": "TR 추이", "strength_split": "상대 강도별 승률"}
 _P0_UNSIGNED = ("comeback_rate", "comeback_rate_against", "comeback_opportunities", "comeback_won",
@@ -98,8 +116,9 @@ def _p0_heavy_line(k: str, v) -> str:
         val = fmt_num(k, v, signed=k not in _P0_UNSIGNED)      # 횟수·비율은 부호 없이 (v1: '+16')
     else:
         val = canonical_json(v)
-    basis = P0_BASIS_HEAVY.get(k)
-    return f"- {name}: {val}" + (f" (값의 기준: {basis})" if basis else "")
+    notes = [f"뜻: {P0_MEANING[k]}"] if k in P0_MEANING else []
+    notes += [f"값의 기준: {P0_BASIS_HEAVY[k]}"] if k in P0_BASIS_HEAVY else []
+    return f"- {name}: {val}" + (f" ({' / '.join(notes)})" if notes else "")
 
 
 def _p0(system: str, lines: list[str]) -> list[dict[str, str]]:
@@ -150,7 +169,8 @@ def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict
         zone = _zone(p.stat, p.value, p.zone)
         dec = lc.LIGHT_COMMENT_DECODING["sentence"]
         if req.condition == "P0":
-            return _p0(P0_SENTENCE, [f"지표: {lc.NAMES[p.stat]}", f"값: {lc.fmt_value(p.stat, p.value)}",
+            return _p0(P0_SENTENCE, [f"지표: {lc.NAMES[p.stat]}", f"뜻: {P0_MEANING[p.stat]}",
+                                     f"값: {lc.fmt_value(p.stat, p.value)}",
                                      f"값의 기준: {P0_BASIS_LIGHT[p.stat]}",
                                      f"영역(비슷한 실력대 기준): {zone}"]), dec, P0_PROMPT_VERSION
         return lc.build_sentence(p.stat, p.value, zone, rng), dec, lc.LIGHT_COMMENT_VERSION
@@ -161,7 +181,8 @@ def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict
         items = [(i.stat, i.value, _zone(i.stat, i.value, i.zone)) for i in p.items]
         dec = lc.LIGHT_COMMENT_DECODING["summary"]
         if req.condition == "P0":
-            lines = ["지표"] + [f"- {lc.NAMES[k]}: 값 {lc.fmt_value(k, v)}, 값의 기준: {P0_BASIS_LIGHT[k]}, 영역: {z}"
+            lines = ["지표"] + [f"- {lc.NAMES[k]}: 뜻: {P0_MEANING[k]}, 값 {lc.fmt_value(k, v)}, "
+                               f"값의 기준: {P0_BASIS_LIGHT[k]}, 영역(비슷한 실력대 기준): {z}"
                                for k, v, z in items]
             return _p0(P0_SUMMARY, lines), dec, P0_PROMPT_VERSION
         return lc.build_summary(items, rng), dec, lc.LIGHT_COMMENT_VERSION
