@@ -35,7 +35,7 @@ from app.prompt import (
 from app.schemas import HeavyRequest, SentenceRequest, SummaryRequest, _Strict
 
 PAPER_ENDPOINT_VERSION = "paper-endpoint-v1-20261109"
-P0_PROMPT_VERSION = "paper-p0-v1-20261110"       # 11/10 확정 문구 (팀 메모 「P0 예시 프롬프트」). 이전: paper-p0-draft-20261109
+P0_PROMPT_VERSION = "paper-p0-v2-20261111"       # 11/11 값의 기준 추가 (④ 배치명세 2.1절). 이전: paper-p0-v1-20261110, paper-p0-draft-20261109
 PAPER_REPEAT_PENALTY = 1.1
 
 PAPER_CHAPTERS = ("tr_trend", "playstyle", "attack", "defense", "strength_split", "comeback_rate", "session_vs_slope")
@@ -53,6 +53,53 @@ P0_SUMMARY = ("TETR.IO 전적 분석 페이지 첫 화면의 요약 코멘트를
 P0_HEAVY = ("TETR.IO 전적 분석 리포트의 '{title}' 챕터 아래에 붙는 각주를 한국어로 씁니다.\n"
             "입력된 값이 무엇을 뜻하는지 1-2문장(40~70자)으로 짧게 설명하세요.\n"
             "각주 문장만 쓰세요. 제목·번호·목록·따옴표·JSON은 쓰지 마세요.")
+
+
+# ---- P0 user 의 원정보 — 값의 기준 (v2, 11/11) ----
+# 값이 무엇과의 차이인지는 '정보'이지 규칙이 아니다. 빼면 P0 의 비교 기준(C1 (i)) 위반이 정보 부족을 재게 된다.
+# light 는 긴 구절(…(내 값 − 상대 값)), heavy 는 짧은 구절. 쓰는 법(비교 표현·서술어·강도)은 넣지 않는다.
+P0_BASIS_LIGHT = {
+    "delta_opener": "맞붙은 상대와의 성향 차이(내 값 − 상대 값)",
+    "delta_plonk": "맞붙은 상대와의 성향 차이(내 값 − 상대 값)",
+    "delta_stride": "맞붙은 상대와의 성향 차이(내 값 − 상대 값)",
+    "delta_inf_ds": "맞붙은 상대와의 성향 차이(내 값 − 상대 값)",
+    "delta_app": "맞붙은 상대와의 차이(내 값 − 상대 값)",
+    "delta_weighted_app": "맞붙은 상대와의 차이(내 값 − 상대 값)",
+    "delta_vs_apm": "맞붙은 상대와의 차이(내 값 − 상대 값)",
+    "delta_cheese_index": "맞붙은 상대와의 차이(내 값 − 상대 값)",
+    "strength_split": "강한 상대 구간 승률 − 약한 상대 구간 승률",
+    "delta_comeback": "역전승 비율 − 역전패 비율",
+    "session_vs_slope": "한 매치 안에서 라운드당 공방 능력 변화",
+}
+P0_BASIS_HEAVY = {
+    "tr_trend_delta": "최근 구간 평균 TR − 전체 평균 TR",
+    "delta_opener": "맞붙은 상대와의 성향 차이",
+    "delta_plonk": "맞붙은 상대와의 성향 차이",
+    "delta_stride": "맞붙은 상대와의 성향 차이",
+    "delta_inf_ds": "맞붙은 상대와의 성향 차이",
+    "delta_app": "맞붙은 상대와의 차이",
+    "delta_weighted_app": "맞붙은 상대와의 차이",
+    "delta_vs_apm": "맞붙은 상대와의 차이",
+    "delta_cheese_index": "맞붙은 상대와의 차이",
+    "strength_split": "강한 상대 구간 승률 − 약한 상대 구간 승률",
+    "comeback_rate": "점수가 뒤졌던 매치 중 이긴 비율",
+    "comeback_rate_against": "점수가 앞섰던 매치 중 진 비율",
+    "session_vs_slope": "한 매치 안에서 라운드당 공방 능력 변화",
+}
+# heavy 이름 — 서버 HEAVY_LABELS 에서 괄호 안 설명을 뺀 것 (그 설명은 값의 기준으로 옮김). 나머지는 HEAVY_LABELS 그대로.
+P0_HEAVY_NAMES = {"tr_trend_delta": "TR 추이", "strength_split": "상대 강도별 승률"}
+_P0_UNSIGNED = ("comeback_rate", "comeback_rate_against", "comeback_opportunities", "comeback_won",
+                "comeback_against_opportunities", "comeback_against_allowed")
+
+
+def _p0_heavy_line(k: str, v) -> str:
+    name = P0_HEAVY_NAMES.get(k, HEAVY_LABELS.get(k, k))
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        val = fmt_num(k, v, signed=k not in _P0_UNSIGNED)      # 횟수·비율은 부호 없이 (v1: '+16')
+    else:
+        val = canonical_json(v)
+    basis = P0_BASIS_HEAVY.get(k)
+    return f"- {name}: {val}" + (f" (값의 기준: {basis})" if basis else "")
 
 
 def _p0(system: str, lines: list[str]) -> list[dict[str, str]]:
@@ -96,10 +143,6 @@ def sha256_messages(messages: list[dict[str, str]]) -> str:
     return hashlib.sha256(canonical_json(messages).encode("utf-8")).hexdigest()
 
 
-def _p0_value(k: str, v) -> str:
-    return fmt_num(k, v) if isinstance(v, (int, float)) and not isinstance(v, bool) else canonical_json(v)
-
-
 def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict[str, str]], dict, str]:
     """(messages, 디코딩, prompt_version). 422 사유는 ValueError 로 올린다."""
     if req.call_type == "sentence":
@@ -108,7 +151,8 @@ def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict
         dec = lc.LIGHT_COMMENT_DECODING["sentence"]
         if req.condition == "P0":
             return _p0(P0_SENTENCE, [f"지표: {lc.NAMES[p.stat]}", f"값: {lc.fmt_value(p.stat, p.value)}",
-                                     f"영역: {zone}"]), dec, P0_PROMPT_VERSION
+                                     f"값의 기준: {P0_BASIS_LIGHT[p.stat]}",
+                                     f"영역(비슷한 실력대 기준): {zone}"]), dec, P0_PROMPT_VERSION
         return lc.build_sentence(p.stat, p.value, zone, rng), dec, lc.LIGHT_COMMENT_VERSION
     if req.call_type == "summary":
         p = SummaryRequest.model_validate(req.payload)
@@ -117,14 +161,15 @@ def build_paper_prompt(req: PaperRequest, rng: random.Random) -> tuple[list[dict
         items = [(i.stat, i.value, _zone(i.stat, i.value, i.zone)) for i in p.items]
         dec = lc.LIGHT_COMMENT_DECODING["summary"]
         if req.condition == "P0":
-            lines = ["지표"] + [f"- {lc.NAMES[k]}: 값 {lc.fmt_value(k, v)}, 영역 {z}" for k, v, z in items]
+            lines = ["지표"] + [f"- {lc.NAMES[k]}: 값 {lc.fmt_value(k, v)}, 값의 기준: {P0_BASIS_LIGHT[k]}, 영역: {z}"
+                               for k, v, z in items]
             return _p0(P0_SUMMARY, lines), dec, P0_PROMPT_VERSION
         return lc.build_summary(items, rng), dec, lc.LIGHT_COMMENT_VERSION
     p = HeavyRequest.model_validate(req.payload)
     if req.condition == "P0":
         title = HEAVY_CHAPTERS[p.chapter_id]["title"]
         lines = [f"챕터: {title}"]
-        lines += [f"- {HEAVY_LABELS.get(k, k)}: {_p0_value(k, v)}" for k, v in p.data.items() if v is not None]
+        lines += [_p0_heavy_line(k, v) for k, v in p.data.items() if v is not None]
         return _p0(P0_HEAVY.format(title=title), lines), HEAVY_DECODING, P0_PROMPT_VERSION
     return build_heavy_messages(p, rng=rng), HEAVY_DECODING, HEAVY_PROMPT_VERSION
 

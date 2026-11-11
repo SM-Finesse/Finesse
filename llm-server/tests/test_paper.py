@@ -150,3 +150,26 @@ def test_rng_seed_는_sha256_앞_8바이트():
     key = paper.canonical_json({"seed": 1, "call_type": "sentence", "slot": "pick1", "payload": SENT})
     assert paper.rng_seed_of(req) == int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big") & (2**63 - 1)
     random.Random(paper.rng_seed_of(req))   # Random 에 넣을 수 있는 정수
+
+
+def test_P0_v2_값의_기준과_영역_표기():
+    p0 = client.post("/v1/paper/generate", json=_req("P0")).json()
+    user = p0["messages"][1]["content"]
+    assert user.splitlines() == ["지표: Infinite Downstack 성향", "값: +0.31",
+                                 "값의 기준: 맞붙은 상대와의 성향 차이(내 값 − 상대 값)",
+                                 "영역(비슷한 실력대 기준): 높음"]
+    s = client.post("/v1/paper/generate", json=_req("P0", call_type="summary", slot="summary", payload=SUMM)).json()
+    assert "- 블록당 공격력: 값 +0.08, 값의 기준: 맞붙은 상대와의 차이(내 값 − 상대 값), 영역: 높음" in s["messages"][1]["content"]
+
+
+@pytest.mark.parametrize("ch", ["tr_trend", "playstyle", "attack", "defense", "strength_split", "comeback_rate", "session_vs_slope"])
+def test_P0_v2_heavy_값의_기준_부호(ch):
+    r = client.post("/v1/paper/generate", json=_req("P0", call_type="heavy", slot=ch, payload=_heavy(ch))).json()
+    lines = r["messages"][1]["content"].splitlines()[1:]
+    counts = ("역전 기회", "역전승 횟수", "앞서던 경기")
+    for line in lines:
+        if line.startswith(tuple("- " + c for c in counts)):
+            assert "+" not in line and "값의 기준" not in line
+        else:
+            assert "(값의 기준: " in line, line
+    assert "방향" not in r["messages"][1]["content"] and "[예시]" not in r["messages"][0]["content"]
