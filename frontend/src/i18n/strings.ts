@@ -700,7 +700,6 @@ const ko: Strings = {
         policy: [
           ['길이 보존 마스킹', '닉네임은 3~16자, 영문·숫자·_·-만 쓸 수 있습니다. 가릴 글자 수는 ⌊길이 ÷ 3⌋(최소 1자), 시작 위치는 ⌊(길이 − 가릴 글자 수) ÷ 2⌋ — 가운데를 덮되 전체 길이는 원본 그대로 둡니다.'],
           ['링크 비노출', '마스킹의 부속이 아닌 별도 요건입니다. 이 화면 어디에서도 상대의 프로필이나 리플레이로 바로 갈 수 없습니다. 표의 행은 클릭 대상이 아닙니다.'],
-          ['프롬프트에도 적용', 'AI 코멘트를 만들 때 넘기는 값도 마스킹된 닉네임입니다. 원본 닉네임은 프롬프트에 넣지 않습니다.'],
         ],
         policyExamples: ['oak → o*k', 'abcde → ab*de', 'player_12 → pla***_12', 'anti-talent → anti***lent'],
       },
@@ -1137,7 +1136,6 @@ const en: Strings = {
         policy: [
           ['Length-preserving masking', 'Names are 3–16 characters of letters, digits, _ and -. ⌊length ÷ 3⌋ characters (at least 1) are hidden, starting at ⌊(length − hidden) ÷ 2⌋ — the middle is covered and the length is kept.'],
           ['No links', 'A separate requirement, not part of masking. Nothing on this screen leads to an opponent profile or replay. Table rows are not clickable.'],
-          ['Applied to prompts too', 'The values sent to build AI comments use masked names as well. Original names never go into a prompt.'],
         ],
         policyExamples: ['oak → o*k', 'abcde → ab*de', 'player_12 → pla***_12', 'anti-talent → anti***lent'],
       },
