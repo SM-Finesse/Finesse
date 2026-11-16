@@ -26,6 +26,14 @@ server {
         proxy_send_timeout 300s;
     }
 
+    # ---- MSA용: 서비스 선택 화면(CommentEngine) 주소 ----
+    # ENGINE_HOME_URL 이 비어 있으면(운영 기본값) 화면 푸터에 돌아가기 로고가 나오지 않는다
+    location = /engine.json {
+        default_type application/json;
+        add_header Cache-Control "no-cache";
+        return 200 '{"homeUrl":"${ENGINE_HOME_URL}"}';
+    }
+
     # ---- 해시가 붙은 빌드 산출물은 오래 캐시 ----
     location /assets/ {
         add_header Cache-Control "public, max-age=31536000, immutable";

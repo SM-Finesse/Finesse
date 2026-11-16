@@ -31,4 +31,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # 기본값: docker compose 등에서 backend 서비스 이름이 "backend"일 때
 ENV BACKEND_UPSTREAM=http://backend:8081
 
+# MSA(CommentEngine)에서 띄울 때만 서비스 선택 화면 주소를 넣는다 (예: https://<엔진 도메인>).
+# 비워 두면 푸터의 CommentEngine 로고가 나오지 않는다 → 운영(모놀리식) 화면은 그대로
+ENV ENGINE_HOME_URL=""
+
 EXPOSE 80

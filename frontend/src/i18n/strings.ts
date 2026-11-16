@@ -47,6 +47,7 @@ export interface Strings {
   modeRows: Record<View, readonly Row[]>
 
   footerRights: string
+  engineHome: string
   keyLight: string
   keyHeavy: string
 
@@ -330,6 +331,7 @@ const ko: Strings = {
   },
 
   footerRights: '모든 전적 데이터의 권리는 원 서비스에 있습니다. 상대 닉네임은 수집 단계에서 부분 마스킹되어 저장되며, 프로필·리플레이 링크는 제공하지 않습니다.',
+  engineHome: '서비스 선택 화면으로 돌아가기',
   keyLight: '라이트',
   keyHeavy: '헤비',
 
@@ -768,6 +770,7 @@ const en: Strings = {
   },
 
   footerRights: 'All match data belongs to the original service. Opponent names are partially masked at collection time, and no profile or replay links are provided.',
+  engineHome: 'Back to service selection',
   keyLight: 'Light',
   keyHeavy: 'Heavy',
 
