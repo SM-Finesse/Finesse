@@ -124,7 +124,8 @@ class CommentQueueTest {
 
         load.pending = 0;
         queue.dispatch();
-        await(() -> ran.size() == 1);
+        // light가 끝나면 대기열이 스스로 다음(heavy)을 시작할 수 있어서, 느린 환경에서는 확인 전에 둘 다 끝나 있을 수 있다
+        await(() -> ran.size() >= 1);
         queue.dispatch();
         await(() -> ran.size() == 2);
         assertThat(ran).containsExactly("light", "heavy");
