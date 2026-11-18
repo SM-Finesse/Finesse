@@ -18,7 +18,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "http://localhost:5173", "http://127.0.0.1:5173", // Vite 기본 개발 포트
                         "http://localhost:4173", "http://127.0.0.1:4173"  // vite preview 기본 포트
                 )
-                .allowedMethods("GET")
+                .allowedMethods("GET", "DELETE") // DELETE — 대기표 취소(「전적 검색 대기열 문서」 5.2절)
                 .allowedHeaders("*");
     }
 }

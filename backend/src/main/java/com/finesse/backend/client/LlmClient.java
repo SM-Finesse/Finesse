@@ -2,6 +2,7 @@ package com.finesse.backend.client;
 
 import com.finesse.backend.config.LightCommentProperties;
 import com.finesse.backend.config.LlmProperties;
+import com.finesse.backend.config.QueueProperties;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmHeavyChapterRequest;
@@ -11,6 +12,7 @@ import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.exception.LlmFormatException;
 import com.finesse.backend.exception.LlmTimeoutException;
 import com.finesse.backend.exception.LlmUnavailableException;
+import com.finesse.backend.queue.CommentQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,20 +50,41 @@ import java.util.concurrent.atomic.AtomicLong;
  * 우선순위 큐를 두고 그 큐를 통해서만 실제 POST를 보낸다 — 같은 서버에 배정된 요청은 절대 동시에 나가지 않고,
  * light가 대기 중이면 이미 대기열에 있는 heavy보다 먼저 처리된다(단, 이미 서버로 나간 heavy 호출은 끊지 않음
  * — 워커가 현재 작업을 다 마친 뒤에야 다음 우선순위를 본다).
+ * <p>
+ * 대기열(app.queue.enabled=true)을 켜면 라이트 우선을 없애고 라이트·헤비를 들어온 순서대로 보낸다(「전적 검색 대기열 문서」 4.3절,
+ * PM 결정 10/29). 꺼져 있으면 지금처럼 라이트 먼저(타임아웃 기준 정리 문서 QA 8-1).
+ * 대기열 입장 판정용으로 서버별 대기열의 부하(종류별 호출 1회 처리 시간의 이동 평균 × 대기 중인 호출 수)를 알려 준다.
  */
 @Component
-public class LlmClient {
+public class LlmClient implements CommentQueue.LlmLoad {
 
     private static final Logger log = LoggerFactory.getLogger(LlmClient.class);
     private static final int PRIORITY_LIGHT = 0;
     private static final int PRIORITY_HEAVY = 1;
 
+    /** 서버 대기열에 넣는 호출의 종류 — 우선순위와 부하 계산에 쓴다 */
+    enum CallKind { LIGHT, HEAVY }
+
+    // 호출 1회 처리 시간 이동 평균(초)의 처음값 기본 — app.queue.initial-*-call-seconds와 같은 값.
+    // 11/18 실제 LLM 서버 실측: light 약 1.5초, heavy 챕터 약 3.4초(문서 1.1 표의 약 2초보다 김)
+    static final double INITIAL_LIGHT_CALL_SECONDS = 1.5;
+    static final double INITIAL_HEAVY_CALL_SECONDS = 3.5;
+    // 이동 평균 α — 문서 4.3절은 작업(light 4회·heavy 8회) 단위 α 0.3. 호출마다 갱신하므로 작업 1건을 다 넣었을 때
+    // 0.3만큼 움직이도록 호출 α = 1 − 0.7^(1/호출 수). 호출마다 0.3이면 대체 문장처럼 빨리 끝난 호출 몇 개로 예상이 크게 흔들린다(11/18 실측)
+    static final double LIGHT_CALL_ALPHA = 1 - Math.pow(0.7, 1.0 / 4);
+    static final double HEAVY_CALL_ALPHA = 1 - Math.pow(0.7, 1.0 / 8);
+
     private final LlmProperties props;
     private final LightCommentProperties lightComment;
+    private final boolean fifo; // 대기열 켬 — 라이트 우선 없앰
     // 라이트 개별·기본 코멘트 4건을 동시에 기다리는 용도 — 실제 POST는 여전히 서버별 대기열(서버당 1건)로만 나간다
     private final ExecutorService lightFanout = Executors.newVirtualThreadPerTaskExecutor();
     private final Map<String, WebClient> serverClients;
-    private final Map<String, ExecutorService> serverQueues;
+    private final Map<String, ThreadPoolExecutor> serverQueues;
+    // 서버별 지금 나가 있는 호출 — 부하 계산용 (서버 워커가 넣고 뺀다)
+    private final Map<String, RunningCall> runningCalls = new ConcurrentHashMap<>();
+    private volatile double lightCallSeconds;
+    private volatile double heavyCallSeconds;
     private final AtomicInteger roundRobinCounter = new AtomicInteger(0);
     private final AtomicLong taskSeq = new AtomicLong();
     // 연결 실패한 서버를 일시 제외하기 위한 맵 (server -> 제외 해제 시각, System.nanoTime() 기준) — 5.5절
@@ -71,10 +94,18 @@ public class LlmClient {
         this(props, llmWebClientBuilder, LightCommentProperties.defaults());
     }
 
-    @Autowired
     public LlmClient(LlmProperties props, WebClient.Builder llmWebClientBuilder, LightCommentProperties lightComment) {
+        this(props, llmWebClientBuilder, lightComment, QueueProperties.disabled());
+    }
+
+    @Autowired
+    public LlmClient(LlmProperties props, WebClient.Builder llmWebClientBuilder, LightCommentProperties lightComment,
+                     QueueProperties queue) {
         this.props = props;
         this.lightComment = lightComment;
+        this.fifo = queue.enabled();
+        this.lightCallSeconds = queue.initialLightCallSeconds();
+        this.heavyCallSeconds = queue.initialHeavyCallSeconds();
         this.serverClients = new LinkedHashMap<>();
         this.serverQueues = new LinkedHashMap<>();
         for (String server : props.servers()) {
@@ -83,7 +114,7 @@ public class LlmClient {
         }
     }
 
-    private static ExecutorService newServerQueue() {
+    private static ThreadPoolExecutor newServerQueue() {
         // corePoolSize=maxPoolSize=1 — 워커 스레드 1개가 큐를 순서대로 처리하므로 "서버당 동시 1건"이 자동 보장됨.
         PriorityBlockingQueue<Runnable> queue = new PriorityBlockingQueue<>(16,
                 (a, b) -> Long.compare(((PrioritizedTask) a).order, ((PrioritizedTask) b).order));
@@ -92,9 +123,11 @@ public class LlmClient {
 
     private final class PrioritizedTask implements Runnable {
         final long order;
+        final CallKind kind;
         final Runnable task;
 
-        PrioritizedTask(int priority, Runnable task) {
+        PrioritizedTask(int priority, CallKind kind, Runnable task) {
+            this.kind = kind;
             // priority를 상위 비트로 둬서 light(0)가 heavy(1)보다 항상 먼저 뽑히게 하고,
             // 같은 priority끼리는 taskSeq(도착 순서)로 안정 정렬한다.
             this.order = ((long) priority << 40) | taskSeq.getAndIncrement();
@@ -107,21 +140,123 @@ public class LlmClient {
         }
     }
 
-    private <T> T submitToServer(String server, int priority, Callable<T> work) throws Exception {
-        return await(enqueue(server, priority, work));
+    private <T> T submitToServer(String server, CallKind kind, Callable<T> work) throws Exception {
+        return await(enqueue(server, kind, work, 0L));
     }
 
-    /** 서버 대기열에 넣기만 하고 바로 돌아온다 — 넣은 순서가 곧 보내는 순서(같은 우선순위끼리) */
-    private <T> CompletableFuture<T> enqueue(String server, int priority, Callable<T> work) {
+    private <T> T submitToServer(String server, CallKind kind, Callable<T> work, long endpointDeadlineNanos) throws Exception {
+        return await(enqueue(server, kind, work, endpointDeadlineNanos));
+    }
+
+    /** 대기열 켬: 라이트·헤비 같은 우선순위(들어온 순서대로). 꺼짐: 라이트 먼저 */
+    int priorityOf(CallKind kind) {
+        return switch (kind) {
+            case LIGHT -> PRIORITY_LIGHT;
+            case HEAVY -> fifo ? PRIORITY_LIGHT : PRIORITY_HEAVY;
+        };
+    }
+
+    /**
+     * 서버 대기열에 넣기만 하고 바로 돌아온다 — 넣은 순서가 곧 보내는 순서(같은 우선순위끼리).
+     * @param endpointDeadlineNanos 이 호출이 속한 엔드포인트 마감(0이면 없음). 대기열 켬일 때 차례가 왔는데 마감이 이미 지났으면
+     *                              보내지 않는다 — 마감 뒤 결과는 어차피 버리므로(heavy는 timeout으로 채움, light는 문장 틀) GPU만 쓴다.
+     *                              대기열 꺼짐이면 지금처럼 보낸다
+     */
+    private <T> CompletableFuture<T> enqueue(String server, CallKind kind, Callable<T> work, long endpointDeadlineNanos) {
         CompletableFuture<T> future = new CompletableFuture<>();
-        serverQueues.get(server).execute(new PrioritizedTask(priority, () -> {
+        serverQueues.get(server).execute(new PrioritizedTask(priorityOf(kind), kind, () -> {
+            if (fifo && endpointDeadlineNanos != 0L && System.nanoTime() >= endpointDeadlineNanos) {
+                future.completeExceptionally(new TimeoutException("엔드포인트 마감이 지나 보내지 않음"));
+                return;
+            }
+            long startedAt = System.nanoTime();
+            runningCalls.put(server, new RunningCall(kind, startedAt));
+            boolean record = true;
             try {
                 future.complete(work.call());
+            } catch (WebClientRequestException e) {
+                record = false; // 연결 실패는 바로 끝나 처리 시간이 아니다 — 평균에 넣지 않는다(그 서버는 제외됨)
+                future.completeExceptionally(e);
             } catch (Exception e) {
                 future.completeExceptionally(e);
+            } finally {
+                runningCalls.remove(server);
+                if (record) {
+                    recordCall(kind, (System.nanoTime() - startedAt) / 1e9);
+                }
             }
         }));
         return future;
+    }
+
+    private record RunningCall(CallKind kind, long startedNanos) {
+    }
+
+    private void recordCall(CallKind kind, double seconds) {
+        switch (kind) {
+            case LIGHT -> lightCallSeconds = LIGHT_CALL_ALPHA * seconds + (1 - LIGHT_CALL_ALPHA) * lightCallSeconds;
+            case HEAVY -> heavyCallSeconds = HEAVY_CALL_ALPHA * seconds + (1 - HEAVY_CALL_ALPHA) * heavyCallSeconds;
+        }
+    }
+
+    private double callSeconds(CallKind kind) {
+        return kind == CallKind.HEAVY ? heavyCallSeconds : lightCallSeconds;
+    }
+
+    // ---- 대기열 입장 판정용 부하 (CommentQueue.LlmLoad, 「전적 검색 대기열 문서」 4.3절) ----
+
+    /** 연결 실패로 30초 제외된 서버를 뺀 서버 수 (Q18) */
+    @Override
+    public int assignableServers() {
+        int n = 0;
+        for (String server : props.servers()) {
+            if (!isExcluded(server)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 서버별 대기열에 들어간 서비스 호출(진행 중 포함)의 예상 처리 시간 합.
+     * 연결 실패로 제외된 서버의 대기열은 넣지 않는다 — 그 호출들은 연결 실패로 바로 끝나 다른 서버로 넘어가므로,
+     * 넣으면 서버 수(분모)는 줄였는데 분자는 그대로라 예상 대기가 실제보다 길게 나온다.
+     */
+    @Override
+    public double pendingWorkSeconds() {
+        double sum = 0;
+        long now = System.nanoTime();
+        for (Map.Entry<String, ThreadPoolExecutor> e : serverQueues.entrySet()) {
+            if (isExcluded(e.getKey())) {
+                continue;
+            }
+            for (Runnable r : e.getValue().getQueue().toArray(new Runnable[0])) {
+                if (r instanceof PrioritizedTask p) {
+                    sum += callSeconds(p.kind);
+                }
+            }
+            RunningCall rc = runningCalls.get(e.getKey());
+            if (rc != null) {
+                double expected = callSeconds(rc.kind());
+                double elapsed = (now - rc.startedNanos()) / 1e9;
+                sum += Math.max(expected * 0.25, expected - elapsed);
+            }
+        }
+        return sum;
+    }
+
+    @Override
+    public double jobWorkSeconds(CommentQueue.Kind kind) {
+        return kind == CommentQueue.Kind.LIGHT ? 4 * lightCallSeconds : 8 * heavyCallSeconds;
+    }
+
+    @Override
+    public double jobDurationSeconds(CommentQueue.Kind kind) {
+        int servers = Math.max(1, assignableServers());
+        // light: 서버 2대면 A가 개별 3회를 차례로(B는 기본 1회를 동시에), 1대면 4회. heavy: 8챕터를 서버 수만큼 나눠 차례로
+        return kind == CommentQueue.Kind.LIGHT
+                ? (servers >= 2 ? 3 : 4) * lightCallSeconds
+                : Math.ceil(8.0 / servers) * heavyCallSeconds;
     }
 
     private static <T> T await(CompletableFuture<T> future) throws Exception {
@@ -206,7 +341,7 @@ public class LlmClient {
             }
             LightCommentResponse resp;
             try {
-                resp = submitToServer(server, PRIORITY_LIGHT,
+                resp = submitToServer(server, CallKind.LIGHT,
                         () -> postTracked(server, props.lightPath(), request, LightCommentResponse.class, props.lightCallTimeoutSeconds()));
             } catch (WebClientRequestException e) {
                 lastFailure = e;
@@ -277,7 +412,7 @@ public class LlmClient {
      * scope=light (light-v5.2~v5.6d) — calc가 고른 지표(1~3개)마다 개별 코멘트 1회 + 묶음 기본 코멘트 1회를 동시에 부른다
      * (LLM 연동 명세 light-v5.2 4.3·7절, 10/21).
      * 서버 2대면 A = 개별 3회, B = 기본 1회. 서버 1대면 같은 서버에 기본을 먼저, 이어서 개별 3회를 넣는다.
-     * 실제 POST는 서버별 대기열(서버당 1건, light 우선)로만 나가고, 호출 1회 제한은 10초(LLM 서버가 9초 안에 응답).
+     * 실제 POST는 서버별 대기열(서버당 1건, 대기열 꺼짐이면 light 우선)로만 나가고, 호출 1회 제한은 10초(LLM 서버가 9초 안에 응답).
      * LLM 서버는 내용 문제를 스스로 처리해 항상 200(검사 실패면 fallback=true 대체 문장)이므로, 백엔드는
      * 연결 실패·호출 시간 초과·5xx만 다른 서버로 1회 다시 부른다(엔드포인트에 minRemaining 이상 남았을 때). 422 등 4xx는
      * 요청 버그라 다시 부르지 않는다. 끝내 못 받은 호출과 마감까지 안 끝난 호출은 부록 A1·A2 문장 틀로 채운다 — 절대 예외를 던지지 않는다.
@@ -352,7 +487,8 @@ public class LlmClient {
     private <T> CompletableFuture<T> dispatchLightComment(String server, String path, Object body, Class<T> type,
                                                           long endpointDeadlineNanos, AtomicInteger retries) {
         int timeout = lightComment.callTimeoutSeconds();
-        CompletableFuture<T> first = enqueue(server, PRIORITY_LIGHT, () -> postTracked(server, path, body, type, timeout));
+        CompletableFuture<T> first = enqueue(server, CallKind.LIGHT, () -> postTracked(server, path, body, type, timeout),
+                endpointDeadlineNanos);
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return await(first);
@@ -367,7 +503,8 @@ public class LlmClient {
                 }
                 retries.incrementAndGet();
                 try {
-                    return submitToServer(other, PRIORITY_LIGHT, () -> postTracked(other, path, body, type, timeout));
+                    return submitToServer(other, CallKind.LIGHT, () -> postTracked(other, path, body, type, timeout),
+                            endpointDeadlineNanos);
                 } catch (Exception e2) {
                     return null;
                 }
@@ -441,8 +578,9 @@ public class LlmClient {
             }
             LlmHeavyChapterResponse resp;
             try {
-                resp = submitToServer(server, PRIORITY_HEAVY,
-                        () -> postTracked(server, props.heavyChapterPath(), request, LlmHeavyChapterResponse.class, props.heavyCallTimeoutSeconds()));
+                resp = submitToServer(server, CallKind.HEAVY,
+                        () -> postTracked(server, props.heavyChapterPath(), request, LlmHeavyChapterResponse.class, props.heavyCallTimeoutSeconds()),
+                        endpointDeadlineNanos);
             } catch (WebClientRequestException e) {
                 continue; // 연결 실패 — 서버는 postTracked가 제외, 시도 횟수에 넣지 않고 다음 서버로
             } catch (WebClientResponseException e) {
@@ -470,6 +608,7 @@ public class LlmClient {
                 chapterId, HeavyCommentResponse.STATUS_FAILED, null, Math.min(attempt, props.maxRetries()));
     }
 
+    /**
     /**
      * post()를 감싸서, 연결 자체가 실패한 경우(WebClientRequestException — connect timeout·connection
      * refused 등)만 골라 그 서버를 serverExcludeSeconds 동안 제외시킨다. 응답은 왔지만 형식이 틀렸거나

@@ -3,6 +3,8 @@ package com.finesse.backend.controller;
 import com.finesse.backend.dto.ApiErrorResponse;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
+import com.finesse.backend.dto.QueueTicketResponse;
+import com.finesse.backend.queue.ClientIp;
 import com.finesse.backend.service.CommentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -10,6 +12,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +47,9 @@ public class CommentController {
                     - `: ping` — 10초마다 보내는 주석 하트비트 (이벤트 아님)
                     - `event: error` / `data: {"error_code": ..., "message": ..., "retry_after_seconds": 5}` — 챕터 시작 전 stats 단계 실패 (retry_after_seconds는 SERVER_BUSY일 때만)
                       (USER_NOT_FOUND · SERVER_BUSY · TETRIO_API_UNAVAILABLE). 이 이벤트 뒤 스트림 종료
+                    - `event: queued` / `data: {대기표 — 202 본문과 같은 JSON}` — 대기열 켬일 때만. stage=heavy(LLM 예상 대기 30초 초과)
+                      또는 stage=stats(stats 캐시 미스이고 수집 예상 대기 5초 초과). 이 이벤트 뒤 스트림 종료 — 받으면 바로 close()하고
+                      GET /api/v1/queue/{ticket_id}로 묻다가 done이면 다시 연다. EventSource가 202를 읽지 못해 HTTP 202를 쓰지 않는다
                     상한 60초(LLM 서버 1대면 120초) 안에 못 끝난 챕터는 status=timeout으로 채워서 보낸다.
                     성공(ok) 챕터만 챕터 단위로 10분 캐시 — 다시 요청하면 캐시된 챕터는 즉시, 나머지만 LLM 재호출.
 
@@ -55,6 +61,11 @@ public class CommentController {
                     schema = @Schema(implementation = HeavyCommentResponse.ChapterResult.class,
                             description = "event: chapter 의 data 한 건"))
     })
+    @ApiResponse(responseCode = "202", description = "light, 대기열 켬일 때만 — LLM 예상 대기 15초 초과(stage comment) 또는 "
+            + "stats 캐시 미스이고 수집 예상 대기 5초 초과(stage stats). done 뒤 다시 부르면 미리 만든 결과가 즉시 온다",
+            content = @Content(schema = @Schema(implementation = QueueTicketResponse.class)))
+    @ApiResponse(responseCode = "429", description = "TOO_MANY_TICKETS — light, 대기열 켬일 때 한 IP의 대기표 상한 초과",
+            content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @ApiResponse(responseCode = "400", description = "BAD_REQUEST — scope가 light/heavy가 아님",
             content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND",
@@ -68,14 +79,16 @@ public class CommentController {
             @Parameter(description = "TETR.IO 유저명", example = "example_user") @PathVariable String username,
             @Parameter(description = "light 또는 heavy",
                     schema = @Schema(allowableValues = {"light", "heavy"}))
-            @RequestParam String scope) {
+            @RequestParam String scope,
+            HttpServletRequest request) {
+        String clientIp = ClientIp.of(request);
         return switch (scope) {
-            case "light" -> ResponseEntity.ok(commentService.getLight(username));
+            case "light" -> ResponseEntity.ok(commentService.getLight(username, clientIp));
             // X-Accel-Buffering: no — 앞단 프록시(nginx 등)가 스트림을 모아서 한꺼번에 내보내지 않게
             case "heavy" -> ResponseEntity.ok()
                     .header(HttpHeaders.CACHE_CONTROL, "no-cache")
                     .header("X-Accel-Buffering", "no")
-                    .body(commentService.getHeavyStream(username));
+                    .body(commentService.getHeavyStream(username, clientIp));
             default -> throw new IllegalArgumentException("scope는 light 또는 heavy만 허용됩니다: " + scope);
         };
     }

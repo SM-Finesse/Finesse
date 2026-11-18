@@ -66,6 +66,31 @@ app:
     light-seconds: 40
     heavy-seconds: 60
     heavy-single-server-seconds: 120
+  # 전적 검색 대기열 — 「전적 검색 대기열 문서」 6절. 기본은 꺼 둔다(지금 동작 그대로: 요청 안 대기 6초·2명, 넘으면 503, LLM 라이트 먼저).
+  # 202를 모르는 지금 프론트는 202 본문을 결과로 읽으려다 깨질 수 있으므로 프론트 대기 화면이 들어간 뒤 켤 것(FINESSE_QUEUE_ENABLED=true).
+  # 켜면 app.stats.max-queue-wait-seconds(6초)는 "요청 안에서 기다리다 대기표로 바꾸는 한도"로만 쓰고 max-waiting은 쓰지 않는다.
+  queue:
+    enabled: ${FINESSE_QUEUE_ENABLED:false}
+    inline-wait-seconds: 5           # 예상 대기가 이 값 이하면 요청 안에서 기다림, 넘으면 202 + 대기표
+    max-wait-seconds: 180            # 줄 상한 — 예상 대기가 넘으면 503 SERVER_BUSY(Retry-After = 예상 대기, 최대 60초)
+    ticket-idle-seconds: 30          # 이 시간 동안 상태를 묻지 않은 대기표는 버림
+    poll-after-seconds: 2            # poll_after_seconds 기본값(줄이 길면 최대 max-poll-after-seconds)
+    max-poll-after-seconds: 5
+    done-retention-seconds: 120      # 끝난 대기표를 지우기까지
+    prefetch-light: true             # 대기열로 수집이 끝나면 라이트 코멘트를 같은 순서로 미리 만듦
+    light-inline-wait-seconds: 15    # LLM 예상 대기가 이 값 이하면 light를 요청 안에서(40 − 내 처리 15 − 재호출 여유 10)
+    heavy-inline-wait-seconds: 30    # LLM 예상 대기가 이 값 이하면 heavy를 바로 SSE로, 넘으면 event: queued
+    # 한 IP가 동시에 가질 수 있는 대기표(0 = 제한 없음). X-Real-IP 기준.
+    # nginx가 CF-Connecting-IP를 X-Real-IP로 넘기기 전에는 터널을 거친 모든 사용자가 한 IP로 보이므로 0으로 켤 것(5.5절).
+    # 발표 날처럼 한 와이파이(외부 IP 1개)에 사람이 몰리는 날도 0.
+    max-tickets-per-ip: ${FINESSE_QUEUE_MAX_TICKETS_PER_IP:3}
+    refresh-min-interval-seconds: 60 # 마지막 갱신 후 이 시간 안의 refresh=true는 줄을 세우지 않고 캐시 반환(0 = 끔)
+    initial-interval-seconds: 5      # 수집 완료 간격 이동 평균의 처음값
+    interval-alpha: 0.3
+    max-retry-after-seconds: 60
+    initial-light-call-seconds: 1.5  # LLM 호출 1회 처리 시간 이동 평균의 처음값 — 11/18 실제 LLM 실측(light 약 1.5초)
+    initial-heavy-call-seconds: 3.5  # heavy 챕터 약 3.4초. 짧게 잡으면 켜자마자 몰린 heavy를 너무 많이 요청 안으로 받는다
+    # 테스트 전용 처리 간격 고정(test-fixed-interval-seconds)은 여기 두지 않는다 — application-queue-test.yml(프로파일 queue-test)에만
 
 # data-eng calc 모듈(StatCalculatorFacade) 설정 — 값은 data-eng 테스트 기준값
 # max-retry-attempts: 최초 포함 총 3회, 페이지당 100판(max-matches-per-page) — 데이터 엔지니어 검토(2026-10-01)

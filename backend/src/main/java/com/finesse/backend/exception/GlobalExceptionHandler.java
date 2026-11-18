@@ -1,6 +1,7 @@
 package com.finesse.backend.exception;
 
 import com.finesse.backend.dto.ApiErrorResponse;
+import com.finesse.backend.dto.QueueTicketResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
@@ -58,6 +59,31 @@ public class GlobalExceptionHandler {
         return json(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
                 .body(new ApiErrorResponse("SERVER_BUSY", SERVER_BUSY_MESSAGE, ex.retryAfterSeconds()));
+    }
+
+    /**
+     * 대기표 — 결과 대신 202 Accepted + 대기표(「전적 검색 대기열 문서」 5.1절). Retry-After = poll_after_seconds.
+     * heavy는 SSE라 여기로 오지 않고 CommentService가 200 스트림 안 event: queued로 보낸다.
+     */
+    @ExceptionHandler(QueuedException.class)
+    public ResponseEntity<QueueTicketResponse> handleQueued(QueuedException ex) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.ticket().pollAfterSeconds()))
+                .body(ex.ticket());
+    }
+
+    /** 한 IP의 대기표 상한 초과 — 429 (5.3·5.5절) */
+    @ExceptionHandler(TooManyTicketsException.class)
+    public ResponseEntity<ApiErrorResponse> handleTooManyTickets(TooManyTicketsException ex) {
+        return json(HttpStatus.TOO_MANY_REQUESTS)
+                .body(new ApiErrorResponse("TOO_MANY_TICKETS", TooManyTicketsException.MESSAGE));
+    }
+
+    /** 없는(만료된) 대기표 — 404. 프론트는 자동으로 다시 검색 1회(5.4절) */
+    @ExceptionHandler(TicketNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleTicketNotFound(TicketNotFoundException ex) {
+        return json(HttpStatus.NOT_FOUND)
+                .body(new ApiErrorResponse("TICKET_NOT_FOUND", TicketNotFoundException.MESSAGE));
     }
 
     @ExceptionHandler(LlmFormatException.class)

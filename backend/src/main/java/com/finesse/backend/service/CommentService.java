@@ -5,20 +5,28 @@ import com.finesse.backend.config.CacheConfig;
 import com.finesse.backend.config.EndpointProperties;
 import com.finesse.backend.config.LightCommentProperties;
 import com.finesse.backend.config.LlmProperties;
+import com.finesse.backend.config.QueueProperties;
 import com.finesse.backend.dto.ApiErrorResponse;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmLightComment;
 import com.finesse.backend.dto.LlmLightRequest;
+import com.finesse.backend.dto.QueueTicketResponse;
 import com.finesse.backend.dto.StatsResponse;
 import com.finesse.backend.exception.GlobalExceptionHandler;
+import com.finesse.backend.exception.QueuedException;
 import com.finesse.backend.exception.ServerBusyException;
+import com.finesse.backend.exception.TooManyTicketsException;
 import com.finesse.backend.exception.UserNotFoundException;
+import com.finesse.backend.queue.CommentQueue;
+import com.finesse.backend.queue.TicketRegistry;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -29,16 +37,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * GET /api/v1/comment/{username}?scope=light|heavy 오케스트레이션.
  * Finesse-API명세서 4.2절(흐름), 4.2-1절(heavy 챕터 상세 규칙), 6장(LLM 서버 연동).
+ * <p>
+ * 대기열(app.queue.enabled)을 켜면 「전적 검색 대기열 문서」 4장대로 — 결과가 없을 때 LLM 예상 대기로 입장 판정(light 15초·heavy 30초),
+ * 넘으면 대체 문장 대신 대기표(light는 202 stage comment, heavy는 200 스트림 안 event: queued stage heavy).
+ * stats가 캐시 미스이고 수집 예상 대기가 5초를 넘으면 stage stats 대기표. 꺼져 있으면 지금 동작 그대로.
  */
 @Service
 public class CommentService {
@@ -70,9 +84,17 @@ public class CommentService {
     private final LlmClient llmClient;
     private final CacheManager cacheManager;
     private final ExecutorService llmExecutor;
+    // heavy 챕터 호출을 돌리는 곳 — 대기열 꺼짐이면 지금처럼 llmExecutor(고정 스레드풀).
+    // 대기열 켬이면 가상 스레드: 챕터 호출이 스레드풀에서 기다리지 않고 바로 LLM 서버 대기열에 들어가야
+    // 라이트·헤비가 서버 대기열 하나에서 들어온 순서대로 처리되고, 입장 판정의 LLM 예상 대기에 밀린 호출이 모두 잡힌다
+    // (실제 시험 11/18 — 스레드풀에서 기다리던 호출이 예상 대기에서 빠져 heavy 7개가 몰려도 대기표 없이 마감 초과).
+    private final ExecutorService chapterExecutor;
     private final LlmProperties llmProperties;
     private final EndpointProperties endpointProperties;
     private final LightCommentProperties lightCommentProperties;
+    private final QueueProperties queueProperties;
+    private final TicketRegistry ticketRegistry;
+    private final CommentQueue commentQueue; // 대기열 꺼짐이면 null
 
     public CommentService(StatsService statsService, LlmClient llmClient, CacheManager cacheManager,
                            ExecutorService llmExecutor, LlmProperties llmProperties,
@@ -81,25 +103,60 @@ public class CommentService {
                 LightCommentProperties.defaults());
     }
 
-    @Autowired
     public CommentService(StatsService statsService, LlmClient llmClient, CacheManager cacheManager,
                            ExecutorService llmExecutor, LlmProperties llmProperties,
                            EndpointProperties endpointProperties, LightCommentProperties lightCommentProperties) {
+        this(statsService, llmClient, cacheManager, llmExecutor, llmProperties, endpointProperties,
+                lightCommentProperties, QueueProperties.disabled(), null);
+    }
+
+    @Autowired
+    public CommentService(StatsService statsService, LlmClient llmClient, CacheManager cacheManager,
+                           ExecutorService llmExecutor, LlmProperties llmProperties,
+                           EndpointProperties endpointProperties, LightCommentProperties lightCommentProperties,
+                           QueueProperties queueProperties, TicketRegistry ticketRegistry) {
+        this.queueProperties = queueProperties;
+        this.ticketRegistry = ticketRegistry;
+        this.commentQueue = queueProperties.enabled() && ticketRegistry != null
+                ? new CommentQueue(queueProperties, ticketRegistry, llmClient, ticketRegistry::now, true)
+                : null;
         this.lightCommentProperties = lightCommentProperties;
         this.statsService = statsService;
         this.llmClient = llmClient;
         this.cacheManager = cacheManager;
         this.llmExecutor = llmExecutor;
+        this.chapterExecutor = commentQueue != null ? Executors.newVirtualThreadPerTaskExecutor() : llmExecutor;
         this.llmProperties = llmProperties;
         this.endpointProperties = endpointProperties;
     }
 
+    @PreDestroy
+    void stopQueue() {
+        if (commentQueue != null) {
+            commentQueue.stop();
+        }
+    }
+
     public LightCommentResponse getLight(String username) {
+        return getLight(username, null);
+    }
+
+    /** @param clientIp 대기표 IP 제한용(X-Real-IP) — 대기열이 꺼져 있으면 쓰지 않는다 */
+    public LightCommentResponse getLight(String username, String clientIp) {
         String normalized = Usernames.normalize(username);
         // stats를 comment-light 캐시 계산 "밖에서" 먼저 받는다. stats가 새로 계산되면 comment 캐시를 연쇄 무효화하는데,
         // 캐시 계산 안에서 받으면 지금 만들고 있는 comment-light 칸을 스스로 지우게 되어 Caffeine이
         // "Recursive update"로 거부한다(stats가 캐시에 없을 때 light를 먼저 부르면 500 — 2026-10-06 발견).
-        StatsResponse stats = statsService.getStats(normalized, false);
+        if (commentQueue == null) {
+            return lightDirect(normalized, statsService.getStats(normalized, false));
+        }
+        // 대기열 켬 — stats 캐시도 없으면 먼저 수집 줄에 서고, 예상 대기가 5초를 넘으면 202(stage stats)가 여기서 올라간다
+        StatsResponse stats = statsService.getStats(normalized, false, clientIp);
+        return lightQueued(normalized, stats, clientIp);
+    }
+
+    /** 지금 동작 — 캐시에 없으면 요청 안에서 만든다(같은 유저가 동시에 오면 Caffeine이 한 번만 만든다) */
+    private LightCommentResponse lightDirect(String normalized, StatsResponse stats) {
         Cache cache = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
         if (cache == null) {
             return computeLight(stats).response();
@@ -124,17 +181,161 @@ public class CommentService {
     }
 
     /**
+     * 대기열 켬 — 「전적 검색 대기열 문서」 4.1·4.2절.
+     * 미리 만든 결과(캐시·준비)가 있으면 바로, 같은 유저 코멘트가 생성 중이면 그 결과를 기다리고,
+     * 없으면 LLM 예상 대기로 입장 판정 — 15초 이하면 지금처럼 요청 안에서, 넘으면 202 + 대기표(stage comment).
+     */
+    private LightCommentResponse lightQueued(String normalized, StatsResponse stats, String clientIp) {
+        LightCommentResponse ready = readyLight(normalized);
+        if (ready != null) {
+            return ready;
+        }
+        if (stats.coldStart()) {
+            return lightDirect(normalized, stats); // 콜드스타트 안내는 LLM을 부르지 않는다 — 줄 설 이유가 없다
+        }
+        CommentQueue.Admission admission = commentQueue.admit(CommentQueue.Kind.LIGHT, normalized, true,
+                () -> generateLight(normalized, stats), clientIp);
+        switch (admission) {
+            case CommentQueue.Admission.Inline inline -> {
+                try {
+                    return lightDirect(normalized, stats);
+                } finally {
+                    commentQueue.inlineFinished();
+                }
+            }
+            case CommentQueue.Admission.Join join -> {
+                // 같은 유저 코멘트가 이미 생성 중(미리 만들기 등) — 새로 만들지 않고 그 결과를 기다린다
+                try {
+                    join.job().done().get(endpointProperties.lightSeconds() + 5L, TimeUnit.SECONDS);
+                } catch (TimeoutException | ExecutionException e) {
+                    log.warn("light 생성 합류 대기 실패 — 요청 안에서 다시 만듦: {}", e.toString());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                LightCommentResponse joined = readyLight(normalized);
+                return joined != null ? joined : lightDirect(normalized, stats);
+            }
+            case CommentQueue.Admission.Queued queued -> {
+                QueueTicketResponse body = ticketRegistry.publish(queued.ticket());
+                log.info("light 대기표 발급 ticket={} (position {}, 예상 {}s)",
+                        body.ticketId(), body.position(), body.estimatedWaitSeconds());
+                throw new QueuedException(body);
+            }
+        }
+    }
+
+    /**
+     * 대기표·미리 만들기로 만든 결과 중 comment-light·comment-heavy에 넣지 않는 것(대체 문장·실패 챕터가 섞임) —
+     * 같은 유저 대기표가 여러 장이어도 done 뒤 다시 부르면 모두 같은 결과를 받도록(3.6절), 끝난 대기표를 지우는 시간(2분) 동안만 둔다.
+     * 그 뒤에는 지금처럼 다시 만든다(대체 문장을 10분 동안 고정하지 않는 원칙).
+     */
+    record PreparedLight(LightResult result, long preparedNanos) {
+    }
+
+    record PreparedHeavy(List<HeavyCommentResponse.ChapterResult> results, long preparedNanos) {
+    }
+
+    private boolean fresh(long preparedNanos) {
+        return ticketRegistry.now() - preparedNanos <= TimeUnit.SECONDS.toNanos(queueProperties.doneRetentionSeconds());
+    }
+
+    /** 미리 만든 라이트 결과 — comment-light 캐시, 없으면 준비 칸(2분 안) */
+    private LightCommentResponse readyLight(String normalized) {
+        Cache cache = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
+        LightResult c = cache != null ? cache.get(normalized, LightResult.class) : null;
+        if (c != null) {
+            return c.response();
+        }
+        Cache prepared = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_PREPARED_CACHE);
+        PreparedLight p = prepared != null ? prepared.get(normalized, PreparedLight.class) : null;
+        if (p == null) {
+            return null;
+        }
+        if (!fresh(p.preparedNanos())) {
+            prepared.evict(normalized);
+            return null;
+        }
+        return p.result().response();
+    }
+
+    /** 미리 만든 헤비 결과(8챕터, 실패 챕터 포함) — 준비 칸(2분 안) */
+    private List<HeavyCommentResponse.ChapterResult> readyHeavy(String normalized) {
+        Cache prepared = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_PREPARED_CACHE);
+        PreparedHeavy p = prepared != null ? prepared.get(normalized, PreparedHeavy.class) : null;
+        if (p == null) {
+            return null;
+        }
+        if (!fresh(p.preparedNanos())) {
+            prepared.evict(normalized);
+            return null;
+        }
+        return p.results();
+    }
+
+    /** 대기표 작업의 결과가 지금 stats와 맞는지 — 그사이 stats가 새로 계산됐으면 버린다 */
+    private boolean matchesCurrentStats(String normalized, StatsResponse stats) {
+        Cache statsCache = cacheManager.getCache(CacheConfig.STATS_CACHE);
+        StatsResponse current = statsCache != null ? statsCache.get(normalized, StatsResponse.class) : null;
+        return current == null || current.updatedAt() == null || current.updatedAt().equals(stats.updatedAt());
+    }
+
+    /**
+     * 대기표·미리 만들기 작업 — 차례가 오면 지금과 같은 방식으로 만든다(light 40초 마감은 이때부터, 대기표로 기다린 시간은 넣지 않음).
+     * 지금처럼 캐시할 수 있는 결과는 comment-light에, 대체 문장이 섞였거나 하이라이트가 모자란 결과는 준비 칸에 넣어
+     * 대기표 done 뒤 다시 부를 때 LLM을 또 부르지 않게 한다. 그사이 stats가 새로 계산됐으면 버린다.
+     */
+    private void generateLight(String normalized, StatsResponse stats) {
+        LightResult result = computeLight(stats);
+        if (!matchesCurrentStats(normalized, stats)) {
+            log.info("light 대기표 작업 결과 버림 — 그사이 stats가 새로 계산됨");
+            return;
+        }
+        // 캐시 기준은 getLight와 같다 — 하이라이트 3개 이상이고 대체 문장이 없을 때만 comment-light(10분)
+        boolean cacheable = stats.coldStart() || (result.response().highlights().size() >= 3 && !result.fallback());
+        if (cacheable) {
+            Cache cache = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
+            if (cache != null) {
+                cache.put(normalized, result);
+            }
+        } else {
+            Cache prepared = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_PREPARED_CACHE);
+            if (prepared != null) {
+                prepared.put(normalized, new PreparedLight(result, ticketRegistry.now()));
+            }
+        }
+    }
+
+    /** 대기열로 수집이 끝나자마자 라이트 코멘트를 같은 순서로 미리 만든다(4.1절) */
+    @EventListener
+    public void onStatsCollected(StatsCollectedEvent event) {
+        if (commentQueue == null || !queueProperties.prefetchLight()) {
+            return;
+        }
+        StatsResponse stats = event.stats();
+        // 미리 만들기는 대기표로 수집한 유저만 — 요청 안에서 끝난 사람은 바로 200을 받고 이어서 light를 부를 때 입장 판정(4.1절)
+        if (!event.ticketed() || stats.coldStart() || readyLight(event.username()) != null) {
+            return;
+        }
+        commentQueue.prefetch(CommentQueue.Kind.LIGHT, event.username(), () -> generateLight(event.username(), stats));
+    }
+
+    /**
      * scope=heavy — 12절 4번(2026-09-29 확정): 챕터가 완료되는 대로 SSE로 개별 전달한다(순차/스트리밍).
      * 전체를 모아 한 번에 응답하던 allOf 방식은 폐기 — 사용자가 채워진 부분부터 바로 볼 수 있게 하기 위함.
      * 캐시는 성공(ok)한 챕터만 챕터 단위로 둔다 — 캐시에 있는 챕터는 즉시 보내고, 없는 챕터만 LLM에 돌린다.
      */
     public SseEmitter getHeavyStream(String username) {
+        return getHeavyStream(username, null);
+    }
+
+    /** @param clientIp 대기표 IP 제한용(X-Real-IP) — 대기열이 꺼져 있으면 쓰지 않는다 */
+    public SseEmitter getHeavyStream(String username, String clientIp) {
         String normalized = Usernames.normalize(username);
         // SseEmitter 자체 타임아웃은 heavy 최악 상한(단일 서버 120s)보다 넉넉히 잡는다 — 실제 컷오프는
         // 아래 heavyTimeoutSeconds(엔드포인트 데드라인)가 담당하므로 여기선 연결이 일찍 끊기지만 않으면 됨.
         SseEmitter emitter = new SseEmitter(150_000L);
         sendStart(emitter);
-        llmExecutor.execute(() -> streamHeavy(normalized, emitter));
+        llmExecutor.execute(() -> streamHeavy(normalized, emitter, clientIp));
         return emitter;
     }
 
@@ -159,10 +360,16 @@ public class CommentService {
      * stats를 먼저 받고 나서 heavy 캐시를 읽는다 — stats가 새로 계산되면 comment 캐시가 연쇄 무효화되므로,
      * 순서가 반대면 새 stats와 맞지 않는 옛 챕터 코멘트를 보낼 수 있다.
      */
-    private void streamHeavy(String normalized, SseEmitter emitter) {
+    private void streamHeavy(String normalized, SseEmitter emitter, String clientIp) {
         StatsResponse stats;
         try {
-            stats = statsService.getStats(normalized, false);
+            stats = commentQueue == null
+                    ? statsService.getStats(normalized, false)
+                    : statsService.getStats(normalized, false, clientIp);
+        } catch (QueuedException queued) {
+            // stats 캐시 미스이고 수집 예상 대기가 5초를 넘음 — 200 스트림 안에서 대기표(stage stats)를 주고 닫는다(4.3절, Q22)
+            sendQueued(emitter, queued.ticket());
+            return;
         } catch (RuntimeException e) {
             // stats 실패(없는 유저·TETR.IO 장애·503 BUSY)를 잡지 않으면 스트림이 아무것도 못 받은 채
             // SseEmitter 타임아웃(150초)까지 열려 있다 — 실패 이벤트 하나 보내고 바로 닫는다.
@@ -176,7 +383,79 @@ public class CommentService {
             streamAndComplete(emitter, HEAVY_CHAPTER_IDS.stream().map(cachedOk::get).toList());
             return;
         }
-        computeHeavyStreaming(normalized, emitter, cache, cachedOk, stats);
+        List<HeavyCommentResponse.ChapterResult> prepared = commentQueue == null ? null : readyHeavy(normalized);
+        if (prepared != null) {
+            // 대기표 done 뒤 다시 연 스트림 — 기다리는 동안 만든 8챕터를 바로 보낸다(4.3절, 실패 챕터 포함)
+            streamAndComplete(emitter, prepared);
+            return;
+        }
+        if (commentQueue == null || stats.coldStart()) {
+            computeHeavyStreaming(normalized, emitter, cache, cachedOk, stats);
+            return;
+        }
+        // 대기열 켬 — LLM 예상 대기 30초 이하면 지금처럼 SSE로, 넘으면 event: queued(stage heavy) 1건 후 닫는다(4.3절).
+        // 브라우저 EventSource는 200이 아닌 응답(202 등)을 읽지 못해 HTTP 202를 쓰지 않는다
+        CommentQueue.Admission admission;
+        try {
+            admission = commentQueue.admit(CommentQueue.Kind.HEAVY, normalized, false,
+                    () -> generateHeavyInBackground(normalized, stats), clientIp);
+        } catch (TooManyTicketsException e) {
+            sendStatsFailure(emitter, e);
+            return;
+        }
+        switch (admission) {
+            case CommentQueue.Admission.Inline inline -> {
+                try {
+                    computeHeavyStreaming(normalized, emitter, cache, cachedOk, stats)
+                            .whenComplete((v, e) -> commentQueue.inlineFinished());
+                } catch (RuntimeException e) {
+                    commentQueue.inlineFinished();
+                    throw e;
+                }
+            }
+            case CommentQueue.Admission.Queued queued -> sendQueued(emitter, ticketRegistry.publish(queued.ticket()));
+            case CommentQueue.Admission.Join join -> // heavy는 생성 중에 합류하지 않는다(waitIfRunning=false) — 오지 않음
+                    computeHeavyStreaming(normalized, emitter, cache, cachedOk, stats);
+        }
+    }
+
+    /**
+     * 대기표 작업 — 차례가 오면 스트림 없이 8챕터를 만든다(heavy 60초 마감은 이때부터). 성공 챕터는 지금처럼 헤비 캐시에,
+     * 실패·대체 문장 챕터가 섞였으면 8챕터 전체를 준비 칸에도 넣어 done 뒤 다시 열면 바로 받게 한다(4.3절).
+     */
+    private void generateHeavyInBackground(String normalized, StatsResponse stats) {
+        Cache cache = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_CACHE);
+        HeavyChapterCache cached = cache != null ? cache.get(normalized, HeavyChapterCache.class) : null;
+        Map<String, HeavyCommentResponse.ChapterResult> cachedOk = cached != null ? cached.ok() : Map.of();
+        if (cachedOk.size() == HEAVY_CHAPTER_IDS.size()) {
+            return;
+        }
+        List<HeavyCommentResponse.ChapterResult> results = computeHeavyStreaming(normalized, null, cache, cachedOk, stats).join();
+        if (!matchesCurrentStats(normalized, stats)) {
+            log.info("heavy 대기표 작업 결과 버림 — 그사이 stats가 새로 계산됨");
+            return;
+        }
+        boolean allCacheable = results.stream()
+                .allMatch(r -> HeavyCommentResponse.STATUS_OK.equals(r.status()) && !isLlmFallback(r));
+        Cache prepared = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_PREPARED_CACHE);
+        if (!allCacheable && prepared != null) {
+            prepared.put(normalized, new PreparedHeavy(List.copyOf(results), ticketRegistry.now()));
+        }
+    }
+
+    /**
+     * event: queued / data: 대기표(202 본문과 같은 JSON) 1건 후 스트림 종료. 프론트는 받자마자 close()한다 —
+     * 닫지 않으면 EventSource가 자동 재연결해 대기표를 또 받는다(5.4절).
+     */
+    private void sendQueued(SseEmitter emitter, QueueTicketResponse ticket) {
+        log.info("heavy 스트림 대기표 ticket={} (stage {}, position {}, 예상 {}s)",
+                ticket.ticketId(), ticket.stage(), ticket.position(), ticket.estimatedWaitSeconds());
+        try {
+            emitter.send(SseEmitter.event().name("queued").data(ticket));
+        } catch (IOException ignored) {
+            // 이미 끊긴 연결
+        }
+        emitter.complete();
     }
 
     /**
@@ -238,6 +517,7 @@ public class CommentService {
             case UserNotFoundException notFound -> new ApiErrorResponse("USER_NOT_FOUND", GlobalExceptionHandler.USER_NOT_FOUND_MESSAGE);
             case ServerBusyException busy -> new ApiErrorResponse("SERVER_BUSY",
                     GlobalExceptionHandler.SERVER_BUSY_MESSAGE, busy.retryAfterSeconds());
+            case TooManyTicketsException tooMany -> new ApiErrorResponse("TOO_MANY_TICKETS", TooManyTicketsException.MESSAGE);
             default -> new ApiErrorResponse("TETRIO_API_UNAVAILABLE", GlobalExceptionHandler.TETRIO_UNAVAILABLE_MESSAGE);
         };
     }
@@ -342,15 +622,21 @@ public class CommentService {
      * 8챕터를 각각 dispatch하고, 챕터 하나가 끝날 때마다(thenAccept) 바로 SSE로 전송한다.
      * allOf는 "다 끝났는지" 판정에만 쓰고, 전달 자체는 더 이상 allOf 완료를 기다리지 않는다.
      */
-    private void computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache,
-                                       Map<String, HeavyCommentResponse.ChapterResult> cachedOk,
-                                       StatsResponse stats) {
+    /**
+     * @param emitter null이면 스트림 없이(대기표 작업) 만들어 캐시에만 넣는다
+     * @return 8챕터 처리(캐시 저장 포함)가 끝나면 8챕터 최종 결과(timeout 채움 포함)로 완료
+     */
+    private CompletableFuture<List<HeavyCommentResponse.ChapterResult>> computeHeavyStreaming(String normalized, SseEmitter emitter, Cache cache,
+                                                          Map<String, HeavyCommentResponse.ChapterResult> cachedOk,
+                                                          StatsResponse stats) {
         if (stats.coldStart()) {
             List<HeavyCommentResponse.ChapterResult> results = HEAVY_CHAPTER_IDS.stream()
                     .map(id -> new HeavyCommentResponse.ChapterResult(id, HeavyCommentResponse.STATUS_FAILED, null, 0))
                     .toList();
-            streamAndComplete(emitter, results);
-            return;
+            if (emitter != null) {
+                streamAndComplete(emitter, results);
+            }
+            return CompletableFuture.completedFuture(results);
         }
 
         // 전체(8챕터) 처리 시간 상한 — 타임아웃 기준 문서(23번) 9절: 서버 대수에 따라 다르게 둔다.
@@ -363,12 +649,14 @@ public class CommentService {
 
         Map<String, Object> chapterData = buildChapterData(stats);
         Map<String, HeavyCommentResponse.ChapterResult> collected = new ConcurrentHashMap<>();
-        AtomicBoolean clientGone = new AtomicBoolean(false);
+        AtomicBoolean clientGone = new AtomicBoolean(emitter == null);
         List<CompletableFuture<Void>> allDone = new ArrayList<>();
         // 챕터 선점+전송과 마감(timeout 채우기+done)을 한 락으로 묶는다 — 선점한 챕터가 done 뒤에 나가는 일이 없게
         Object streamLock = new Object();
-        emitter.onError(e -> clientGone.set(true));
-        emitter.onTimeout(() -> clientGone.set(true));
+        if (emitter != null) {
+            emitter.onError(e -> clientGone.set(true));
+            emitter.onTimeout(() -> clientGone.set(true));
+        }
 
         // 캐시에 남아 있던 성공 챕터는 LLM을 다시 부르지 않고 바로 보낸다
         synchronized (streamLock) {
@@ -388,7 +676,7 @@ public class CommentService {
         }
 
         // 챕터가 늦게 올 때 프록시·브라우저가 유휴 스트림을 끊지 않도록 주석 줄(": ping")을 주기적으로 보낸다
-        ScheduledFuture<?> heartbeat = heartbeatScheduler.scheduleAtFixedRate(() -> {
+        ScheduledFuture<?> heartbeat = emitter == null ? null : heartbeatScheduler.scheduleAtFixedRate(() -> {
             synchronized (streamLock) {
                 if (clientGone.get()) {
                     return;
@@ -407,7 +695,7 @@ public class CommentService {
             }
             Object data = chapterData.get(chapterId);
             CompletableFuture<Void> f = CompletableFuture
-                    .supplyAsync(() -> llmClient.callHeavyChapter(chapterId, data, deadline), llmExecutor)
+                    .supplyAsync(() -> llmClient.callHeavyChapter(chapterId, data, deadline), chapterExecutor)
                     .thenAccept(result -> {
                         synchronized (streamLock) {
                             // 마감 후 timeout으로 이미 채워진 챕터면 버린다 — 챕터당 정확히 1건만 전송
@@ -427,19 +715,21 @@ public class CommentService {
         // 마감까지 블로킹으로 기다리지 않는다 — 기다리는 동안 llmExecutor 스레드를 붙잡으면 동시 heavy 요청이
         // 늘 때 챕터 호출이 돌 스레드가 모자라진다. 전체 상한이 되면 completeOnTimeout이 마감 처리를 깨운다
         // (엔드포인트 타임아웃이 개별 챕터 재시도보다 우선, 4.2-1절).
-        CompletableFuture.allOf(allDone.toArray(CompletableFuture<?>[]::new))
+        return CompletableFuture.allOf(allDone.toArray(CompletableFuture<?>[]::new))
                 .completeOnTimeout(null, heavyTimeoutSeconds, TimeUnit.SECONDS)
-                .whenComplete((ignored, error) -> {
-                    heartbeat.cancel(false);
+                .handle((ignored, error) -> {
+                    if (heartbeat != null) {
+                        heartbeat.cancel(false);
+                    }
                     long elapsedMs = System.currentTimeMillis() - startedAt;
                     long fallbacks = collected.values().stream().filter(CommentService::isLlmFallback).count();
                     log.info("heavy 코멘트 처리 종료: {}ms (한도 {}s, 서버 {}대, 캐시 재사용 {}챕터, 대체 문장 {}챕터) ({})",
                             elapsedMs, heavyTimeoutSeconds, serverCount, cachedOk.size(), fallbacks, normalized);
-                    finishHeavyStream(normalized, emitter, cache, collected, clientGone, streamLock, elapsedMs);
+                    return finishHeavyStream(normalized, emitter, cache, collected, clientGone, streamLock, elapsedMs);
                 });
     }
 
-    private void finishHeavyStream(String normalized, SseEmitter emitter, Cache cache,
+    private List<HeavyCommentResponse.ChapterResult> finishHeavyStream(String normalized, SseEmitter emitter, Cache cache,
                                    Map<String, HeavyCommentResponse.ChapterResult> collected,
                                    AtomicBoolean clientGone, Object streamLock, long elapsedMs) {
         // 마감까지 못 끝난 챕터는 timeout으로 채워서 전송 — putIfAbsent라 늦게 도착한 실제 결과와 겹쳐도
@@ -470,7 +760,10 @@ public class CommentService {
         if (cache != null && !ok.isEmpty()) {
             cache.put(normalized, new HeavyChapterCache(Map.copyOf(ok)));
         }
-        emitter.complete();
+        if (emitter != null) {
+            emitter.complete();
+        }
+        return finalResults;
     }
 
     /**

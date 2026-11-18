@@ -20,7 +20,12 @@ import com.finesse.backend.calc.service.StatCalculatorFacade;
 import com.finesse.backend.client.TetrioClient;
 import com.finesse.backend.config.CacheConfig;
 import com.finesse.backend.config.EndpointProperties;
+import com.finesse.backend.config.QueueProperties;
 import com.finesse.backend.config.StatsLoadProperties;
+import com.finesse.backend.queue.SearchQueue;
+import com.finesse.backend.queue.TicketRegistry;
+import jakarta.annotation.PreDestroy;
+import org.springframework.context.ApplicationEventPublisher;
 import com.finesse.backend.dto.StatsResponse;
 import com.finesse.backend.exception.ServerBusyException;
 import com.finesse.backend.exception.TetrioApiException;
@@ -77,6 +82,9 @@ public class StatsService {
     private final Semaphore collectionSlots;
     private final AtomicInteger waitingForSlot = new AtomicInteger();
     private final double trTrendRatio;
+    private final QueueProperties queueProperties;
+    private final ApplicationEventPublisher events;
+    private final SearchQueue searchQueue; // 대기열 꺼짐이면 null
 
     public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
                          EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
@@ -85,12 +93,24 @@ public class StatsService {
                 DEFAULT_TR_TREND_RATIO);
     }
 
-    /** trTrendRatio는 calc와 같은 설정 키를 읽는다 — 범위 검사(0.1~0.5)는 calc AnalyticsProperties가 기동 때 한다. */
+    public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
+                         EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
+                         ExecutorService statsExecutor, double trTrendRatio) {
+        this(statCalculatorFacade, tetrioClient, cacheManager, endpointProperties, statsLoadProperties, statsExecutor,
+                trTrendRatio, QueueProperties.disabled(), null, null);
+    }
+
+    /**
+     * trTrendRatio는 calc와 같은 설정 키를 읽는다 — 범위 검사(0.1~0.5)는 calc AnalyticsProperties가 기동 때 한다.
+     * 대기열(app.queue.enabled)을 켜면 캐시 미스를 {@link SearchQueue}에 맡긴다 — 꺼져 있으면 지금 동작 그대로.
+     */
     @Autowired
     public StatsService(StatCalculatorFacade statCalculatorFacade, TetrioClient tetrioClient, CacheManager cacheManager,
                          EndpointProperties endpointProperties, StatsLoadProperties statsLoadProperties,
                          @Qualifier("statsExecutor") ExecutorService statsExecutor,
-                         @Value("${finesse.analytics.tr-trend-ratio:0.3}") double trTrendRatio) {
+                         @Value("${finesse.analytics.tr-trend-ratio:0.3}") double trTrendRatio,
+                         QueueProperties queueProperties, TicketRegistry ticketRegistry,
+                         ApplicationEventPublisher events) {
         this.trTrendRatio = trTrendRatio;
         this.statCalculatorFacade = statCalculatorFacade;
         this.tetrioClient = tetrioClient;
@@ -100,11 +120,39 @@ public class StatsService {
         this.statsExecutor = statsExecutor;
         // 공정(fair) — 기다리는 요청은 도착 순서대로 자리를 얻는다
         this.collectionSlots = new Semaphore(statsLoadProperties.maxConcurrentCollections(), true);
+        this.queueProperties = queueProperties;
+        this.events = events;
+        this.searchQueue = queueProperties.enabled() && ticketRegistry != null
+                ? new SearchQueue(queueProperties, ticketRegistry, collectionSlots, statsExecutor,
+                        endpointProperties.statsSeconds(), statsLoadProperties.maxQueueWaitSeconds(),
+                        this::computeInternal, this::queuedCollectionSucceeded, ticketRegistry::now)
+                : null;
+        if (searchQueue != null) {
+            log.info("전적 검색 대기열 켜짐 — 요청 안 대기 {}s, 줄 상한 {}s, IP당 대기표 {}개(0 = 제한 없음)",
+                    queueProperties.inlineWaitSeconds(), queueProperties.maxWaitSeconds(), queueProperties.maxTicketsPerIp());
+        }
+    }
+
+    @PreDestroy
+    void stopQueue() {
+        if (searchQueue != null) {
+            searchQueue.stop();
+        }
     }
 
     public StatsResponse getStats(String username, boolean refresh) {
+        return getStats(username, refresh, null);
+    }
+
+    /**
+     * @param clientIp 대기표 IP 제한용(X-Real-IP, {@link com.finesse.backend.queue.ClientIp}) — 대기열이 꺼져 있으면 쓰지 않는다
+     */
+    public StatsResponse getStats(String username, boolean refresh, String clientIp) {
         String normalized = Usernames.normalize(username); // 1번 — 소문자 정규화 + 형식 검사(틀리면 400)
         Cache cache = cacheManager.getCache(CacheConfig.STATS_CACHE);
+        if (searchQueue != null) {
+            return getStatsQueued(normalized, refresh, clientIp, cache);
+        }
 
         if (refresh && cache != null) {
             cache.evict(normalized);
@@ -133,6 +181,41 @@ public class StatsService {
         }
     }
 
+    /**
+     * 대기열 켬 — 「전적 검색 대기열 문서」 3.1절. 캐시 히트는 줄을 서지 않는다.
+     * refresh=true(전적 갱신)도 캐시 미스라 줄을 서지만, 마지막 갱신 후 refresh-min-interval-seconds(1분) 안이면
+     * 줄을 세우지 않고 캐시를 돌려준다(5.5절).
+     */
+    private StatsResponse getStatsQueued(String normalized, boolean refresh, String clientIp, Cache cache) {
+        if (cache != null) {
+            StatsResponse current = cache.get(normalized, StatsResponse.class);
+            if (refresh) {
+                int minInterval = queueProperties.refreshMinIntervalSeconds();
+                if (current != null && minInterval > 0 && current.updatedAt() != null
+                        && current.updatedAt().isAfter(Instant.now().minusSeconds(minInterval))) {
+                    log.info("갱신 {}초 제한 — 줄을 세우지 않고 캐시 반환", minInterval);
+                    return current;
+                }
+                cache.evict(normalized);
+            } else if (current != null) {
+                return current;
+            }
+        }
+        return searchQueue.submit(normalized, clientIp);
+    }
+
+    /** 대기열 수집 성공 — 캐시에 넣고(같은 유저 다음 조회는 캐시 히트), comment 캐시를 비우고, 라이트 미리 만들기 신호 */
+    private void queuedCollectionSucceeded(String normalized, StatsResponse result, boolean ticketed) {
+        Cache cache = cacheManager.getCache(CacheConfig.STATS_CACHE);
+        if (cache != null) {
+            cache.put(normalized, result);
+        }
+        evictCommentCaches(normalized);
+        if (events != null) {
+            events.publishEvent(new StatsCollectedEvent(normalized, result, ticketed));
+        }
+    }
+
     private void evictCommentCaches(String normalized) {
         Cache light = cacheManager.getCache(CacheConfig.COMMENT_LIGHT_CACHE);
         if (light != null) {
@@ -141,6 +224,12 @@ public class StatsService {
         Cache heavy = cacheManager.getCache(CacheConfig.COMMENT_HEAVY_CACHE);
         if (heavy != null) {
             heavy.evict(normalized);
+        }
+        for (String name : List.of(CacheConfig.COMMENT_LIGHT_PREPARED_CACHE, CacheConfig.COMMENT_HEAVY_PREPARED_CACHE)) {
+            Cache prepared = cacheManager.getCache(name);
+            if (prepared != null) {
+                prepared.evict(normalized);
+            }
         }
     }
 
