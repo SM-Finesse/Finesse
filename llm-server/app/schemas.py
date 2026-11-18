@@ -162,3 +162,17 @@ class SentenceRequest(CommentItem):
 class SummaryRequest(_Strict):
     """3단계 기본 코멘트 요청 — 선정된 지표(최대 3개). 개별 코멘트 결과는 받지 않는다(34번 3절, 동시 호출)."""
     items: list[CommentItem] = Field(min_length=1, max_length=3)
+
+
+# ---------------- 범용 생성 (MSA CommentEngine, 11/17 박덕현 지침서) ----------------
+class GenerateMessage(_Strict):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+
+class GenerateRequest(_Strict):
+    """POST /v1/generate — 엔진이 만든 프롬프트(messages)를 그대로 생성기에 넣는다. 서버는 프롬프트를 고치지 않는다."""
+    messages: list[GenerateMessage] = Field(min_length=1)
+    max_tokens: int = Field(ge=1, le=512)
+    temperature: float = Field(default=0.4, ge=0, le=2)   # 기본값은 기존 라이트와 같음 (v1.2 7.2절)
+    top_p: float = Field(default=0.9, gt=0, le=1)

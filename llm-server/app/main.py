@@ -35,6 +35,11 @@ heavy 시간 예산 (10/20, 백엔드 회신: 챕터 호출 10초는 백엔드�
   LLM_HEAVY_GEN_RESERVE_SEC (기본 2.0): 생성을 새로 시작하려면 남아 있어야 하는 시간. 이보다 적으면 생성(재생성
       포함)을 시작하지 않고, 다른 요청 때문에 그 전까지 차례가 오지 않아도 바로 대체 문장을 보낸다.
   응답의 fallback: 서버 대체 문장이면 true (백엔드 요청, 캐시 제외용).
+
+범용 생성 (11/17, MSA CommentEngine 설계서 5.3절 — 박덕현 지침서)
+  POST /v1/generate  {messages, max_tokens(1~512), temperature=0.4, top_p=0.9} → {text, finish_reason, elapsed_ms}
+  프롬프트는 엔진이 만든다. 서버는 messages 를 그대로 generator.generate_text 에 넣고 검사·재시도·대체 문장을 하지 않는다.
+  잠금은 기존과 같음(서버당 1건, 차례가 올 때까지 기다림). 413 입력 길이 초과 / 503 생성기 사용 중 / 502 그 밖의 실패.
 """
 import logging
 import os
@@ -62,6 +67,7 @@ from app.light_v3 import build_light_v3, process_light_v3
 from app.prompt import build_heavy_messages, build_light_messages
 from app.schemas import (
     CANDIDATE_KEYS,
+    GenerateRequest,
     HeavyRequest,
     JudgeRequest,
     LightRequest,
@@ -386,3 +392,22 @@ def _generate(generate, req, messages, **kwargs):
         # 같은 요청을 다시 보내도 결과가 같으므로 재요청 대상(502)과 구분한다 (10/7 백엔드 합의)
         logger.warning("입력 길이 초과 generator=%s: %s", generator.name, e)
         raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
+
+
+@app.post("/v1/generate")
+def generate(req: GenerateRequest):
+    """범용 생성 입구 (MSA). 기존 입구·프롬프트·검사는 쓰지 않고 generate_text 만 연다."""
+    t0 = time.monotonic()
+    decoding = {"temperature": req.temperature, "top_p": req.top_p, "max_tokens": req.max_tokens}
+    try:
+        r = generator.generate_text("generic", [m.model_dump() for m in req.messages], decoding)
+    except ContextOverflowError as e:
+        raise HTTPException(status_code=413, detail="LLM 입력 길이 초과") from e
+    except GeneratorBusyError as e:
+        raise HTTPException(status_code=503, detail="생성기 사용 중") from e
+    except Exception as e:
+        logger.exception("generic 생성 실패")
+        raise HTTPException(status_code=502, detail="LLM 생성 실패") from e
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    logger.info("generic 응답 %dms finish=%s", elapsed_ms, r.finish_reason)
+    return {"text": r.text, "finish_reason": r.finish_reason, "elapsed_ms": elapsed_ms}

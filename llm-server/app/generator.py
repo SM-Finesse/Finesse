@@ -81,6 +81,9 @@ class MockGenerator:
     def generate_text(self, label: str, messages: list[dict[str, str]], decoding: dict,
                       lock_timeout: float | None = None, stop_at: float | None = None) -> GenerationResult:
         """light-v4 (A/B/C)·light-6call 공통 호출. label 로 어떤 단계인지 구분해 모양만 흉내 낸다."""
+        if label == "generic":
+            # 범용 생성(/v1/generate) Mock — GPU 없이 CI 에서 엔진을 시험할 때 쓰는 고정 문장
+            return GenerationResult(text="모의 응답입니다.", finish_reason="stop")
         user = messages[-1]["content"]
         if label.startswith("light5:"):
             # light-v5 Mock: 프롬프트의 예시 문장을 그대로 낸다 (흐름·연동 시험용, 실제 모델 아님)
