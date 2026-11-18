@@ -6,7 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 라이트 개별·기본 코멘트(LLM light-v5.2, 10/21) 호출 설정 — 판정·선정은 calc, LLM은 고른 지표를 설명만 한다.
  * 값을 적지 않으면 아래 기본값으로 동작한다.
  *
- * @param enabled             true면 calc가 고른 지표로 개별 3회 + 기본 1회를 부른다. false면 예전 한 번 호출(/v1/comment/light)
+ * @param enabled             true면 calc가 고른 지표로 개별 3회 + 기본 1회를 부른다. false면 LLM을 부르지 않고 하이라이트 없이 응답
+ *                            (예전 한 번 호출 /v1/comment/light는 11/9부터 쓰지 않음 — 파인튜닝 모델이 그 형식을 학습하지 않음)
  * @param sentencePath        개별 코멘트 경로
  * @param summaryPath         기본 코멘트 경로
  * @param callTimeoutSeconds  호출 1회 제한 — LLM 서버가 받은 시각부터 9초 안에 응답(강제 마감)하므로 10초

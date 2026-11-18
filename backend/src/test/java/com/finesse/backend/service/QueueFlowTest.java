@@ -128,6 +128,10 @@ class QueueFlowTest {
     // ---- light ----
 
     private static StatsResponse statsWithPicks() {
+        return stats(true);
+    }
+
+    private static StatsResponse stats(boolean withPicks) {
         StatsResponse.DeltaMetrics delta = new StatsResponse.DeltaMetrics(
                 12.5, null, new StatsResponse.PlaystyleRelative(0.1, -0.22, 0.03, -0.17),
                 new StatsResponse.Attack(0.092, -1.34, null, null), new StatsResponse.Defense(-0.07, -14.53, null, null),
@@ -140,7 +144,7 @@ class QueueFlowTest {
                 new StatsResponse.FixedMetrics(0.5, List.of(), List.of()), delta,
                 new StatsResponse.RoundCurves(List.of(), List.of(), List.of()),
                 new StatsResponse.Rivals(List.of(), 1, 20, 0), Map.of(),
-                new StatsResponse.HighlightJudgement("ref", "t5", List.of(), picks));
+                new StatsResponse.HighlightJudgement("ref", "t5", List.of(), withPicks ? picks : List.of()));
     }
 
     private CommentService commentService(StatsService statsService, LlmClient llm) {
@@ -267,6 +271,30 @@ class QueueFlowTest {
         try {
             assertThat(service.getLight("abc", "ip").highlights()).hasSize(3);
             assertThat(registry.size()).isZero();
+        } finally {
+            service.stopQueue();
+        }
+    }
+
+    @Test
+    void calc가_고른_지표가_없으면_LLM이_밀려도_줄을_서지_않고_LLM_없이_하이라이트_없이_응답한다() throws Exception {
+        StatsService statsService = mock(StatsService.class);
+        when(statsService.getStats(anyString(), eq(false), any())).thenReturn(stats(false));
+        LlmClient llm = mock(LlmClient.class);
+        when(llm.assignableServers()).thenReturn(2);
+        when(llm.pendingWorkSeconds()).thenReturn(400.0); // 아주 밀림 — 그래도 LLM을 부르지 않는 응답이라 대기표 없음
+        when(llm.jobWorkSeconds(any())).thenReturn(6.0);
+        CommentService service = commentService(statsService, llm);
+        try {
+            LightCommentResponse r = service.getLight("abc", "ip");
+            assertThat(r.highlights()).isEmpty();
+            assertThat(r.lightSummary()).isEqualTo(CommentService.NO_HIGHLIGHT_SUMMARY);
+            // 대기표로 수집한 유저여도 미리 만들기(LLM 호출)를 하지 않는다
+            service.onStatsCollected(new StatsCollectedEvent("abc", stats(false), true));
+            Thread.sleep(700); // 대기열 판정 주기(0.5초)보다 길게
+            assertThat(registry.size()).isZero();
+            verify(llm, times(0)).callLightComments(any(), anyLong());
+            verify(llm, times(0)).callLight(any(), anyLong()); // 예전 한 번 호출은 쓰지 않는다(11/9 LLM 요청)
         } finally {
             service.stopQueue();
         }

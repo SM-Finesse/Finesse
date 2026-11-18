@@ -10,7 +10,6 @@ import com.finesse.backend.dto.ApiErrorResponse;
 import com.finesse.backend.dto.HeavyCommentResponse;
 import com.finesse.backend.dto.LightCommentResponse;
 import com.finesse.backend.dto.LlmLightComment;
-import com.finesse.backend.dto.LlmLightRequest;
 import com.finesse.backend.dto.QueueTicketResponse;
 import com.finesse.backend.dto.StatsResponse;
 import com.finesse.backend.exception.GlobalExceptionHandler;
@@ -190,8 +189,8 @@ public class CommentService {
         if (ready != null) {
             return ready;
         }
-        if (stats.coldStart()) {
-            return lightDirect(normalized, stats); // 콜드스타트 안내는 LLM을 부르지 않는다 — 줄 설 이유가 없다
+        if (stats.coldStart() || !lightCommentProperties.enabled() || lightCommentItems(stats).isEmpty()) {
+            return lightDirect(normalized, stats); // LLM을 부르지 않는 응답(콜드스타트·고른 지표 없음) — 줄 설 이유가 없다
         }
         CommentQueue.Admission admission = commentQueue.admit(CommentQueue.Kind.LIGHT, normalized, true,
                 () -> generateLight(normalized, stats), clientIp);
@@ -313,7 +312,8 @@ public class CommentService {
         }
         StatsResponse stats = event.stats();
         // 미리 만들기는 대기표로 수집한 유저만 — 요청 안에서 끝난 사람은 바로 200을 받고 이어서 light를 부를 때 입장 판정(4.1절)
-        if (!event.ticketed() || stats.coldStart() || readyLight(event.username()) != null) {
+        if (!event.ticketed() || stats.coldStart() || !lightCommentProperties.enabled() || lightCommentItems(stats).isEmpty()
+                || readyLight(event.username()) != null) {
             return;
         }
         commentQueue.prefetch(CommentQueue.Kind.LIGHT, event.username(), () -> generateLight(event.username(), stats));
@@ -542,6 +542,8 @@ public class CommentService {
     record LightResult(LightCommentResponse response, boolean fallback) {
     }
 
+    static final String NO_HIGHLIGHT_SUMMARY = "이번 전적에서는 AI 코멘트로 짚을 지표를 고르지 못했습니다.";
+
     private LightResult computeLight(StatsResponse stats) {
         if (stats.coldStart()) {
             // FR-02/기능 명세서 3.3절 — 콜드스타트는 LLM 미호출, 즉시 안내 (재요청 대상 아님)
@@ -553,9 +555,11 @@ public class CommentService {
         if (!items.isEmpty()) {
             return computeLightComments(items, deadline);
         }
-        // 예전 흐름(LLM이 11개 중에서 직접 고름) — 설정으로 껐거나 calc가 고른 지표가 없을 때만. 한 요청 안에서 섞지 않는다
-        LlmLightRequest request = LlmLightRequest.from(stats);
-        return new LightResult(llmClient.callLight(request, deadline), false);
+        // 설정으로 껐거나 calc가 고른 지표가 없으면 LLM을 부르지 않고 하이라이트 없이 응답한다(11/9 LLM 요청).
+        // 예전 한 번 호출(/v1/comment/light)은 쓰지 않는다 — 파인튜닝 모델(llm-ft-v0.1)이 그 형식을 학습하지 않아 엉뚱한 문장이 나왔다.
+        // 프론트는 하이라이트 0개면 "하이라이트를 생성하지 못했습니다" 안내와 함께 총평 칸에 이 문장만 보여 준다.
+        // 하이라이트가 3개 미만이라 getLight가 캐시에 남기지 않지만, LLM을 부르지 않으니 다시 만들어도 비용이 없다
+        return new LightResult(new LightCommentResponse(NO_HIGHLIGHT_SUMMARY, List.of()), false);
     }
 
     /** light-v5.2 — calc가 고른 지표마다 개별 코멘트, 묶어서 기본 코멘트 (LLM 연동 명세 light-v5.2, 10/21) */
