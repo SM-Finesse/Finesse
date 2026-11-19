@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.concurrent.ExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -46,7 +47,7 @@ class ApiErrorMappingTest {
     @Test
     void EventSource처럼_Accept가_이벤트_스트림이어도_잘못된_유저명은_JSON_400() throws Exception {
         CommentService service = mock(CommentService.class);
-        when(service.getHeavyStream(anyString())).thenThrow(new InvalidUsernameException());
+        when(service.getHeavyStream(anyString(), any())).thenThrow(new InvalidUsernameException());
 
         mvc(service).perform(get("/api/v1/comment/a b").param("scope", "heavy")
                         .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM))
@@ -76,7 +77,7 @@ class ApiErrorMappingTest {
     @Test
     void 없는_유저_404_메시지에도_유저명을_넣지_않는다() throws Exception {
         CommentService service = mock(CommentService.class);
-        when(service.getLight(anyString())).thenThrow(new UserNotFoundException("ghostuser"));
+        when(service.getLight(anyString(), any())).thenThrow(new UserNotFoundException("ghostuser"));
 
         mvc(service).perform(get("/api/v1/comment/ghostuser").param("scope", "light"))
                 .andExpect(status().isNotFound())
@@ -130,7 +131,7 @@ class ApiErrorMappingTest {
     @Test
     void 예상하지_못한_오류는_내부_정보_없이_500() throws Exception {
         CommentService service = mock(CommentService.class);
-        when(service.getLight(anyString())).thenThrow(new IllegalStateException("내부 상태 노출되면 안 됨"));
+        when(service.getLight(anyString(), any())).thenThrow(new IllegalStateException("내부 상태 노출되면 안 됨"));
 
         mvc(service).perform(get("/api/v1/comment/test_user").param("scope", "light"))
                 .andExpect(status().isInternalServerError())

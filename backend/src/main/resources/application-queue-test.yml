@@ -1,0 +1,9 @@
+# 대기열 시험 전용 프로파일 — 「전적 검색 대기열 문서」 10절 테스트 환경.
+# 실행: --spring.profiles.active=queue-test  (운영 실행 스크립트에서는 쓰지 않는다)
+# Q1·Q5는 새 유저 20~37명이 필요하고 실제 TETR.IO를 많이 부르므로, 처리 간격을 고정해 적은 인원으로 줄을 길게 만든다.
+# 순서 확인 로그(작업 넣기·시작·끝마다 job#와 ticket_id, 유저명 없음)는 SearchQueue·CommentQueue가 늘 남긴다.
+app:
+  queue:
+    enabled: true
+    # 0보다 크면 수집 1건을 최소 이 시간으로 맞추고 예상 대기도 이 값으로 계산한다(처리 간격 고정).
+    test-fixed-interval-seconds: ${FINESSE_QUEUE_TEST_FIXED_INTERVAL_SECONDS:30}
